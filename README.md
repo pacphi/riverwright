@@ -1,2 +1,22 @@
-# riverwright
-Approval-gated agent toolkit that reproduces bugs in your upstream dependencies, fixes them, proposes the pull request, then watches until the fix ships and helps you drop the workaround. Portable across Claude Code, Codex, Gemini CLI, Cursor, Grok Build and Hermes.
+# Riverwright
+
+Approval-gated agent toolkit for the open-source projects you depend on. It reproduces a bug in an upstream dependency, fixes it, proposes the pull request, then watches the thread until the fix ships and helps you drop your workaround.
+
+> **Status: design and early implementation. Not ready to use yet.** Names and interfaces will change.
+
+## What it is meant to do
+
+- Reproduce an upstream bug in a sealed workspace and prove it with a failing test.
+- Fix it with the smallest change and check it against the project's own tests and contribution rules.
+- Send the pull request only after you approve the exact commit.
+- Follow the thread until the fix is released, then help you adopt it and keep the conversation friendly.
+
+It is designed to work with Claude Code, Codex CLI, Gemini CLI, Cursor, Grok Build and Hermes Agent.
+
+## Command
+
+`riverwright`, with the short alias `rw`.
+
+## License
+
+[MIT](LICENSE)
