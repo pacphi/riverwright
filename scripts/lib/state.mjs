@@ -157,6 +157,17 @@ const subdirs = (p) => {
   }
 };
 
+// Only a missing file reads as null here; any other read error (ENOTDIR included) throws, so
+// hasActiveRun below fails closed.
+function readStateTextStrict(p) {
+  try {
+    return fs.readFileSync(p, 'utf8');
+  } catch (e) {
+    if (e.code === 'ENOENT') return null;
+    throw e;
+  }
+}
+
 // True when any run under the workspace may still act. A record that cannot be read or parsed counts
 // as active, so a broken file makes the hook stricter, never looser.
 export function hasActiveRun(home) {
@@ -166,7 +177,7 @@ export function hasActiveRun(home) {
       for (const run of subdirs(runs)) {
         let text;
         try {
-          text = readTextIfExists(stateFile(path.join(runs, run)));
+          text = readStateTextStrict(stateFile(path.join(runs, run)));
         } catch {
           return true;
         }

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { inspectRepo, planIntegration, applyPlan, changedFiles, REGISTRY } from '../scripts/lib/project.mjs';
+import { inspectRepo, planIntegration, applyPlan, changedFiles, writeHazard, REGISTRY } from '../scripts/lib/project.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
-import { tmpDir } from './helpers.mjs';
+import { callMain, tmpDir } from './helpers.mjs';
 
 const hash = (p) => crypto.createHash('sha256').update(fs.readFileSync(p)).digest('hex');
 function repo(files = {}) {
@@ -196,4 +196,28 @@ test('a symlink between files inside the repository is still followed for instru
   await applyPlan(p, { home: h, now: 't' });
   assert.match(fs.readFileSync(path.join(root, 'docs', 'AGENTS.md'), 'utf8'), /BEGIN riverwright/);
   assert.equal(fs.lstatSync(path.join(root, 'AGENTS.md')).isSymbolicLink(), true);
+});
+
+// A .cursor or .claude that is a regular file, not a folder, must not crash setup (ENOTDIR).
+test('a .cursor or .claude that is a file gets a snippet with a reason, not a crash', async () => {
+  const root = repo({ 'AGENTS.md': '# A\n', '.cursor': 'not a folder\n', '.claude': 'not a folder either\n' });
+  const h = home();
+  const p = plan(root, h, { team: true });
+  const step = (f) => p.steps.find((s) => s.file === f);
+  for (const f of ['.cursor/rules/riverwright.mdc', '.claude/settings.json']) {
+    assert.equal(step(f).action, 'print-snippet', f);
+    assert.match(step(f).reason, /is a file, not a folder/, f);
+  }
+  assert.equal(writeHazard(root, '.cursor/rules/riverwright.mdc'), 'a folder on its path is a file, not a folder');
+  const { results } = await applyPlan(p, { home: h, now: 't' });
+  assert.equal(results.find((r) => r.file === '.cursor/rules/riverwright.mdc').result, 'snippet');
+  assert.equal(fs.readFileSync(path.join(root, '.cursor'), 'utf8'), 'not a folder\n');
+  assert.equal(fs.readFileSync(path.join(root, '.claude'), 'utf8'), 'not a folder either\n');
+});
+
+test('riverwright setup --project handles a .cursor file without crashing', async () => {
+  const root = repo({ 'AGENTS.md': '# A\n', '.cursor': 'x\n' });
+  const r = await callMain(['setup', '--project', '--yes', '--team', '--repo', root], { env: { RIVERWRIGHT_HOME: home() } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /\.cursor\/rules\/riverwright\.mdc: print-snippet \(a folder on its path is a file, not a folder\)/);
 });

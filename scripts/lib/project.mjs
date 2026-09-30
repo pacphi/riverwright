@@ -39,9 +39,11 @@ export function isSafeTarget(root, file) {
   return isInside(realish(path.join(root, file)), root);
 }
 
-// Why writing (or deleting) root/file would reach outside the repository, or null when it is safe.
-// Every existing component below root is checked with lstat, because realpath-based checks cannot see
-// through a broken link: a link must resolve, and must resolve inside the repository.
+// Why writing (or deleting) root/file would reach outside the repository, or cannot work, or null when
+// it is safe. Every existing component below root is checked with lstat, because realpath-based checks
+// cannot see through a broken link: a link must resolve, and must resolve inside the repository. A
+// regular file where a folder should be (.cursor or .claude as a file) is reported, not thrown.
+const FILE_ON_PATH = 'a folder on its path is a file, not a folder';
 export function writeHazard(root, file) {
   const parts = String(file).split(/[\\/]/).filter(Boolean);
   let cur = root;
@@ -52,10 +54,12 @@ export function writeHazard(root, file) {
       st = fs.lstatSync(cur);
     } catch (e) {
       if (e.code === 'ENOENT') return null;
+      if (e.code === 'ENOTDIR') return FILE_ON_PATH;
       throw e;
     }
-    if (!st.isSymbolicLink()) continue;
     const leaf = k === parts.length - 1;
+    if (!leaf && !st.isSymbolicLink() && !st.isDirectory()) return FILE_ON_PATH;
+    if (!st.isSymbolicLink()) continue;
     let target;
     try {
       target = fs.realpathSync(cur);

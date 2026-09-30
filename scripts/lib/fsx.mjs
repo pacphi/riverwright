@@ -7,11 +7,12 @@ export const detectEol = (s) => (String(s).includes('\r\n') ? '\r\n' : '\n');
 export const toLf = (s) => String(s).replace(/\r\n/g, '\n');
 export const fromLf = (s, eol) => (eol === '\r\n' ? String(s).replace(/\n/g, '\r\n') : String(s));
 
+// Missing, or unreachable because a folder on the path is a regular file (ENOTDIR), reads as null.
 export function readTextIfExists(p) {
   try {
     return fs.readFileSync(p, 'utf8');
   } catch (e) {
-    if (e.code === 'ENOENT') return null;
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return null;
     throw e;
   }
 }

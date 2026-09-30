@@ -16,6 +16,12 @@ test('readTextIfExists returns null for a missing file', () => {
   assert.equal(readTextIfExists(path.join(tmpDir(), 'nope.txt')), null);
 });
 
+test('readTextIfExists returns null when a folder on the path is a regular file (ENOTDIR)', () => {
+  const dir = tmpDir();
+  fs.writeFileSync(path.join(dir, '.cursor'), 'x');
+  assert.equal(readTextIfExists(path.join(dir, '.cursor', 'rules', 'riverwright.mdc')), null);
+});
+
 test('writeFileAtomic writes and leaves no temp files', () => {
   const dir = tmpDir();
   const f = path.join(dir, 'sub', 'a.txt');
