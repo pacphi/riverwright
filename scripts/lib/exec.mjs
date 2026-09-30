@@ -89,7 +89,7 @@ export function buildHookCommand(scriptPath, host) {
 
 export const HOOK_SHELLS = ['sh', 'cmd', 'powershell'];
 
-// The hook command a host runs. It goes through bin/upf or bin/upf.cmd, which exit 2 (deny) when node
+// The hook command a host runs. It goes through bin/riverwright or bin/riverwright.cmd, which exit 2 (deny) when node
 // is missing. `shell` is the shell the host runs hook commands with: sh (POSIX, Git Bash), cmd, or
 // PowerShell (whose -Command turns native exit codes other than 0/1 into 1 unless passed through).
 export function launcherHookCommand(root, host, { platform = process.platform, shell } = {}) {
@@ -100,10 +100,10 @@ export function launcherHookCommand(root, host, { platform = process.platform, s
   if (!HOOK_SHELLS.includes(sh)) throw new UpfError('UNKNOWN_SHELL', `unknown shell "${sh}" (use ${HOOK_SHELLS.join(', ')})`);
   if (sh === 'sh') {
     // /bin/sh runs the launcher even if the plugin cache dropped its executable bit.
-    const launcher = `${r.replace(/\\/g, '/').replace(/\/+$/, '')}/bin/upf`;
+    const launcher = `${r.replace(/\\/g, '/').replace(/\/+$/, '')}/bin/riverwright`;
     return `/bin/sh "${launcher}" hook ${host}`;
   }
-  const launcher = `${r.replace(/\//g, '\\').replace(/\\+$/, '')}\\bin\\upf.cmd`;
+  const launcher = `${r.replace(/\//g, '\\').replace(/\\+$/, '')}\\bin\\riverwright.cmd`;
   if (sh === 'cmd') return `"${launcher}" hook ${host}`;
   return `& "${launcher}" hook ${host}; exit $LASTEXITCODE`;
 }

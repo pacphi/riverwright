@@ -2,7 +2,7 @@
 setlocal
 node --version >nul 2>nul
 if errorlevel 1 goto nonode
-node "%~dp0..\scripts\upf.mjs" %*
+node "%~dp0..\scripts\riverwright.mjs" %*
 exit /b %ERRORLEVEL%
 :nonode
 >&2 echo upstream-pr-filer needs Node.js 24 or newer: https://nodejs.org

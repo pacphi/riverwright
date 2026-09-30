@@ -64,14 +64,14 @@ test('resolveHostLaunch leaves POSIX programs to execFile', () => {
 
 test('buildHookCommand quotes paths with spaces and refuses unsafe paths', () => {
   assert.equal(
-    buildHookCommand('/Users/Jane Doe/Library/Application Support/upf/scripts/upf.mjs', 'claude-code'),
-    'node "/Users/Jane Doe/Library/Application Support/upf/scripts/upf.mjs" hook claude-code',
+    buildHookCommand('/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs', 'claude-code'),
+    'node "/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs" hook claude-code',
   );
-  assert.equal(buildHookCommand('C:\\Program Files\\upf\\scripts\\upf.mjs', 'cursor'), 'node "C:\\Program Files\\upf\\scripts\\upf.mjs" hook cursor');
-  for (const bad of ['relative/upf.mjs', '/a"b/upf.mjs', '/a$HOME/upf.mjs', '/a`x`/upf.mjs', 'C:\\50%\\upf.mjs']) {
+  assert.equal(buildHookCommand('C:\\Program Files\\riverwright\\scripts\\riverwright.mjs', 'cursor'), 'node "C:\\Program Files\\riverwright\\scripts\\riverwright.mjs" hook cursor');
+  for (const bad of ['relative/riverwright.mjs', '/a"b/riverwright.mjs', '/a$HOME/riverwright.mjs', '/a`x`/riverwright.mjs', 'C:\\50%\\riverwright.mjs']) {
     assert.throws(() => buildHookCommand(bad, 'codex'), /path|absolute/, bad);
   }
-  assert.throws(() => buildHookCommand('/a/upf.mjs', 'notahost'), /unknown host/);
+  assert.throws(() => buildHookCommand('/a/riverwright.mjs', 'notahost'), /unknown host/);
 });
 
 const posixOnly = { skip: process.platform === 'win32' };
@@ -91,29 +91,29 @@ test('launcherHookCommand runs the hook when node is present', posixOnly, () => 
 
 test('launcherHookCommand quotes paths with spaces for sh, cmd and PowerShell', () => {
   assert.equal(
-    launcherHookCommand('/Users/Jane Doe/Library/Application Support/upf', 'claude-code', { platform: 'darwin' }),
-    '/bin/sh "/Users/Jane Doe/Library/Application Support/upf/bin/upf" hook claude-code',
+    launcherHookCommand('/Users/Jane Doe/Library/Application Support/riverwright', 'claude-code', { platform: 'darwin' }),
+    '/bin/sh "/Users/Jane Doe/Library/Application Support/riverwright/bin/riverwright" hook claude-code',
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\upf', 'cursor', { platform: 'win32' }),
-    '"C:\\Program Files\\upf\\bin\\upf.cmd" hook cursor',
+    launcherHookCommand('C:\\Program Files\\riverwright', 'cursor', { platform: 'win32' }),
+    '"C:\\Program Files\\riverwright\\bin\\riverwright.cmd" hook cursor',
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\upf', 'codex', { platform: 'win32', shell: 'powershell' }),
-    '& "C:\\Program Files\\upf\\bin\\upf.cmd" hook codex; exit $LASTEXITCODE',
+    launcherHookCommand('C:\\Program Files\\riverwright', 'codex', { platform: 'win32', shell: 'powershell' }),
+    '& "C:\\Program Files\\riverwright\\bin\\riverwright.cmd" hook codex; exit $LASTEXITCODE',
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\upf', 'claude-code', { platform: 'win32', shell: 'sh' }),
-    '/bin/sh "C:/Program Files/upf/bin/upf" hook claude-code',
+    launcherHookCommand('C:\\Program Files\\riverwright', 'claude-code', { platform: 'win32', shell: 'sh' }),
+    '/bin/sh "C:/Program Files/riverwright/bin/riverwright" hook claude-code',
   );
 });
 
 test('launcherHookCommand refuses relative and unquotable roots, unknown hosts and shells', () => {
-  for (const bad of ['relative/upf', '/a"b/upf', '/a$HOME/upf', '/a`x`/upf', 'C:\\50%\\upf', '/a\nb', '/a\u201Cb']) {
+  for (const bad of ['relative/riverwright', '/a"b/riverwright', '/a$HOME/riverwright', '/a`x`/riverwright', 'C:\\50%\\riverwright', '/a\nb', '/a\u201Cb']) {
     assert.throws(() => launcherHookCommand(bad, 'codex', { platform: 'linux' }), /UNSAFE_PATH|path|absolute/, JSON.stringify(bad));
   }
-  assert.throws(() => launcherHookCommand('/a/upf', 'notahost', { platform: 'linux' }), /unknown host/);
-  assert.throws(() => launcherHookCommand('/a/upf', 'codex', { platform: 'linux', shell: 'fish' }), /unknown shell/);
+  assert.throws(() => launcherHookCommand('/a/riverwright', 'notahost', { platform: 'linux' }), /unknown host/);
+  assert.throws(() => launcherHookCommand('/a/riverwright', 'codex', { platform: 'linux', shell: 'fish' }), /unknown shell/);
 });
 
 test('Windows launcher hook command denies (exit 2) under cmd when node is missing', { skip: process.platform !== 'win32' }, () => {

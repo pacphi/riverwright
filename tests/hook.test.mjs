@@ -76,12 +76,12 @@ test('a denial is recorded in the run ledger', async () => {
   assert.equal(last.host, 'hermes-agent');
 });
 
-test('a fake upf inside the workspace does not get the publish exemption', async () => {
-  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', '/tmp/upf submit git push origin HEAD', worktree), env, cwd: outside });
+test('a fake riverwright inside the workspace does not get the publish exemption', async () => {
+  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', '/tmp/riverwright submit git push origin HEAD', worktree), env, cwd: outside });
   assert.equal(r.code, 2, r.stdout);
 });
 
 test('the installed launcher itself may run upf submit inside the workspace', async () => {
-  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', `"${path.join(ROOT, 'bin', 'upf')}" submit o/r#1`, worktree), env, cwd: outside });
+  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', `"${path.join(ROOT, 'bin', 'riverwright')}" submit o/r#1`, worktree), env, cwd: outside });
   assert.equal(r.code, 0, r.stdout);
 });

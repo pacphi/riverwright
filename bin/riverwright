@@ -1,5 +1,5 @@
 #!/bin/sh
-# upstream-pr-filer launcher for macOS, Linux and Git Bash: runs scripts/upf.mjs with Node.
+# upstream-pr-filer launcher for macOS, Linux and Git Bash: runs scripts/riverwright.mjs with Node.
 self=$0
 while [ -h "$self" ]; do
   link=$(readlink "$self") || break
@@ -14,7 +14,7 @@ case $self in
 esac
 root=$(CDPATH= cd -- "$dir/.." && pwd -P)
 if command -v node >/dev/null 2>&1; then
-  exec node "$root/scripts/upf.mjs" "$@"
+  exec node "$root/scripts/riverwright.mjs" "$@"
 fi
 echo "upstream-pr-filer needs Node.js 24 or newer: https://nodejs.org" >&2
 case ${1-} in

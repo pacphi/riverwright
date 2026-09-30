@@ -7,7 +7,7 @@ import path from 'node:path';
 import { main } from '../scripts/lib/cli.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const UPF = path.join(ROOT, 'scripts', 'upf.mjs');
+export const UPF = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
 export function fakeTerminal(answer) {
   const input = new PassThrough();

@@ -12,7 +12,7 @@ import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
 import { nowIso } from '../clock.mjs';
 
 // The installed launcher's own files: only these may run "upf submit" / "upf post" unblocked.
-export const TRUSTED_LAUNCHER = ['../../../bin/upf', '../../../bin/upf.cmd', '../../upf.mjs']
+export const TRUSTED_LAUNCHER = ['../../../bin/riverwright', '../../../bin/riverwright.cmd', '../../riverwright.mjs']
   .map((rel) => realish(fileURLToPath(new URL(rel, import.meta.url))));
 
 function emit(io, rendered) {

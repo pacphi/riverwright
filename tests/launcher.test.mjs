@@ -6,8 +6,8 @@ import path from 'node:path';
 import { ROOT, tmpDir } from './helpers.mjs';
 
 const posix = process.platform !== 'win32';
-const launcher = path.join(ROOT, 'bin', 'upf');
-const cmdLauncher = path.join(ROOT, 'bin', 'upf.cmd');
+const launcher = path.join(ROOT, 'bin', 'riverwright');
+const cmdLauncher = path.join(ROOT, 'bin', 'riverwright.cmd');
 
 test('POSIX launcher runs upf through node', { skip: !posix }, () => {
   const r = spawnSync('/bin/sh', [launcher, '--version'], { encoding: 'utf8' });
@@ -17,7 +17,7 @@ test('POSIX launcher runs upf through node', { skip: !posix }, () => {
 
 test('POSIX launcher works through a symlink (setup may link it into ~/.local/bin)', { skip: !posix }, () => {
   const dir = tmpDir();
-  const link = path.join(dir, 'upf');
+  const link = path.join(dir, 'riverwright');
   fs.symlinkSync(launcher, link);
   const r = spawnSync('/bin/sh', [link, '--version'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);

@@ -48,9 +48,9 @@ for (const cmd of SAFE) {
 }
 
 // The exemption is found by the installed launcher's real path, not by the program's name.
-const trustedLauncher = [path.join(ROOT, 'bin', 'upf'), path.join(ROOT, 'bin', 'upf.cmd'), path.join(ROOT, 'scripts', 'upf.mjs')];
-const launcher = path.join(ROOT, 'bin', 'upf');
-const script = path.join(ROOT, 'scripts', 'upf.mjs');
+const trustedLauncher = [path.join(ROOT, 'bin', 'riverwright'), path.join(ROOT, 'bin', 'riverwright.cmd'), path.join(ROOT, 'scripts', 'riverwright.mjs')];
+const launcher = path.join(ROOT, 'bin', 'riverwright');
+const script = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
 test('upf submit and upf post are the sanctioned publish commands', () => {
   assert.deepEqual(classifyCommand(`"${launcher}" submit ruvnet/ruflo#3509`, { trustedLauncher }), { outward: false, upfPublish: true });
@@ -58,8 +58,8 @@ test('upf submit and upf post are the sanctioned publish commands', () => {
   assert.equal(classifyCommand(`"${launcher}" submit o/r#1 && git push`, { trustedLauncher }).outward, true);
 });
 
-test('a program merely named upf or upf.mjs is not the sanctioned launcher', () => {
-  for (const cmd of ['/tmp/upf submit git push origin HEAD', 'node /tmp/upf.mjs post gh pr create', 'upf submit git push origin HEAD', './upf post gh pr create']) {
+test('a program merely named riverwright or riverwright.mjs is not the sanctioned launcher', () => {
+  for (const cmd of ['/tmp/riverwright submit git push origin HEAD', 'node /tmp/riverwright.mjs post gh pr create', 'riverwright submit git push origin HEAD', './riverwright post gh pr create']) {
     for (const v of [classifyCommand(cmd, { trustedLauncher }), classifyCommand(cmd)]) {
       assert.equal(v.outward, true, cmd);
       assert.notEqual(v.upfPublish, true, cmd);
@@ -77,7 +77,7 @@ test('the real launcher is exempt only as one plain command', () => {
 
 test('a symlink to the real launcher resolves to it', { skip: process.platform === 'win32' }, () => {
   const dir = tmpDir();
-  const link = path.join(dir, 'upf');
+  const link = path.join(dir, 'riverwright');
   fs.symlinkSync(launcher, link);
   assert.deepEqual(classifyCommand(`${link} submit o/r#1`, { trustedLauncher }), { outward: false, upfPublish: true });
 });

@@ -54,10 +54,10 @@ test('everything else is refused with a reason', () => {
 });
 
 test('renderPrePushHook quotes install paths with spaces and refuses unsafe ones', () => {
-  const text = renderPrePushHook('/Users/Jane Doe/Library/Application Support/upf/scripts/upf.mjs');
+  const text = renderPrePushHook('/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs');
   assert.match(text, /^#!\/bin\/sh\n/);
-  assert.match(text, /exec node "\/Users\/Jane Doe\/Library\/Application Support\/upf\/scripts\/upf\.mjs" guard pre-push "\$@"/);
-  assert.throws(() => renderPrePushHook('/a$b/upf.mjs'), /cannot be quoted/);
+  assert.match(text, /exec node "\/Users\/Jane Doe\/Library\/Application Support\/riverwright\/scripts\/riverwright\.mjs" guard pre-push "\$@"/);
+  assert.throws(() => renderPrePushHook('/a$b/riverwright.mjs'), /cannot be quoted/);
 });
 
 async function runWithApproval(sha) {
