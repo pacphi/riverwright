@@ -1,24 +1,18 @@
+import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { UpfError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 import { readAll } from '../io.mjs';
 import { upfHome, isInside, realish, runDirForPath } from '../paths.mjs';
 import { appendEvent } from '../ledger.mjs';
-import { classifyCommand } from '../hooks/classify.mjs';
+import { hasActiveRun } from '../state.mjs';
+import { classifyCommand, hasUnresolved } from '../hooks/classify.mjs';
+import { touchesHome } from '../hooks/scope.mjs';
 import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
 
 // The installed launcher's own files: only these may run "upf submit" / "upf post" unblocked.
 export const TRUSTED_LAUNCHER = ['../../../bin/upf', '../../../bin/upf.cmd', '../../upf.mjs']
   .map((rel) => realish(fileURLToPath(new URL(rel, import.meta.url))));
-
-function mentionsHome(command, home, platform) {
-  const fold = (s) => {
-    const t = String(s).replace(/\\/g, '/');
-    return platform === 'win32' || platform === 'darwin' ? t.toLowerCase() : t;
-  };
-  const text = fold(command);
-  return [home, realish(home)].some((h) => text.includes(fold(h)));
-}
 
 function emit(io, rendered) {
   if (rendered.stdout) io.stdout.write(rendered.stdout);
@@ -36,17 +30,21 @@ export async function run([host], io) {
   }
   const { command, cwd } = extractCommand(payload);
   const home = upfHome(io.env);
-  const where = cwd ?? io.cwd;
-  const inScope = isInside(where, home) || (typeof command === 'string' && mentionsHome(command, home, io.platform));
-  if (!inScope) return emit(io, renderAllow(host));
+  const where = path.resolve(io.cwd, cwd ?? '.');
+  const readable = typeof command === 'string' && command.trim() !== '';
+  const inScope = isInside(where, home) || (readable && touchesHome(command, { home, cwd: where, env: io.env, platform: io.platform }));
 
   let reason = null;
-  if (typeof command !== 'string' || command.trim() === '') {
-    reason = 'upstream-pr-filer could not read this command, so it is blocked inside the upstream-pr-filer workspace.';
+  if (!readable) {
+    if (inScope || hasActiveRun(home)) {
+      reason = 'upstream-pr-filer could not read this command, so it is blocked while an upstream-pr-filer run is active or inside its workspace.';
+    }
   } else {
     const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER });
-    if (verdict.outward) {
+    if (verdict.outward && inScope) {
       reason = `Blocked by upstream-pr-filer (${verdict.rule}): ${verdict.detail}. Public actions go through "upf submit" or "upf post" after your approval.`;
+    } else if (verdict.outward && hasUnresolved(command) && hasActiveRun(home)) {
+      reason = `Blocked by upstream-pr-filer (unresolvable-with-active-run): ${verdict.detail}, and the command depends on a variable or substitution that could point into the workspace while a run is active. Write the path out in full.`;
     }
   }
   if (!reason) return emit(io, renderAllow(host));

@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { UpfError } from './errors.mjs';
 import { GATES, APPROVAL_MODES, isApprovalValid, revokeGate } from './approvals.mjs';
@@ -140,4 +141,38 @@ export function saveState(dir, state) {
 export function setFork(state, url) {
   if (!normalizeRemoteUrl(url)) throw new UpfError('BAD_FORK_URL', `"${url}" is not a fork URL`);
   return { ...state, fork: { url: String(url) } };
+}
+
+const subdirs = (p) => {
+  try {
+    return fs.readdirSync(p, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
+  } catch {
+    return [];
+  }
+};
+
+// True when any run under the workspace may still act. A record that cannot be read or parsed counts
+// as active, so a broken file makes the hook stricter, never looser.
+export function hasActiveRun(home) {
+  for (const owner of subdirs(home)) {
+    for (const repo of subdirs(path.join(home, owner))) {
+      const runs = path.join(home, owner, repo, 'runs');
+      for (const run of subdirs(runs)) {
+        let text;
+        try {
+          text = readTextIfExists(stateFile(path.join(runs, run)));
+        } catch {
+          return true;
+        }
+        if (text === null) continue;
+        try {
+          const status = JSON.parse(text)?.status;
+          if (status !== 'stopped' && status !== 'submitted') return true;
+        } catch {
+          return true;
+        }
+      }
+    }
+  }
+  return false;
 }
