@@ -70,7 +70,7 @@ test('without backups, our blocks are still removed and other files are left alo
   assert.ok(fs.existsSync(path.join(root, '.upstream-pr.json')));
 });
 
-// Attacks: anyone who can write under UPF_HOME (including an agent) plants a backup manifest.
+// Attacks: anyone who can write under RIVERWRIGHT_HOME (including an agent) plants a backup manifest.
 function plant(h, root, steps, { files = {}, manifestRoot = root, name = '2026-09-29T02-00-00Z' } = {}) {
   const dir = path.join(backupRoot(h, root), name);
   fs.mkdirSync(dir, { recursive: true });

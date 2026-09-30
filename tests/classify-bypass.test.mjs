@@ -59,8 +59,8 @@ export const BYPASSES = [
   'GIT_CONFIG_GLOBAL=/tmp/g git status',
   'GIT_DIR=/tmp/x/.git git status',
   'GIT_EXEC_PATH=/tmp/evil git status',
-  'UPF_RUN_DIR=/tmp/forged git status',
-  'UPF_TEST=1 npm test',
+  'RIVERWRIGHT_RUN_DIR=/tmp/forged git status',
+  'RIVERWRIGHT_TEST=1 npm test',
   'env GIT_EXEC_PATH=/tmp/evil git status',
   'export GIT_DIR=/tmp/x/.git',
   // HTTP clients writing to GitHub

@@ -18,8 +18,8 @@ export async function run(args, io) {
       host: { type: 'string' }, model: { type: 'string' }, head: { type: 'string' }, note: { type: 'string' },
     },
   });
-  const dir = values.run ?? io.env.UPF_RUN_DIR;
-  if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set UPF_RUN_DIR');
+  const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
+  if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
   const now = nowIso(io.env);
   const host = assertHost(values.host ?? null);
   const model = values.model ?? null;

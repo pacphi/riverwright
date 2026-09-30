@@ -3,7 +3,7 @@ import { fileURLToPath } from 'node:url';
 import { UpfError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 import { readAll } from '../io.mjs';
-import { upfHome, isInside, realish, runDirForPath } from '../paths.mjs';
+import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { hasActiveRun } from '../state.mjs';
 import { classifyCommand, hasUnresolved } from '../hooks/classify.mjs';
@@ -30,7 +30,7 @@ export async function run([host], io) {
     payload = null;
   }
   const { command, cwd } = extractCommand(payload);
-  const home = upfHome(io.env);
+  const home = riverwrightHome(io.env);
   const where = path.resolve(io.cwd, cwd ?? '.');
   const readable = typeof command === 'string' && command.trim() !== '';
   const inScope = isInside(where, home) || (readable && touchesHome(command, { home, cwd: where, env: io.env, platform: io.platform }));

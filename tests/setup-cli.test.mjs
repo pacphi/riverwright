@@ -12,7 +12,7 @@ function repo(files = {}) {
 
 test('--dry-run prints the diff and changes nothing', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
-  const r = await callMain(['setup', '--project', '--dry-run', '--repo', root], { env: { UPF_HOME: tmpDir('upf-home-') } });
+  const r = await callMain(['setup', '--project', '--dry-run', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('upf-home-') } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /\+<!-- BEGIN upstream-pr-filer -->/);
   assert.match(r.stdout, /Dry run: nothing was changed/);
@@ -22,7 +22,7 @@ test('--dry-run prints the diff and changes nothing', async () => {
 
 test('--yes applies and reminds the user nothing was committed', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
-  const r = await callMain(['setup', '--project', '--yes', '--repo', root], { env: { UPF_HOME: tmpDir('upf-home-'), UPF_TEST: '1', UPF_NOW: 't' } });
+  const r = await callMain(['setup', '--project', '--yes', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('upf-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /AGENTS\.md: updated/);
   assert.match(r.stdout, /Nothing was committed/);
@@ -31,7 +31,7 @@ test('--yes applies and reminds the user nothing was committed', async () => {
 test('interactive mode asks per file', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
   const answers = ['y', 'n'];
-  const r = await callMain(['setup', '--project', '--repo', root], { env: { UPF_HOME: tmpDir('upf-home-'), UPF_TEST: '1', UPF_NOW: 't' }, terminal: () => fakeTerminal(answers.shift()) });
+  const r = await callMain(['setup', '--project', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('upf-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' }, terminal: () => fakeTerminal(answers.shift()) });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /AGENTS\.md: updated/);
   assert.match(r.stdout, /\.upstream-pr\.json: declined/);
@@ -39,9 +39,9 @@ test('interactive mode asks per file', async () => {
 
 test('--remove --yes undoes a setup', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
-  const env = { UPF_HOME: tmpDir('upf-home-'), UPF_TEST: '1', UPF_NOW: 't' };
+  const env = { RIVERWRIGHT_HOME: tmpDir('upf-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' };
   await callMain(['setup', '--project', '--yes', '--repo', root], { env });
-  const r = await callMain(['setup', '--project', '--remove', '--yes', '--repo', root], { env: { ...env, UPF_NOW: 't2' } });
+  const r = await callMain(['setup', '--project', '--remove', '--yes', '--repo', root], { env: { ...env, RIVERWRIGHT_NOW: 't2' } });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
   assert.equal(fs.existsSync(path.join(root, '.upstream-pr.json')), false);

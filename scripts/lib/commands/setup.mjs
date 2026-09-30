@@ -1,5 +1,5 @@
 import { parseArgs } from 'node:util';
-import { upfHome } from '../paths.mjs';
+import { riverwrightHome } from '../paths.mjs';
 import { version } from '../version.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
 import { inspectRepo, planIntegration, planRemoval, applyPlan, changedFiles } from '../project.mjs';
@@ -36,7 +36,7 @@ export async function run(args, io) {
     io.stderr.write(USAGE);
     return 2;
   }
-  const home = upfHome(io.env);
+  const home = riverwrightHome(io.env);
   const now = nowIso(io.env);
   const info = inspectRepo(values.repo ?? io.cwd, { home });
   const plan = values.remove

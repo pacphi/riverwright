@@ -5,9 +5,9 @@ import { UpfError } from './errors.mjs';
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
-export function upfHome(env = process.env) {
-  const v = env.UPF_HOME && String(env.UPF_HOME).trim();
-  return path.resolve(v || path.join(os.homedir(), '.upstream-pr'));
+export function riverwrightHome(env = process.env) {
+  const v = env.RIVERWRIGHT_HOME && String(env.RIVERWRIGHT_HOME).trim();
+  return path.resolve(v || path.join(os.homedir(), '.riverwright'));
 }
 
 export function assertRepoName(kind, value) {

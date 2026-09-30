@@ -1,12 +1,12 @@
 // Decides whether a command reaches into the Riverwright workspace. Paths are resolved the way the
-// shell would see them: ~, $HOME, ${HOME}, $UPF_HOME, %USERPROFILE% and $env:USERPROFILE are expanded,
+// shell would see them: ~, $HOME, ${HOME}, $RIVERWRIGHT_HOME, %USERPROFILE% and $env:USERPROFILE are expanded,
 // relative paths are resolved against the payload cwd (following cd/pushd), and symlinks are resolved.
 import os from 'node:os';
 import path from 'node:path';
 import { isInside, realish } from '../paths.mjs';
 import { lex } from './shell.mjs';
 
-const KNOWN_VAR = /\$\{(HOME|UPF_HOME|PWD|USERPROFILE)\}|\$env:(HOME|UPF_HOME|PWD|USERPROFILE)\b|\$(HOME|UPF_HOME|PWD|USERPROFILE)\b|%(HOME|UPF_HOME|USERPROFILE)%/gi;
+const KNOWN_VAR = /\$\{(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\}|\$env:(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\b|\$(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\b|%(HOME|RIVERWRIGHT_HOME|USERPROFILE)%/gi;
 
 function expand(value, vars) {
   let v = String(value);
@@ -65,7 +65,7 @@ export function mentionsHome(command, home, platform) {
 
 export function touchesHome(command, { home, cwd, env = {}, platform = process.platform }) {
   const userHome = env.HOME || env.USERPROFILE || os.homedir();
-  const vars = { HOME: userHome, USERPROFILE: env.USERPROFILE || userHome, UPF_HOME: home, PWD: cwd };
+  const vars = { HOME: userHome, USERPROFILE: env.USERPROFILE || userHome, RIVERWRIGHT_HOME: home, PWD: cwd };
   // cmd.exe and PowerShell paths use backslashes, which a POSIX lexer would read as escapes.
   const text = platform === 'win32' ? String(command).replace(/\\/g, '/') : String(command);
   return mentionsHome(command, home, platform) || walk(text, { home, cwd, vars }, 0);

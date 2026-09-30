@@ -3,12 +3,12 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { upfHome, parseIssueRef, runId, runDir, isInside, realish, runDirForPath } from '../scripts/lib/paths.mjs';
+import { riverwrightHome, parseIssueRef, runId, runDir, isInside, realish, runDirForPath } from '../scripts/lib/paths.mjs';
 import { tmpDir } from './helpers.mjs';
 
-test('upfHome prefers UPF_HOME and defaults to ~/.upstream-pr', () => {
-  assert.equal(upfHome({ UPF_HOME: path.join(os.tmpdir(), 'x') }), path.resolve(path.join(os.tmpdir(), 'x')));
-  assert.equal(upfHome({}), path.join(os.homedir(), '.upstream-pr'));
+test('riverwrightHome prefers RIVERWRIGHT_HOME and defaults to ~/.riverwright', () => {
+  assert.equal(riverwrightHome({ RIVERWRIGHT_HOME: path.join(os.tmpdir(), 'x') }), path.resolve(path.join(os.tmpdir(), 'x')));
+  assert.equal(riverwrightHome({}), path.join(os.homedir(), '.riverwright'));
 });
 
 test('parseIssueRef accepts issue URLs and owner/repo#n', () => {

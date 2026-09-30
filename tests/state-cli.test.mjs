@@ -5,7 +5,7 @@ import { loadState } from '../scripts/lib/state.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 
 const A = 'a'.repeat(40);
-const env = (dir) => ({ UPF_RUN_DIR: dir, UPF_TEST: '1', UPF_NOW: '2026-09-29T00:00:00Z' });
+const env = (dir) => ({ RIVERWRIGHT_RUN_DIR: dir, RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: '2026-09-29T00:00:00Z' });
 
 test('riverwright state create, begin and complete write state and ledger', async () => {
   const dir = tmpDir();
@@ -51,13 +51,13 @@ test('the submit gate defaults to terminal approval', async () => {
 test('host-ask is refused for the submit gate unless explicitly allowed', async () => {
   const dir = tmpDir();
   await callMain(['state', 'create', '--id', 'o/r#1'], { env: env(dir) });
-  for (const [args, extra] of [[['--mode', 'host-ask'], {}], [[], { UPF_APPROVAL_MODE: 'host-ask' }]]) {
+  for (const [args, extra] of [[['--mode', 'host-ask'], {}], [[], { RIVERWRIGHT_APPROVAL_MODE: 'host-ask' }]]) {
     const r = await callMain(['approve', 'submit-gate', '--sha', A, '--branch', 'upf/1-x', ...args], { env: { ...env(dir), ...extra } });
     assert.equal(r.code, 1);
-    assert.match(r.stderr, /UPF_ALLOW_HOST_ASK_SUBMIT/);
+    assert.match(r.stderr, /RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT/);
   }
   assert.equal(loadState(dir).approvals.length, 0);
-  const ok = await callMain(['approve', 'submit-gate', '--sha', A, '--branch', 'upf/1-x', '--mode', 'host-ask'], { env: { ...env(dir), UPF_ALLOW_HOST_ASK_SUBMIT: '1' } });
+  const ok = await callMain(['approve', 'submit-gate', '--sha', A, '--branch', 'upf/1-x', '--mode', 'host-ask'], { env: { ...env(dir), RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT: '1' } });
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
 });

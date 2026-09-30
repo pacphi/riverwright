@@ -2,17 +2,17 @@ import path from 'node:path';
 import { UpfError } from '../errors.mjs';
 import { readAll } from '../io.mjs';
 import { runFile } from '../exec.mjs';
-import { upfHome, isInside, realish, runDirForPath } from '../paths.mjs';
+import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
 import { loadState } from '../state.mjs';
 import { approvedSha, approvedBranch } from '../approvals.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
 
-// Test seam only. UPF_RUN_DIR and `git config upf.run` are inputs the agent controls, so outside the
+// Test seam only. RIVERWRIGHT_RUN_DIR and `git config upf.run` are inputs the agent controls, so outside the
 // test suite the run is located from the repository being pushed.
 async function testRunDir(io) {
-  if (io.env.UPF_RUN_DIR) return io.env.UPF_RUN_DIR;
+  if (io.env.RIVERWRIGHT_RUN_DIR) return io.env.RIVERWRIGHT_RUN_DIR;
   const r = await runFile('git', ['config', '--get', 'upf.run'], { cwd: io.cwd });
   return r.code === 0 ? r.stdout.trim() || null : null;
 }
@@ -34,9 +34,9 @@ export async function run(args, io) {
   const [sub, remoteName, remoteUrl] = args;
   if (sub !== 'pre-push') throw new UpfError('USAGE', 'usage: riverwright guard pre-push <remote-name> <remote-url>');
   const updates = parsePrePushLines(await readAll(io.stdin));
-  const home = upfHome(io.env);
+  const home = riverwrightHome(io.env);
   let located = null;
-  if (io.env.UPF_TEST === '1') {
+  if (io.env.RIVERWRIGHT_TEST === '1') {
     const dir = await testRunDir(io);
     if (dir) located = { dir, runId: null };
   }

@@ -5,10 +5,10 @@ import path from 'node:path';
 import { createState, saveState, stopRun, hasActiveRun } from '../scripts/lib/state.mjs';
 import { callMain, tmpDir } from './helpers.mjs';
 
-// A fake user home: <top>/.upstream-pr is the workspace, <top>/project is the user's own repo.
+// A fake user home: <top>/.riverwright is the workspace, <top>/project is the user's own repo.
 function world({ active = true } = {}) {
   const top = tmpDir('upf-user-');
-  const home = path.join(top, '.upstream-pr');
+  const home = path.join(top, '.riverwright');
   const worktree = path.join(home, 'o', 'r', 'worktrees', 'issue-1');
   const project = path.join(top, 'project');
   fs.mkdirSync(worktree, { recursive: true });
@@ -16,7 +16,7 @@ function world({ active = true } = {}) {
   let s = createState({ runId: 'o/r#1', kind: 'fixture', now: 't' });
   if (!active) s = stopRun(s, 'user-stopped', { now: 't' });
   saveState(path.join(home, 'o', 'r', 'runs', 'issue-1'), s);
-  return { top, home, worktree, project, env: { HOME: top, USERPROFILE: top, UPF_HOME: home } };
+  return { top, home, worktree, project, env: { HOME: top, USERPROFILE: top, RIVERWRIGHT_HOME: home } };
 }
 
 const hook = (w, command, cwd, stdin) => callMain(['hook', 'claude-code'], {
@@ -28,12 +28,12 @@ const hook = (w, command, cwd, stdin) => callMain(['hook', 'claude-code'], {
 test('$HOME and ~ in a -C path are expanded before deciding scope', async () => {
   const w = world();
   for (const cmd of [
-    'git -C "$HOME/.upstream-pr/o/r/worktrees/issue-1" push --no-verify origin HEAD',
-    'git -C "${HOME}/.upstream-pr/o/r/worktrees/issue-1" push origin HEAD',
-    'git -C ~/.upstream-pr/o/r/worktrees/issue-1 push origin HEAD',
-    'git -C %USERPROFILE%/.upstream-pr/o/r/worktrees/issue-1 push origin HEAD',
-    'cd ~/.upstream-pr/o/r/worktrees/issue-1 && git push origin HEAD',
-    'git --git-dir="$HOME/.upstream-pr/o/r/worktrees/issue-1/.git" push origin HEAD',
+    'git -C "$HOME/.riverwright/o/r/worktrees/issue-1" push --no-verify origin HEAD',
+    'git -C "${HOME}/.riverwright/o/r/worktrees/issue-1" push origin HEAD',
+    'git -C ~/.riverwright/o/r/worktrees/issue-1 push origin HEAD',
+    'git -C %USERPROFILE%/.riverwright/o/r/worktrees/issue-1 push origin HEAD',
+    'cd ~/.riverwright/o/r/worktrees/issue-1 && git push origin HEAD',
+    'git --git-dir="$HOME/.riverwright/o/r/worktrees/issue-1/.git" push origin HEAD',
   ]) {
     const r = await hook(w, cmd, w.top);
     assert.equal(r.code, 2, cmd);
@@ -42,9 +42,9 @@ test('$HOME and ~ in a -C path are expanded before deciding scope', async () => 
 
 test('a relative path into the workspace is resolved against the payload cwd', async () => {
   const w = world();
-  const r = await hook(w, 'git -C ../.upstream-pr/o/r/worktrees/issue-1 push origin HEAD', w.project);
+  const r = await hook(w, 'git -C ../.riverwright/o/r/worktrees/issue-1 push origin HEAD', w.project);
   assert.equal(r.code, 2);
-  const r2 = await hook(w, 'cd ../.upstream-pr/o/r/worktrees/issue-1; git push origin HEAD', w.project);
+  const r2 = await hook(w, 'cd ../.riverwright/o/r/worktrees/issue-1; git push origin HEAD', w.project);
   assert.equal(r2.code, 2);
 });
 

@@ -18,15 +18,15 @@ export async function run(args, io) {
     args: rest,
     options: { run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' }, branch: { type: 'string' } },
   });
-  const dir = values.run ?? io.env.UPF_RUN_DIR;
-  if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set UPF_RUN_DIR');
+  const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
+  if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
   const host = assertHost(values.host ?? null);
   if (gate === 'submit-gate' && values.branch === undefined) throw new UpfError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch upf/<number>-<slug>');
   if (gate !== 'submit-gate' && values.branch !== undefined) throw new UpfError('USAGE', '--branch applies only to the submit gate');
   const branch = values.branch === undefined ? undefined : normalizeBranch(values.branch);
-  const mode = values.mode ?? io.env.UPF_APPROVAL_MODE ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
-  if (gate === 'submit-gate' && mode === 'host-ask' && io.env.UPF_ALLOW_HOST_ASK_SUBMIT !== '1') {
-    throw new UpfError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs UPF_ALLOW_HOST_ASK_SUBMIT=1)');
+  const mode = values.mode ?? io.env.RIVERWRIGHT_APPROVAL_MODE ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
+  if (gate === 'submit-gate' && mode === 'host-ask' && io.env.RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT !== '1') {
+    throw new UpfError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT=1)');
   }
   const now = nowIso(io.env);
   const content = values['content-file'] !== undefined ? fs.readFileSync(values['content-file'], 'utf8') : undefined;
