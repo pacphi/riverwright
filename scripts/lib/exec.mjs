@@ -89,6 +89,13 @@ export function buildHookCommand(scriptPath, host) {
 
 export const HOOK_SHELLS = ['sh', 'cmd', 'powershell'];
 
+// PowerShell's own status is 0 when a program cannot be started, and `exit $LASTEXITCODE` then exits 0
+// (allow) because $LASTEXITCODE was never set. This wrapper clears it first, treats "never set" and any
+// PowerShell error as deny (exit 2), and passes the launcher's own exit code through otherwise.
+export function powershellFailClosed(invocation) {
+  return `$ErrorActionPreference = 'Stop'; try { $global:LASTEXITCODE = $null; ${invocation}; if ($null -eq $LASTEXITCODE) { exit 2 }; exit $LASTEXITCODE } catch { exit 2 }`;
+}
+
 // The hook command a host runs. It goes through bin/riverwright or bin/riverwright.cmd, which exit 2 (deny) when node
 // is missing. `shell` is the shell the host runs hook commands with: sh (POSIX, Git Bash), cmd, or
 // PowerShell (whose -Command turns native exit codes other than 0/1 into 1 unless passed through).
@@ -114,5 +121,5 @@ export function launcherHookCommand(root, host, { platform = process.platform, s
   const launcher = `${r.replace(/\//g, '\\').replace(/\\+$/, '')}\\bin\\riverwright.cmd`;
   const homeArg = h === null ? '' : ` --home "${h}"`;
   if (sh === 'cmd') return `"${launcher}" hook ${host}${homeArg}`;
-  return `& "${launcher}" hook ${host}${homeArg}; exit $LASTEXITCODE`;
+  return powershellFailClosed(`& "${launcher}" hook ${host}${homeArg}`);
 }

@@ -46,5 +46,6 @@ export function runRiverwright(args, { stdin = '', env = {}, cwd } = {}) {
 }
 
 export function tmpDir(prefix = 'riverwright-test-') {
-  return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
+  // .native expands Windows 8.3 short names (RUNNER~1) the way the code under test does.
+  return fs.realpathSync.native(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }

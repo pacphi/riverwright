@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runFile, quoteCmdArg, cmdShimCommandLine, parseNpmCmdShim, resolveHostLaunch, buildHookCommand, launcherHookCommand } from '../scripts/lib/exec.mjs';
+import { runFile, quoteCmdArg, cmdShimCommandLine, parseNpmCmdShim, resolveHostLaunch, buildHookCommand, powershellFailClosed, launcherHookCommand } from '../scripts/lib/exec.mjs';
 import { HOSTS } from '../scripts/lib/hosts.mjs';
 import { spawnSync } from 'node:child_process';
 import { ROOT, tmpDir } from './helpers.mjs';
@@ -100,7 +100,7 @@ test('launcherHookCommand quotes paths with spaces for sh, cmd and PowerShell', 
   );
   assert.equal(
     launcherHookCommand('C:\\Program Files\\riverwright', 'codex', { platform: 'win32', shell: 'powershell' }),
-    '& "C:\\Program Files\\riverwright\\bin\\riverwright.cmd" hook codex; exit $LASTEXITCODE',
+    String.raw`$ErrorActionPreference = 'Stop'; try { $global:LASTEXITCODE = $null; & "C:\Program Files\riverwright\bin\riverwright.cmd" hook codex; if ($null -eq $LASTEXITCODE) { exit 2 }; exit $LASTEXITCODE } catch { exit 2 }`,
   );
   assert.equal(
     launcherHookCommand('C:\\Program Files\\riverwright', 'claude-code', { platform: 'win32', shell: 'sh' }),
@@ -132,4 +132,34 @@ test('Windows launcher hook command denies (exit 2) under PowerShell when node i
     input: '{}', encoding: 'utf8', env: { PATH: 'C:\\nonexistent', SystemRoot: process.env.SystemRoot, ComSpec: process.env.ComSpec },
   });
   assert.equal(r.status, 2, r.stderr);
+});
+
+// Behavioural check of the PowerShell wrapper wherever PowerShell exists. The launcher stand-ins are
+// POSIX scripts, so this runs on macOS and Linux; on Windows the real launcher tests above cover it.
+const pwsh = spawnSync('pwsh', ['-NoProfile', '-Command', 'exit 0']);
+const pwshSkip = process.platform === 'win32' || pwsh.error !== undefined || pwsh.status !== 0;
+
+function runWrapped(invocation) {
+  return spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', powershellFailClosed(invocation)], { encoding: 'utf8' });
+}
+
+test('the PowerShell wrapper denies (exit 2) when the launcher cannot start', { skip: pwshSkip }, () => {
+  const dir = tmpDir();
+  assert.equal(runWrapped(`& "${path.join(dir, 'missing.sh')}" hook codex`).status, 2);
+});
+
+test('the PowerShell wrapper passes the launcher exit code through', { skip: pwshSkip }, () => {
+  const dir = tmpDir();
+  for (const [code, want] of [[0, 0], [2, 2]]) {
+    const script = path.join(dir, `exit${code}.sh`);
+    fs.writeFileSync(script, `#!/bin/sh\nexit ${code}\n`);
+    fs.chmodSync(script, 0o755);
+    assert.equal(runWrapped(`& "${script}" hook codex`).status, want, `launcher exiting ${code}`);
+  }
+});
+
+test('a stale $LASTEXITCODE from earlier does not let a launcher that cannot start through', { skip: pwshSkip }, () => {
+  const dir = tmpDir();
+  const r = spawnSync('pwsh', ['-NoProfile', '-NonInteractive', '-Command', `$global:LASTEXITCODE = 0; ${powershellFailClosed(`& "${path.join(dir, 'missing.sh')}" hook codex`)}`], { encoding: 'utf8' });
+  assert.equal(r.status, 2);
 });

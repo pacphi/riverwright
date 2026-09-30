@@ -133,7 +133,7 @@ test('launcherHookCommand carries --home for sh, cmd and PowerShell and refuses 
   );
   assert.equal(
     launcherHookCommand('C:\\Program Files\\rw', 'codex', { platform: 'win32', shell: 'powershell', home: 'C:\\Users\\Jane Doe\\.riverwright' }),
-    '& "C:\\Program Files\\rw\\bin\\riverwright.cmd" hook codex --home "C:\\Users\\Jane Doe\\.riverwright"; exit $LASTEXITCODE',
+    String.raw`$ErrorActionPreference = 'Stop'; try { $global:LASTEXITCODE = $null; & "C:\Program Files\rw\bin\riverwright.cmd" hook codex --home "C:\Users\Jane Doe\.riverwright"; if ($null -eq $LASTEXITCODE) { exit 2 }; exit $LASTEXITCODE } catch { exit 2 }`,
   );
   assert.equal(
     launcherHookCommand('C:\\Program Files\\rw', 'claude-code', { platform: 'win32', shell: 'sh', home: 'C:\\Users\\Jane Doe\\.riverwright' }),
