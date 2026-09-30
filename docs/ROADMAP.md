@@ -1,6 +1,6 @@
 # Riverwright: product requirements and roadmap
 
-**Last updated:** 2026-09-29 · **Current milestone:** M2, the plugin · **Version:** 0.1.0 (pre-release)
+**Last updated:** 2026-09-30 · **Current milestone:** M2, the plugin · **Version:** 0.1.0 (pre-release)
 
 This is the living statement of what Riverwright must do, what exists, and what is proven. Every use case
 and feature has an ID and a status, and links to its design, its code and its evidence. It is checked by
@@ -65,16 +65,16 @@ tested on the practice project, and seen in a real run.
 
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
-| R-01 | Intake: read the issue or symptom, quote it as data, find duplicates and stop conditions | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-02 | Recon: build and test commands, contribution rules, AI-policy verdict | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-03 | Environment: plain clone, sandbox tier, retrying build, fingerprint | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-04 | Reproduce: a failing test in the project's own framework, run several times | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-05 | Human checkpoints: after reproduction and at the submit gate | `designed` | M2 | [spec §6](specs/core-single-issue-pipeline.md) |
-| R-06 | Root cause: the chain from symptom to the first faulty line | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-07 | Fix: the smallest change, the full suite, the project's linters | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md) |
-| R-08 | Review: a fresh context, a different vendor where possible, behavior compared | `designed` | M2 | [spec §8](specs/core-single-issue-pipeline.md) |
-| R-09 | Write-up: dossier, pull request body, commit message with `Assisted-by` | `designed` | M2 | [spec §10](specs/core-single-issue-pipeline.md) |
-| R-10 | Submit: fork at the gate, guarded push, draft pull request, ready after fork CI | `designed` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [ADR-0006](adr/0006-fork-at-submit-gate-draft-pull-requests.md) |
+| R-01 | Intake: read the issue or symptom, quote it as data, find duplicates and stop conditions | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-02 | Recon: build and test commands, contribution rules, AI-policy verdict | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-03 | Environment: plain clone, sandbox tier, retrying build, fingerprint | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-04 | Reproduce: a failing test in the project's own framework, run several times | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-05 | Human checkpoints: after reproduction and at the submit gate | `planned` | M2 | [spec §6](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-06 | Root cause: the chain from symptom to the first faulty line | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-07 | Fix: the smallest change, the full suite, the project's linters | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-08 | Review: a fresh context, a different vendor where possible, behavior compared | `planned` | M2 | [spec §8](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-09 | Write-up: dossier, pull request body, commit message with `Assisted-by` | `planned` | M2 | [spec §10](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| R-10 | Submit: fork at the gate, guarded push, draft pull request, ready after fork CI | `planned` | M2 | [spec §5](specs/core-single-issue-pipeline.md), [ADR-0006](adr/0006-fork-at-submit-gate-draft-pull-requests.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
 | R-11 | Run state machine with budgets, stop reasons and an event ledger | `verified` | M1 | [code](../scripts/lib/state.mjs), [tests](../tests/state.test.mjs), [CI](https://github.com/pacphi/riverwright/pull/1) |
 
 ### Safety: nothing public without you
@@ -87,9 +87,14 @@ tested on the practice project, and seen in a real run.
 | S-04 | Sanitizer for hidden characters in upstream text | `verified` | M1 | [code](../scripts/lib/sanitize.mjs), [tests](../tests/sanitize.test.mjs), [CI](https://github.com/pacphi/riverwright/pull/1) |
 | S-05 | Approvals bound to an exact commit or content hash, with terminal confirmation | `verified` | M1 | [code](../scripts/lib/approvals.mjs), [tests](../tests/approvals.test.mjs), [ADR-0005](adr/0005-approvals-bound-to-exact-content.md), [CI](https://github.com/pacphi/riverwright/pull/1) |
 | S-06 | Two independent security reviews and two hardening passes | `verified` | M1 | [tests](../tests/seams.test.mjs), [research](research/evidence-base.md), [CI](https://github.com/pacphi/riverwright/pull/1) |
-| S-07 | Credential separation: push and API credentials reach only the submit and post commands, approvals kept outside the workspace | `proposed` | M2 | [spec §7](specs/core-single-issue-pipeline.md) |
-| S-08 | Install the guard into a clone: disabled upstream push URL, empty credential helper, pre-push hook | `designed` | M2 | [spec §7.1](specs/core-single-issue-pipeline.md) |
-| S-09 | Generated hooks always carry the workspace path and cover shell tools only | `designed` | M2 | [spec §7.2](specs/core-single-issue-pipeline.md) |
+| S-07 | Credential separation: a sealed credential released only by a human unlock inside submit and post, which signs the receipt | `planned` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [spec §7.5](specs/core-single-issue-pipeline.md), [research](research/credential-separation.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) |
+| S-08 | Install the guard into a clone: disabled upstream push URL, empty credential helper, pre-push hook | `planned` | M2 | [spec §7.1](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 12) |
+| S-09 | Generated hooks always carry the workspace path and cover shell tools only | `planned` | M2 | [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (`--home` required, Task 11); the shell-tools matchers come with the adapters in plan 2c |
+| S-10 | Signed receipts and the collapsed public gate: unlock, bounded in-process retry, consume | `planned` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 3, 7) |
+| S-11 | Ambient-credential audit: names and counts, never values, shown by `credential status` and `doctor` | `planned` | M2 | [spec §7.5](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 5) |
+| S-12 | Optional FIDO2 hardware key for the push only | `planned` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 13) |
+| S-13 | Agent shell commands that run `riverwright credential` are denied | `planned` | M2 | [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 11) |
+| S-14 | A leased re-submit after an amend: a non-fast-forward push only with a signed lease equal to the remote tip | `planned` | M2 | [ADR-0012](adr/0012-leased-force-push-for-resubmits.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 14) |
 
 ### Existing repositories: install without harm
 
@@ -103,11 +108,11 @@ tested on the practice project, and seen in a real run.
 
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
-| D-01 | Claude Code plugin and marketplace from this repository | `designed` | M2 | [spec §12](specs/core-single-issue-pipeline.md) |
-| D-02 | `riverwright doctor`: a read-only checkup that prints the fix for anything missing | `designed` | M2 | [spec §12.3](specs/core-single-issue-pipeline.md) |
-| D-03 | `/upstream-setup` wizard: idempotent, dry-run, asks before each change | `designed` | M2 | [spec §12.3](specs/core-single-issue-pipeline.md) |
+| D-01 | Claude Code plugin and marketplace from this repository | `planned` | M2 | [spec §12](specs/core-single-issue-pipeline.md), [plan 2c](plans/2026-09-30-plan-2c-adapters-and-plugin.md) |
+| D-02 | `riverwright doctor`: a read-only checkup that prints the fix for anything missing | `planned` | M2 | [spec §12.3](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| D-03 | `/upstream-setup` wizard: idempotent, dry-run, asks before each change | `planned` | M2 | [spec §12.3](specs/core-single-issue-pipeline.md), [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
 | D-04 | Install paths for Codex, Gemini CLI, Cursor, Grok Build and Hermes | `designed` | M4 | [spec §12.2](specs/core-single-issue-pipeline.md) |
-| D-05 | Team onboarding through repository settings | `designed` | M2 | [spec §12.4](specs/core-single-issue-pipeline.md) |
+| D-05 | Team onboarding through repository settings | `planned` | M2 | [spec §12.4](specs/core-single-issue-pipeline.md), [plan 2c](plans/2026-09-30-plan-2c-adapters-and-plugin.md) |
 | D-06 | Directory listings for each host's marketplace | `proposed` | M8 | [spec §12.5](specs/core-single-issue-pipeline.md) |
 | D-07 | Launchers `riverwright` and `rw` for macOS, Linux and Windows | `verified` | M1 | [code](../bin/riverwright), [tests](../tests/launcher.test.mjs), [CI](https://github.com/pacphi/riverwright/pull/1) |
 
@@ -115,14 +120,14 @@ tested on the practice project, and seen in a real run.
 
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
-| H-01 | Claude Code reference adapter | `designed` | M2 | [spec §13](specs/core-single-issue-pipeline.md), [ADR-0002](adr/0002-portable-skill-core-generated-adapters.md) |
+| H-01 | Claude Code reference adapter | `planned` | M2 | [spec §13](specs/core-single-issue-pipeline.md), [ADR-0002](adr/0002-portable-skill-core-generated-adapters.md), [plan 2c](plans/2026-09-30-plan-2c-adapters-and-plugin.md) |
 | H-02 | Codex adapter | `designed` | M4 | [host checks](research/evidence-base.md) |
 | H-03 | Gemini CLI adapter | `designed` | M4 | [host checks](research/evidence-base.md) |
 | H-04 | Cursor adapter | `designed` | M4 | [host checks](research/evidence-base.md) |
 | H-05 | Grok Build adapter | `designed` | M4 | [host checks](research/evidence-base.md) |
 | H-06 | Hermes Agent adapter | `designed` | M4 | [host checks](research/evidence-base.md) |
 | H-07 | Dispatch ladder: native subagent, else headless process, else inline | `designed` | M2 | [spec §8](specs/core-single-issue-pipeline.md) |
-| H-08 | Adapter generator from one source, with a drift check | `designed` | M2 | [spec §13](specs/core-single-issue-pipeline.md) |
+| H-08 | Adapter generator from one source, with a drift check | `planned` | M2 | [spec §13](specs/core-single-issue-pipeline.md), [plan 2c](plans/2026-09-30-plan-2c-adapters-and-plugin.md) |
 
 ### Batch: many issues at once
 
@@ -138,7 +143,7 @@ tested on the practice project, and seen in a real run.
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
 | W-01 | Thread record and audit data model | `designed` | M6 | [spec](specs/thread-record-and-audit.md), [ADR-0007](adr/0007-follow-and-adopt-loop-own-vocabulary.md) |
-| W-02 | Hash-chained event ledger with `ledger verify` | `designed` | M6 | [spec §9](specs/thread-record-and-audit.md) |
+| W-02 | Hash-chained event ledger with `ledger verify` (built early, in plan 2a) | `planned` | M2 | [spec §9](specs/thread-record-and-audit.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 1, 10) |
 | W-03 | Follower: release confirmation, replies, staleness | `proposed` | M6 | [spec](specs/thread-record-and-audit.md) |
 | W-04 | Read-only import from agentic-kit's upstream-watch registry | `designed` | M6 | [spec §11](specs/thread-record-and-audit.md) |
 | W-05 | Status reports for threads and workarounds | `proposed` | M6 | [spec](specs/thread-record-and-audit.md) |
@@ -184,12 +189,15 @@ roadmap:
 | 2026-09-29 | Follow and adopt in Riverwright's own vocabulary; named Riverwright | [ADR-0007](adr/0007-follow-and-adopt-loop-own-vocabulary.md) |
 | 2026-09-29 | Existing repositories are never overwritten | [ADR-0008](adr/0008-never-overwrite-existing-repositories.md) |
 | 2026-09-29 | pnpm, pinned by `packageManager`, for development tools | [ADR-0009](adr/0009-pnpm-for-development-tools.md) |
+| 2026-09-29 | Sealed credential released by a human unlock inside submit and post; approve and submit collapse for public gates | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md) |
+| 2026-09-30 | The plugin is a generated `plugin/` folder; the repository root is only the marketplace | [ADR-0011](adr/0011-generated-plugin-folder-marketplace-at-root.md) |
+| 2026-09-30 | A re-submit after an amend may replace the branch tip only through a leased push bound to the receipt | [ADR-0012](adr/0012-leased-force-push-for-resubmits.md) |
 
 ## Risks and open items
 
 | Item | Why it matters | Owner |
 |---|---|---|
-| The approval record is still a file an agent can write | until credential separation (S-07), a determined agent could forge consent | M2 |
+| The approval record is still a file an agent can write | until S-07 is built, a determined agent could forge consent; after it, an ambient `gh` login or a readable terminal is the remaining route ([ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md)) | M2 |
 | Hook payloads for Codex, Gemini, Cursor and Grok come from documentation | the deny logic is tested against assumed shapes until captured (Q-04) | M3 |
 | Windows PowerShell 5.1 behavior is covered by CI, not by a local run | the first Windows run already found one fail-open bug | continuous |
 | Trademark search for the name "Riverwright" is not done | required before any public launch | M8, owner |
