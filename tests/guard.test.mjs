@@ -192,3 +192,38 @@ test('the guard finds the run from a linked worktree of the clone (git worktree 
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: path.join(worktree), env: { UPF_HOME: home } });
   assert.equal(r.code, 0, r.stderr);
 });
+
+test('remote URLs on other schemes, ports or look-alike hosts do not normalize', () => {
+  for (const u of [
+    'http://github.com/pacphi/ruflo.git',
+    'git://github.com/pacphi/ruflo.git',
+    'file:///tmp/pacphi/ruflo.git',
+    'https://github.com:8443/pacphi/ruflo.git',
+    'ssh://git@github.com:2222/pacphi/ruflo.git',
+    'ssh://evil@github.com/pacphi/ruflo.git',
+    'https://g\u0456thub.com/pacphi/ruflo',
+    'https://G\u0130THUB.com/pacphi/ruflo',
+    'https://github.com./pacphi/ruflo',
+    'https://github.com/pacph%69/ruflo',
+    'https://github.com/pacphi/ruflo?ref=x',
+    'https://github.com/pacphi/ruflo#x',
+    'git@github.com:pacphi/../ruflo',
+    'C:/repos/x',
+  ]) {
+    assert.equal(normalizeRemoteUrl(u), null, u);
+  }
+});
+
+test('explicit default ports are the same remote', () => {
+  assert.equal(normalizeRemoteUrl('https://github.com:443/pacphi/ruflo.git'), 'github.com/pacphi/ruflo');
+  assert.equal(normalizeRemoteUrl('ssh://git@github.com:22/pacphi/ruflo.git'), 'github.com/pacphi/ruflo');
+  assert.equal(normalizeRemoteUrl('HTTPS://GitHub.COM/PacPhi/Ruflo'), 'github.com/pacphi/ruflo');
+  assert.equal(normalizeRemoteUrl('github.com:pacphi/ruflo'), 'github.com/pacphi/ruflo');
+});
+
+test('a push over plain http or a non-default port is not a push to the fork', () => {
+  for (const remoteUrl of ['http://github.com/pacphi/ruflo.git', 'https://github.com:8443/pacphi/ruflo.git', 'git://github.com/pacphi/ruflo.git']) {
+    const d = decidePrePush({ remoteUrl, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A });
+    assert.equal(d.allow, false, remoteUrl);
+  }
+});
