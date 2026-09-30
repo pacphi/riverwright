@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
 import path from 'node:path';
 import { normalizeRemoteUrl } from '../scripts/lib/giturl.mjs';
 import { parsePrePushLines, decidePrePush, renderPrePushHook } from '../scripts/lib/guard.mjs';
@@ -7,7 +8,7 @@ import { createState, saveState, setFork } from '../scripts/lib/state.mjs';
 import { recordApproval } from '../scripts/lib/approvals.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
-import { callMain, tmpDir } from './helpers.mjs';
+import { callMain, runUpf, tmpDir } from './helpers.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -64,7 +65,7 @@ async function runWithApproval(sha) {
   let s = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
   s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' });
   saveState(dir, s);
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(sha), env: { UPF_RUN_DIR: dir, UPF_NOW: 't' } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(sha), env: { UPF_TEST: '1', UPF_RUN_DIR: dir, UPF_NOW: 't' } });
   return { r, dir };
 }
 
@@ -88,7 +89,7 @@ test('upf guard finds the run through git config upf.run', async () => {
   saveState(dir, recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' }));
   await runFile('git', ['init', '-q'], { cwd: repo });
   await runFile('git', ['config', 'upf.run', dir], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { UPF_NOW: 't' } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { UPF_TEST: '1', UPF_NOW: 't' } });
   assert.equal(r.code, 0, r.stderr);
 });
 
@@ -102,4 +103,92 @@ test('upf guard blocks when the run record is missing', async () => {
 
 test('setFork refuses a URL that is not a GitHub-style remote', () => {
   assert.throws(() => setFork(createState({ runId: 'o/r#1', now: 't' }), path.join('tmp', 'x')), /not a fork URL/);
+});
+
+// The guard finds the run from the repository being pushed: <home>/<o>/<r>/worktrees/issue-<n>.
+async function workspace({ runId = 'ruvnet/ruflo#3509', approve = true } = {}) {
+  const home = tmpDir('upf-home-');
+  const worktree = path.join(home, 'ruvnet', 'ruflo', 'worktrees', 'issue-3509');
+  fs.mkdirSync(worktree, { recursive: true });
+  await runFile('git', ['init', '-q'], { cwd: worktree });
+  const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
+  let s = setFork(createState({ runId, now: 't' }), FORK);
+  if (approve) s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't' });
+  saveState(dir, s);
+  return { home, worktree, dir };
+}
+
+async function forgedRun() {
+  const dir = tmpDir('forged-run-');
+  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' }));
+  return dir;
+}
+
+test('the guard finds the run from the worktree it is pushing from', async () => {
+  const w = await workspace();
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { UPF_HOME: w.home } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(readLedger(w.dir).at(-1).decision, 'allow');
+});
+
+test('a forged UPF_RUN_DIR does not make the guard allow', async () => {
+  const repo = tmpDir();
+  await runFile('git', ['init', '-q'], { cwd: repo });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { UPF_RUN_DIR: await forgedRun(), UPF_HOME: tmpDir('upf-home-') } });
+  assert.notEqual(r.code, 0);
+  const w = await workspace({ approve: false });
+  const r2 = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { UPF_RUN_DIR: await forgedRun(), UPF_HOME: w.home } });
+  assert.notEqual(r2.code, 0);
+  assert.match(r2.stderr, /Nothing has been approved/);
+});
+
+test('a forged git config upf.run does not make the guard allow', async () => {
+  const repo = tmpDir();
+  await runFile('git', ['init', '-q'], { cwd: repo });
+  await runFile('git', ['config', 'upf.run', await forgedRun()], { cwd: repo });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { UPF_HOME: tmpDir('upf-home-') } });
+  assert.notEqual(r.code, 0);
+});
+
+test('config injected through GIT_CONFIG_COUNT does not make the guard allow', async () => {
+  const repo = tmpDir();
+  await runFile('git', ['init', '-q'], { cwd: repo });
+  const r = runUpf(['guard', 'pre-push', 'fork', FORK], {
+    stdin: line(A), cwd: repo,
+    env: { UPF_HOME: tmpDir('upf-home-'), UPF_TEST: '', UPF_RUN_DIR: '', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'upf.run', GIT_CONFIG_VALUE_0: await forgedRun() },
+  });
+  assert.notEqual(r.code, 0, r.stderr);
+});
+
+test('a run record that belongs to another issue is refused', async () => {
+  const w = await workspace({ runId: 'ruvnet/ruflo#1' });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { UPF_HOME: w.home } });
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /belongs to ruvnet\/ruflo#1/);
+});
+
+test('pushing from the plain clone (not a run worktree) is refused', async () => {
+  const w = await workspace();
+  const clone = path.join(w.home, 'ruvnet', 'ruflo', 'clone');
+  fs.mkdirSync(clone, { recursive: true });
+  await runFile('git', ['init', '-q'], { cwd: clone });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: clone, env: { UPF_HOME: w.home } });
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /run record is missing/);
+});
+
+test('the guard finds the run from a linked worktree of the clone (git worktree add)', async () => {
+  const home = tmpDir('upf-home-');
+  const clone = path.join(home, 'ruvnet', 'ruflo', 'clone');
+  fs.mkdirSync(clone, { recursive: true });
+  const git = (cwd, ...a) => runFile('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...a], { cwd });
+  await git(clone, 'init', '-q');
+  await git(clone, 'commit', '-q', '--allow-empty', '-m', 'init');
+  const worktree = path.join(home, 'ruvnet', 'ruflo', 'worktrees', 'issue-3509');
+  const added = await git(clone, 'worktree', 'add', '-q', '-b', 'upf/3509-codex', worktree);
+  assert.equal(added.code, 0, added.stderr);
+  const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
+  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't' }));
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: path.join(worktree), env: { UPF_HOME: home } });
+  assert.equal(r.code, 0, r.stderr);
 });
