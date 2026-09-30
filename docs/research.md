@@ -123,7 +123,7 @@ removed rather than kept with a caveat; see "Removed" at the end.
 
 | Finding | Source | Design rule |
 |---|---|---|
-| A plugin's `bin/` is on the Bash tool's PATH while enabled; `${CLAUDE_PLUGIN_ROOT}` is not set in Bash-tool calls; `${CLAUDE_PLUGIN_DATA}` persists across updates; `userConfig`, `dependencies`; claude.ai and Cowork skip plugins with `bin/` | code.claude.com/docs/en/plugins (manifest reference, publish, org) | Ship `bin/upf` |
+| A plugin's `bin/` is on the Bash tool's PATH while enabled; `${CLAUDE_PLUGIN_ROOT}` is not set in Bash-tool calls; `${CLAUDE_PLUGIN_DATA}` persists across updates; `userConfig`, `dependencies`; claude.ai and Cowork skip plugins with `bin/` | code.claude.com/docs/en/plugins (manifest reference, publish, org) | Ship `bin/riverwright` |
 | One repo can be its own marketplace (`.claude-plugin/marketplace.json`, `"source": "./"`); team prompts via `extraKnownMarketplaces` + `enabledPlugins` after workspace trust | code.claude.com/docs/en/plugin-marketplaces; …/plugins/org | Spec 1 §12.4 |
 | Codex installs plugins from a marketplace repo and also reads `.claude-plugin/marketplace.json` | developers.openai.com/codex/plugins/build | One marketplace file may serve both |
 | Gemini installs extensions from a git URL with `--ref` and `--auto-update`; gallery listing via GitHub topic `gemini-cli-extension` | geminicli.com/docs/extensions/reference, …/releasing | §12.2, §12.5 |
@@ -132,15 +132,15 @@ removed rather than kept with a caveat; see "Removed" at the end.
 | Hermes installs from `owner/repo`, prompts to enable; reads vendor-neutral Agent Plugins v1 packages | local `hermes_cli/plugins_cmd_install.py`, `agent_plugins.py`; agent-plugins.org | User chooses `--enable`; watch Agent Plugins v1 |
 | `npx skills add owner/repo` installs skills only, into many agents' skill directories | github.com/vercel-labs/skills | Secondary channel |
 | Ask consent before changing configuration that isn't yours; offer `--dry-run` and `--no-input` | clig.dev (Configuration, Arguments and flags, Interactivity) | Wizard rules |
-| A read-only doctor that exits non-zero on findings | docs.brew.sh/Manpage (`brew doctor`) | `upf doctor` |
+| A read-only doctor that exits non-zero on findings | docs.brew.sh/Manpage (`brew doctor`) | `riverwright doctor` |
 
 ## J. Cross-platform runtime and existing repositories
 
 | Finding | Source | Design rule |
 |---|---|---|
 | Node refuses to spawn `.bat`/`.cmd` files without a shell on Windows | Node.js docs, "Spawning `.bat` and `.cmd` files on Windows" (child_process); also cited by agentic-kit `docs/upstream-watch.md` | Run a host's JS entry with `node`, else `cmd.exe /d /s /c` with strict quoting |
-| The superpowers Windows hook launcher exits 0 when bash is missing | local `superpowers/6.4.1/hooks/run-hook.cmd` | A bash guard would fail open on Windows; `upf` is Node and its launcher exits 2 for hooks |
+| The superpowers Windows hook launcher exits 0 when bash is missing | local `superpowers/6.4.1/hooks/run-hook.cmd` | A bash guard would fail open on Windows; `riverwright` is Node and its launcher exits 2 for hooks |
 | Git for Windows runs repository hooks with its bundled sh | Git for Windows (hooks run under its MSYS shell) | Pre-push hook is a tiny sh file that execs Node |
-| This user's tools already share a managed-block convention (`<!-- BEGIN slug -->` … `<!-- END slug -->`, "Managed by … Refresh with …") | local `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, agentic-kit `CLAUDE.md`/`AGENTS.md` | Same format for the upstream-pr-filer block |
+| This user's tools already share a managed-block convention (`<!-- BEGIN slug -->` … `<!-- END slug -->`, "Managed by … Refresh with …") | local `~/.claude/CLAUDE.md`, `~/.codex/AGENTS.md`, agentic-kit `CLAUDE.md`/`AGENTS.md` | Same format for the Riverwright block |
 | agentic-kit's block writer preserves CRLF, appends a fresh block after an orphaned BEGIN, and strips exactly one block | local agentic-kit `src/lib/blocks.mjs` (`upsertBlock`, `stripBlock`, `blockRanges`) | Same edge-case rules (Spec 1 §12.6) |
 | aqe ≥3.12.1 "merges, never clobbers" settings and writes a one-time backup | user's machine-wide agent guidance (Agentic-QE section) | Additive JSON merges; backups outside the repo |

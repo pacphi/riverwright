@@ -341,7 +341,7 @@ footer{padding-block:48px 72px;color:var(--ink-soft);font-size:15px}
       <p class="eyebrow">A field guide in eight river miles · design stage · September 2026</p>
       <h1>Paddling Upstream</h1>
       <p class="lede">What to do when something you didn't build breaks the thing you did.</p>
-      <p class="sub">This is the story of a planned helper for software builders called <b>upstream-pr-filer</b>. It explains the problem, why it's hard, and how a careful crew of AI helpers could fix bugs in other people's projects, with proof, good manners, and you as captain.</p>
+      <p class="sub">This is the story of a planned helper for software builders called <b>Riverwright</b>. It explains the problem, why it's hard, and how a careful crew of AI helpers could fix bugs in other people's projects, with proof, good manners, and you as captain.</p>
       <div class="scale"><i></i> One chapter = one river mile · about 10 minutes</div>
     </div>
   </div>
@@ -782,7 +782,7 @@ footer{padding-block:48px 72px;color:var(--ink-soft);font-size:15px}
     <p class="eyebrow">Getting it</p>
     <ol>
       <li><b>Install it through your helper's own plugin menu.</b> One project serves all six. Each helper installs it with its own command, so nothing edits your settings behind your back. <a class="cite" href="#r-ccplugins">Claude Code plugin docs</a></li>
-      <li><b>Run the checkup.</b> <code>upf doctor</code> looks for git, GitHub access, Docker and each helper, then prints the exact command for anything missing. It changes nothing. <a class="cite" href="#r-clig">clig.dev</a></li>
+      <li><b>Run the checkup.</b> <code>riverwright doctor</code> looks for git, GitHub access, Docker and each helper, then prints the exact command for anything missing. It changes nothing. <a class="cite" href="#r-clig">clig.dev</a></li>
       <li><b>Walk the setup wizard.</b> <code>/upstream-setup</code> goes through that list with you, asks before each change, and finishes with a practice run on a test project.</li>
     </ol>
   </div>
@@ -934,7 +934,7 @@ footer{padding-block:48px 72px;color:var(--ink-soft);font-size:15px}
 </main>
 
 <footer class="wrap">
-  <p>Paddling Upstream explains the design of upstream-pr-filer, a planned toolkit for Claude Code, Codex, Gemini CLI, Cursor, Grok Build and Hermes Agent. Tool names are used only to describe compatibility. <a href="#top">Back to the top of the river</a></p>
+  <p>Paddling Upstream explains the design of Riverwright, a planned toolkit for Claude Code, Codex, Gemini CLI, Cursor, Grok Build and Hermes Agent. Tool names are used only to describe compatibility. <a href="#top">Back to the top of the river</a></p>
 </footer>
 
 <script>
@@ -1056,7 +1056,7 @@ footer{padding-block:48px 72px;color:var(--ink-soft);font-size:15px}
     gaugeLinks.forEach(function(a, i){ a.classList.toggle('on', i === idx); if (i === idx) a.setAttribute('aria-current', 'step'); else a.removeAttribute('aria-current'); });
   }
 
-  /* ---------- evidence sidecar, written by `upf evidence export` ---------- */
+  /* ---------- evidence sidecar, written by `riverwright evidence export` ---------- */
   var RANK = { fixture: 1, real: 2 };
   function applyEvidence(ev){
     if (!ev || typeof ev !== 'object') return;
