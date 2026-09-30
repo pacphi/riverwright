@@ -6,6 +6,6 @@
   "private": true,
   "license": "MIT",
   "engines": { "node": ">=24" },
-  "bin": { "riverwright": "scripts/riverwright.mjs" },
+  "bin": { "riverwright": "scripts/riverwright.mjs", "rw": "scripts/riverwright.mjs" },
   "scripts": { "test": "node --test" }
 }
