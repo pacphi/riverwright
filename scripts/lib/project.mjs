@@ -213,8 +213,38 @@ export function backupRoot(home, repoRoot) {
   return path.join(home, 'backups', `${path.basename(root)}-${id}`);
 }
 
+// Backups live under <home>/backups, which an agent can also write. Every folder that already exists
+// from <home>/backups down to the file being written must be a real folder, not a link (or a file):
+// mkdir -p and rename follow links, so a planted link would send backup copies and the manifest elsewhere.
+export function assertRealBackupDirs(home, target) {
+  const base = path.join(home, 'backups');
+  const rel = path.relative(base, path.dirname(target));
+  if (rel.startsWith('..') || path.isAbsolute(rel)) throw new RiverwrightError('UNSAFE_BACKUP', `${target} is not under ${base}`);
+  let cur = base;
+  for (const part of ['', ...rel.split(path.sep).filter(Boolean)]) {
+    cur = path.join(cur, part);
+    let st;
+    try {
+      st = fs.lstatSync(cur);
+    } catch (e) {
+      if (e.code === 'ENOENT') return;
+      throw e;
+    }
+    if (st.isSymbolicLink()) throw new RiverwrightError('UNSAFE_BACKUP', `${cur} is a link; Riverwright writes backups only into real folders under ${base}`);
+    if (!st.isDirectory()) throw new RiverwrightError('UNSAFE_BACKUP', `${cur} is not a folder; Riverwright writes backups only into real folders under ${base}`);
+  }
+}
+
+function writeBackupFile(home, target, data) {
+  assertRealBackupDirs(home, target);
+  writeFileAtomic(target, data);
+}
+
 export async function applyPlan(plan, { home, now, confirm = async () => true }) {
-  const dir = path.join(backupRoot(home, plan.root), String(now).replace(/[:.]/g, '-'));
+  // A random suffix keeps two runs in the same millisecond from sharing (and overwriting) one manifest.
+  const dir = path.join(backupRoot(home, plan.root), `${String(now).replace(/[:.]/g, '-')}-${crypto.randomBytes(4).toString('hex')}`);
+  // Checked before any question is asked or any file in the repository changes.
+  assertRealBackupDirs(home, path.join(dir, 'manifest.json'));
   const manifest = { root: plan.root, createdAt: now, mode: plan.mode, steps: [] };
   const results = [];
   for (const step of plan.steps) {
@@ -237,7 +267,7 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
       continue;
     }
     const abs = path.join(plan.root, step.file);
-    if (step.before !== null) writeFileAtomic(path.join(dir, 'files', step.file), step.before);
+    if (step.before !== null) writeBackupFile(home, path.join(dir, 'files', step.file), step.before);
     // Only an instruction file may be a (vetted, in-repository) link, e.g. CLAUDE.md -> AGENTS.md.
     const followSymlink = step.kind === 'block' && INSTRUCTION_FILES.includes(step.file);
     if (step.action === 'delete') fs.rmSync(abs);
@@ -252,7 +282,7 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
     });
     results.push({ file: step.file, result: { create: 'created', update: 'updated', delete: 'deleted' }[step.action] });
   }
-  if (manifest.steps.length) writeFileAtomic(path.join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
+  if (manifest.steps.length) writeBackupFile(home, path.join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return { results, backup: manifest.steps.length ? dir : null };
 }
 
