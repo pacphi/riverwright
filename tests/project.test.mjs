@@ -20,13 +20,13 @@ const home = () => tmpDir('upf-home-');
 const plan = (root, h, opts = {}) => planIntegration(inspectRepo(root, { home: h }), { version: '0.1.0', ...opts });
 const actions = (p) => Object.fromEntries(p.steps.map((s) => [s.file, s.action]));
 
-test('an empty repository gets AGENTS.md and .upstream-pr.json, and a second run changes nothing', async () => {
+test('an empty repository gets AGENTS.md and riverwright.json, and a second run changes nothing', async () => {
   const root = repo();
   const h = home();
   const p = plan(root, h);
-  assert.deepEqual(actions(p), { 'AGENTS.md': 'create', '.upstream-pr.json': 'create' });
+  assert.deepEqual(actions(p), { 'AGENTS.md': 'create', 'riverwright.json': 'create' });
   await applyPlan(p, { home: h, now: '2026-09-29T00:00:00Z' });
-  assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /<!-- BEGIN upstream-pr-filer -->/);
+  assert.match(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), /<!-- BEGIN riverwright -->/);
   assert.deepEqual(plan(root, h).steps, []);
 });
 
@@ -36,11 +36,11 @@ test('an agentic-kit-style repo: only AGENTS.md changes, other blocks and CLAUDE
   const h = home();
   const claudeBefore = hash(path.join(root, 'CLAUDE.md'));
   const p = plan(root, h);
-  assert.deepEqual(actions(p), { 'AGENTS.md': 'update', '.upstream-pr.json': 'create' });
+  assert.deepEqual(actions(p), { 'AGENTS.md': 'update', 'riverwright.json': 'create' });
   await applyPlan(p, { home: h, now: 't1' });
   assert.ok(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8').startsWith(agents));
   assert.equal(hash(path.join(root, 'CLAUDE.md')), claudeBefore);
-  assert.equal(JSON.parse(fs.readFileSync(path.join(root, '.upstream-pr.json'), 'utf8')).registry, REGISTRY);
+  assert.equal(JSON.parse(fs.readFileSync(path.join(root, 'riverwright.json'), 'utf8')).registry, REGISTRY);
 });
 
 test('CLAUDE.md as a symlink to AGENTS.md is written once and stays a symlink', { skip: process.platform === 'win32' }, async () => {
@@ -48,14 +48,14 @@ test('CLAUDE.md as a symlink to AGENTS.md is written once and stays a symlink', 
   fs.symlinkSync('AGENTS.md', path.join(root, 'CLAUDE.md'));
   const h = home();
   const p = plan(root, h);
-  assert.deepEqual(Object.keys(actions(p)).sort(), ['.upstream-pr.json', 'AGENTS.md']);
+  assert.deepEqual(Object.keys(actions(p)).sort(), ['AGENTS.md', 'riverwright.json']);
   await applyPlan(p, { home: h, now: 't' });
   assert.equal(fs.lstatSync(path.join(root, 'CLAUDE.md')).isSymbolicLink(), true);
 });
 
 test('a repo with only CLAUDE.md gets the block there and no new AGENTS.md', () => {
   const root = repo({ 'CLAUDE.md': '# Claude\n' });
-  assert.deepEqual(actions(plan(root, home())), { 'CLAUDE.md': 'update', '.upstream-pr.json': 'create' });
+  assert.deepEqual(actions(plan(root, home())), { 'CLAUDE.md': 'update', 'riverwright.json': 'create' });
 });
 
 test('GEMINI.md is skipped when Gemini already reads AGENTS.md', () => {
@@ -64,8 +64,8 @@ test('GEMINI.md is skipped when Gemini already reads AGENTS.md', () => {
 });
 
 test('a Cursor rule is created only when the repo already uses Cursor', () => {
-  assert.equal(actions(plan(repo(), home()))['.cursor/rules/upstream-pr-filer.mdc'], undefined);
-  assert.equal(actions(plan(repo({ '.cursor/rules/x.mdc': 'x' }), home()))['.cursor/rules/upstream-pr-filer.mdc'], 'create');
+  assert.equal(actions(plan(repo(), home()))['.cursor/rules/riverwright.mdc'], undefined);
+  assert.equal(actions(plan(repo({ '.cursor/rules/x.mdc': 'x' }), home()))['.cursor/rules/riverwright.mdc'], 'create');
 });
 
 test('team settings: comments mean a snippet instead of an edit', async () => {
@@ -84,7 +84,7 @@ test('team settings: only absent keys are added, indent and existing values kept
   const step = plan(root, home(), { team: true }).steps.find((s) => s.file === '.claude/settings.json');
   const after = JSON.parse(step.after);
   assert.equal(after.enabledPlugins['other@x'], true);
-  assert.equal(after.enabledPlugins['upstream-pr-filer@upstream-pr-filer'], true);
+  assert.equal(after.enabledPlugins['riverwright@riverwright'], true);
   assert.match(step.after, /\n {8}"other@x"/);
 });
 
@@ -141,10 +141,10 @@ const outsideDir = () => tmpDir('outside-');
 test('a dangling symlink in place of a new file is not written through', posixOnly, async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
   const out = outsideDir();
-  fs.symlinkSync(path.join(out, 'planted.json'), path.join(root, '.upstream-pr.json'));
+  fs.symlinkSync(path.join(out, 'planted.json'), path.join(root, 'riverwright.json'));
   const h = home();
   const p = plan(root, h);
-  assert.equal(actions(p)['.upstream-pr.json'], 'print-snippet');
+  assert.equal(actions(p)['riverwright.json'], 'print-snippet');
   await applyPlan(p, { home: h, now: 't' });
   assert.equal(fs.existsSync(path.join(out, 'planted.json')), false);
 });
@@ -169,7 +169,7 @@ test('a folder on the way that links outside the repository is not written throu
   fs.symlinkSync(claudeOut, path.join(root, '.claude'));
   const h = home();
   const p = plan(root, h, { team: true });
-  assert.equal(actions(p)['.cursor/rules/upstream-pr-filer.mdc'], 'print-snippet');
+  assert.equal(actions(p)['.cursor/rules/riverwright.mdc'], 'print-snippet');
   assert.equal(actions(p)['.claude/settings.json'], 'print-snippet');
   await applyPlan(p, { home: h, now: 't' });
   assert.deepEqual(fs.readdirSync(path.join(out, 'rules')), []);
@@ -181,7 +181,7 @@ test('applyPlan refuses a create through a broken folder link even if the plan s
   const out = outsideDir();
   fs.symlinkSync(path.join(out, 'gone'), path.join(root, '.cursor'));
   const h = home();
-  const forged = { root, mode: 'install', steps: [{ file: '.cursor/rules/upstream-pr-filer.mdc', kind: 'owned-file', action: 'create', before: null, after: 'x' }] };
+  const forged = { root, mode: 'install', steps: [{ file: '.cursor/rules/riverwright.mdc', kind: 'owned-file', action: 'create', before: null, after: 'x' }] };
   const { results } = await applyPlan(forged, { home: h, now: 't' });
   assert.equal(results[0].result, 'refused');
   assert.equal(fs.existsSync(path.join(out, 'gone')), false);
@@ -194,6 +194,6 @@ test('a symlink between files inside the repository is still followed for instru
   const p = plan(root, h);
   assert.equal(actions(p)['AGENTS.md'], 'update');
   await applyPlan(p, { home: h, now: 't' });
-  assert.match(fs.readFileSync(path.join(root, 'docs', 'AGENTS.md'), 'utf8'), /BEGIN upstream-pr-filer/);
+  assert.match(fs.readFileSync(path.join(root, 'docs', 'AGENTS.md'), 'utf8'), /BEGIN riverwright/);
   assert.equal(fs.lstatSync(path.join(root, 'AGENTS.md')).isSymbolicLink(), true);
 });

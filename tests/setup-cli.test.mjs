@@ -14,10 +14,10 @@ test('--dry-run prints the diff and changes nothing', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
   const r = await callMain(['setup', '--project', '--dry-run', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('upf-home-') } });
   assert.equal(r.code, 0, r.stderr);
-  assert.match(r.stdout, /\+<!-- BEGIN upstream-pr-filer -->/);
+  assert.match(r.stdout, /\+<!-- BEGIN riverwright -->/);
   assert.match(r.stdout, /Dry run: nothing was changed/);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
-  assert.equal(fs.existsSync(path.join(root, '.upstream-pr.json')), false);
+  assert.equal(fs.existsSync(path.join(root, 'riverwright.json')), false);
 });
 
 test('--yes applies and reminds the user nothing was committed', async () => {
@@ -34,7 +34,7 @@ test('interactive mode asks per file', async () => {
   const r = await callMain(['setup', '--project', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('upf-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' }, terminal: () => fakeTerminal(answers.shift()) });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /AGENTS\.md: updated/);
-  assert.match(r.stdout, /\.upstream-pr\.json: declined/);
+  assert.match(r.stdout, /riverwright\.json: declined/);
 });
 
 test('--remove --yes undoes a setup', async () => {
@@ -44,7 +44,7 @@ test('--remove --yes undoes a setup', async () => {
   const r = await callMain(['setup', '--project', '--remove', '--yes', '--repo', root], { env: { ...env, RIVERWRIGHT_NOW: 't2' } });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
-  assert.equal(fs.existsSync(path.join(root, '.upstream-pr.json')), false);
+  assert.equal(fs.existsSync(path.join(root, 'riverwright.json')), false);
 });
 
 test('without --project, setup explains how to use it', async () => {

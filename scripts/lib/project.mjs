@@ -10,12 +10,12 @@ import { parseJsonStrict, addAbsentKeys, removeAddedKeys, formatJsonLike } from 
 import { unifiedDiff } from './diff.mjs';
 import { runFile } from './exec.mjs';
 
-export const SLUG = 'upstream-pr-filer';
+export const SLUG = 'riverwright';
 export const REGISTRY = 'src/lib/hook-audit/agentic-dependency-constraints.json';
 export const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
 export const TEAM_SETTINGS = Object.freeze({
-  extraKnownMarketplaces: { 'upstream-pr-filer': { source: { source: 'github', repo: 'agentic-incubator/upstream-pr-filer' } } },
-  enabledPlugins: { 'upstream-pr-filer@upstream-pr-filer': true },
+  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'agentic-incubator/riverwright' } } },
+  enabledPlugins: { 'riverwright@riverwright': true },
 });
 export const CURSOR_RULE = [
   '---',
@@ -23,12 +23,12 @@ export const CURSOR_RULE = [
   'alwaysApply: false',
   '---',
   'Fixes to upstream dependencies go through Riverwright (`/upstream-contribute`).',
-  'Never push to an upstream remote directly. Project settings: `.upstream-pr.json`.',
+  'Never push to an upstream remote directly. Project settings: `riverwright.json`.',
   '',
 ].join('\n');
 
 // Every file Riverwright may ever create, update or delete in a repository (§12.6).
-export const OWNED_TARGETS = Object.freeze([...INSTRUCTION_FILES, '.cursor/rules/upstream-pr-filer.mdc', '.upstream-pr.json', '.claude/settings.json']);
+export const OWNED_TARGETS = Object.freeze([...INSTRUCTION_FILES, '.cursor/rules/riverwright.mdc', 'riverwright.json', '.claude/settings.json']);
 const SETTINGS_FILE = '.claude/settings.json';
 
 // A path from a plan or a backup manifest is acted on only if it is one of the fixed targets and,
@@ -74,7 +74,7 @@ export function blockBody(version) {
     `<!-- Managed by Riverwright ${version}. Update: riverwright setup --project · Remove: riverwright setup --project --remove -->`,
     '## Upstream contributions',
     'Fixes to upstream dependencies go through Riverwright (`/upstream-contribute`).',
-    'Never push to an upstream remote directly. Project settings: `.upstream-pr.json`.',
+    'Never push to an upstream remote directly. Project settings: `riverwright.json`.',
   ].join('\n');
 }
 
@@ -118,7 +118,7 @@ export function inspectRepo(repoRoot, { home }) {
       claude: claudeText !== null || linkedToAgents(at('CLAUDE.md')),
       gemini: fs.existsSync(at('GEMINI.md')),
       cursorDir: fs.existsSync(at('.cursor')),
-      projectConfig: fs.existsSync(at('.upstream-pr.json')),
+      projectConfig: fs.existsSync(at('riverwright.json')),
       agenticKitRegistry: fs.existsSync(at(REGISTRY)),
     },
     claudeImportsAgents,
@@ -175,14 +175,14 @@ export function planIntegration(info, { version, team = false, changed = new Set
     propose({ file, kind: 'block', before, after: upsertBlock(before ?? '', SLUG, body).text, snippet: blockText });
   }
 
-  const rule = '.cursor/rules/upstream-pr-filer.mdc';
+  const rule = '.cursor/rules/riverwright.mdc';
   if (info.has.cursorDir && readTextIfExists(path.join(info.root, rule)) === null) {
     propose({ file: rule, kind: 'owned-file', before: null, after: CURSOR_RULE, snippet: CURSOR_RULE });
   }
 
   if (!info.has.projectConfig) {
     const text = projectConfigText({ registry: info.has.agenticKitRegistry ? REGISTRY : undefined });
-    propose({ file: '.upstream-pr.json', kind: 'owned-file', before: null, after: text, snippet: text });
+    propose({ file: 'riverwright.json', kind: 'owned-file', before: null, after: text, snippet: text });
   }
 
   if (team) {

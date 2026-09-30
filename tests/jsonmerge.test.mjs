@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { parseJsonStrict, addAbsentKeys, removeAddedKeys, formatJsonLike } from '../scripts/lib/jsonmerge.mjs';
 
 const TEAM = {
-  extraKnownMarketplaces: { 'upstream-pr-filer': { source: { source: 'github', repo: 'agentic-incubator/upstream-pr-filer' } } },
-  enabledPlugins: { 'upstream-pr-filer@upstream-pr-filer': true },
+  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'agentic-incubator/riverwright' } } },
+  enabledPlugins: { 'riverwright@riverwright': true },
 };
 
 test('comments make a file unparseable, so it is never edited', () => {
@@ -13,9 +13,9 @@ test('comments make a file unparseable, so it is never edited', () => {
 });
 
 test('only absent keys are added; existing values are never changed', () => {
-  const target = { enabledPlugins: { 'other@x': true, 'upstream-pr-filer@upstream-pr-filer': false }, model: 'x' };
+  const target = { enabledPlugins: { 'other@x': true, 'riverwright@riverwright': false }, model: 'x' };
   const { result, added } = addAbsentKeys(target, TEAM);
-  assert.equal(result.enabledPlugins['upstream-pr-filer@upstream-pr-filer'], false);
+  assert.equal(result.enabledPlugins['riverwright@riverwright'], false);
   assert.equal(result.enabledPlugins['other@x'], true);
   assert.deepEqual(result.extraKnownMarketplaces, TEAM.extraKnownMarketplaces);
   assert.deepEqual(added, [['extraKnownMarketplaces']]);
@@ -30,10 +30,10 @@ test('removing added keys restores the original object', () => {
 
 test('a value the user changed after we added it is left alone', () => {
   const { result, added } = addAbsentKeys({}, TEAM);
-  result.enabledPlugins['upstream-pr-filer@upstream-pr-filer'] = false;
+  result.enabledPlugins['riverwright@riverwright'] = false;
   result.enabledPlugins['mine@y'] = true;
   const back = removeAddedKeys(result, added, TEAM).result;
-  assert.deepEqual(back.enabledPlugins, { 'upstream-pr-filer@upstream-pr-filer': false, 'mine@y': true });
+  assert.deepEqual(back.enabledPlugins, { 'riverwright@riverwright': false, 'mine@y': true });
   assert.equal(back.extraKnownMarketplaces, undefined);
 });
 

@@ -44,10 +44,10 @@ test('a created file the user has since edited is kept, with a reason', async ()
   const root = repo({ 'AGENTS.md': '# A\n' });
   const h = tmpDir('upf-home-');
   await install(root, h);
-  fs.writeFileSync(path.join(root, '.upstream-pr.json'), '{"preset":"thorough","upstreams":[]}\n');
+  fs.writeFileSync(path.join(root, 'riverwright.json'), '{"preset":"thorough","upstreams":[]}\n');
   const { results } = await remove(root, h);
-  assert.equal(results.find((r) => r.file === '.upstream-pr.json').result, 'kept');
-  assert.ok(fs.existsSync(path.join(root, '.upstream-pr.json')));
+  assert.equal(results.find((r) => r.file === 'riverwright.json').result, 'kept');
+  assert.ok(fs.existsSync(path.join(root, 'riverwright.json')));
 });
 
 test('merged team settings are restored byte-for-byte', async () => {
@@ -67,7 +67,7 @@ test('without backups, our blocks are still removed and other files are left alo
   fs.rmSync(backupRoot(h, root), { recursive: true, force: true });
   await remove(root, h);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
-  assert.ok(fs.existsSync(path.join(root, '.upstream-pr.json')));
+  assert.ok(fs.existsSync(path.join(root, 'riverwright.json')));
 });
 
 // Attacks: anyone who can write under RIVERWRIGHT_HOME (including an agent) plants a backup manifest.
@@ -141,11 +141,11 @@ test('a tampered backup cannot inject content into the settings file on removal'
 });
 
 test('a manifest recorded for another root is ignored', async () => {
-  const root = repo({ 'AGENTS.md': '# A\n', '.upstream-pr.json': '{"mine":true}\n' });
+  const root = repo({ 'AGENTS.md': '# A\n', 'riverwright.json': '{"mine":true}\n' });
   const h = tmpDir('upf-home-');
-  plant(h, root, [{ file: '.upstream-pr.json', kind: 'owned-file', action: 'create', createdHash: sha256('{"mine":true}\n'), afterHash: null, addedPaths: null }], { manifestRoot: '/somewhere/else' });
+  plant(h, root, [{ file: 'riverwright.json', kind: 'owned-file', action: 'create', createdHash: sha256('{"mine":true}\n'), afterHash: null, addedPaths: null }], { manifestRoot: '/somewhere/else' });
   await applyPlan(planRemoval(inspectRepo(root, { home: h }), { home: h }), { home: h, now: 't' });
-  assert.equal(fs.readFileSync(path.join(root, '.upstream-pr.json'), 'utf8'), '{"mine":true}\n');
+  assert.equal(fs.readFileSync(path.join(root, 'riverwright.json'), 'utf8'), '{"mine":true}\n');
 });
 
 test('applyPlan re-checks the destination right before it writes or deletes', async () => {

@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { upsertBlock, stripBlock, hasBlock, begin, end } from '../scripts/lib/blocks.mjs';
 
-const SLUG = 'upstream-pr-filer';
+const SLUG = 'riverwright';
 const BODY = 'Line one\nLine two';
 const BLOCK = `${begin(SLUG)}\nLine one\nLine two\n${end(SLUG)}`;
 
@@ -50,7 +50,7 @@ test('updating replaces only our block and leaves other tools\' blocks alone', (
 });
 
 test('a block whose name only starts with ours is not ours', () => {
-  const extra = '<!-- BEGIN upstream-pr-filer-extra -->\nkeep me\n<!-- END upstream-pr-filer-extra -->\n';
+  const extra = '<!-- BEGIN riverwright-extra -->\nkeep me\n<!-- END riverwright-extra -->\n';
   const r = upsertBlock(extra, SLUG, BODY);
   assert.equal(r.action, 'inserted');
   assert.ok(r.text.startsWith(extra));
