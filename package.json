@@ -1,0 +1,11 @@
+{
+  "name": "upstream-pr-filer",
+  "version": "0.1.0",
+  "description": "Reproduce, fix and propose upstream bug fixes, with your approval at every public step.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "engines": { "node": ">=24" },
+  "bin": { "upf": "scripts/upf.mjs" },
+  "scripts": { "test": "node --test" }
+}
