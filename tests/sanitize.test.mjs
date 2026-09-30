@@ -42,3 +42,26 @@ test('upf sanitize --quote prints Markdown', async () => {
   assert.match(r.stdout, /^> \*\*Untrusted content/);
   assert.match(r.stdout, /> hello/);
 });
+
+test('removes bidi marks, soft hyphens, invisible operators and variation selectors, and reports each', () => {
+  const cases = {
+    'U+200E': ['‎', 'bidi-mark'], 'U+200F': ['‏', 'bidi-mark'], 'U+061C': ['؜', 'bidi-mark'],
+    'U+00AD': ['­', 'soft-hyphen'],
+    'U+2061': ['⁡', 'invisible-operator'], 'U+2062': ['⁢', 'invisible-operator'],
+    'U+2063': ['⁣', 'invisible-operator'], 'U+2064': ['⁤', 'invisible-operator'],
+    'U+180E': ['᠎', 'zero-width'],
+    'U+FE00': ['︀', 'variation-selector'], 'U+FE0F': ['️', 'variation-selector'],
+    'U+E0100': ['\u{E0100}', 'variation-selector'], 'U+E01EF': ['\u{E01EF}', 'variation-selector'],
+  };
+  const hidden = Object.values(cases).map(([ch], i) => `w${i}${ch}`).join(' ');
+  const { clean, findings } = sanitize(hidden);
+  assert.equal(clean, Object.keys(cases).map((_, i) => `w${i}`).join(' '));
+  const byCode = Object.fromEntries(findings.map((f) => [f.codepoint, f.kind]));
+  for (const [code, [, kind]] of Object.entries(cases)) assert.equal(byCode[code], kind, code);
+});
+
+test('the neighbours of the new ranges are left alone', () => {
+  const text = '⁠⁥﷿︐\u{E00FF}\u{E01F0}';
+  const { clean } = sanitize(text);
+  assert.equal(clean, '⁥﷿︐\u{E00FF}\u{E01F0}');
+});

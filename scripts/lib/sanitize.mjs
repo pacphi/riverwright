@@ -1,8 +1,15 @@
 import { toLf } from './fsx.mjs';
 
+// U+180E (Mongolian vowel separator) was a zero-width space until Unicode 6.3 and still renders as
+// nothing, so it is reported as zero-width. U+FE0F also selects emoji presentation, so stripping it can
+// turn a colour emoji into its text form; it is reported like any other variation selector.
 const CLASSES = [
-  { kind: 'zero-width', test: (c) => c === 0x200b || c === 0x200c || c === 0x200d || c === 0x2060 || c === 0xfeff },
+  { kind: 'zero-width', test: (c) => c === 0x200b || c === 0x200c || c === 0x200d || c === 0x2060 || c === 0xfeff || c === 0x180e },
   { kind: 'bidi-control', test: (c) => (c >= 0x202a && c <= 0x202e) || (c >= 0x2066 && c <= 0x2069) },
+  { kind: 'bidi-mark', test: (c) => c === 0x200e || c === 0x200f || c === 0x061c },
+  { kind: 'soft-hyphen', test: (c) => c === 0x00ad },
+  { kind: 'invisible-operator', test: (c) => c >= 0x2061 && c <= 0x2064 },
+  { kind: 'variation-selector', test: (c) => (c >= 0xfe00 && c <= 0xfe0f) || (c >= 0xe0100 && c <= 0xe01ef) },
   { kind: 'tag-character', test: (c) => c >= 0xe0000 && c <= 0xe007f },
 ];
 
