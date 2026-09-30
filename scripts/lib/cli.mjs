@@ -5,6 +5,7 @@ export const HOOK_LIKE = new Set(['hook', 'guard']);
 
 const COMMANDS = {
   version: () => import('./commands/version.mjs'),
+  sanitize: () => import('./commands/sanitize.mjs'),
 };
 
 export function usage() {
