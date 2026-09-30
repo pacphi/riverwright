@@ -424,6 +424,6 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
 export function classifyCommand(command, { trustedLauncher = [], platform = process.platform } = {}) {
   const text = String(command ?? '');
   if (text.length > MAX_INPUT) return unresolvable('the command is too long to check');
-  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, upfPublish: true };
+  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
   return classifyScript(text, makeCtx(0, true, { used: 0 })) ?? { outward: false };
 }

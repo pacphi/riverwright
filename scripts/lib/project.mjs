@@ -2,7 +2,7 @@ import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { isDeepStrictEqual } from 'node:util';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { isInside, realish } from './paths.mjs';
 import { readTextIfExists, writeFileAtomic, resolveWriteTarget } from './fsx.mjs';
 import { upsertBlock, stripBlock, begin, end } from './blocks.mjs';
@@ -94,9 +94,9 @@ function linkedToAgents(abs) {
 
 export function inspectRepo(repoRoot, { home }) {
   const root = realish(repoRoot);
-  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new UpfError('NO_REPO', `${repoRoot} is not a folder`);
+  if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new RiverwrightError('NO_REPO', `${repoRoot} is not a folder`);
   if (isInside(root, home)) {
-    throw new UpfError('UPSTREAM_CLONE', 'This folder is inside the Riverwright workspace; project integration only applies to your own repositories.');
+    throw new RiverwrightError('UPSTREAM_CLONE', 'This folder is inside the Riverwright workspace; project integration only applies to your own repositories.');
   }
   const at = (rel) => path.join(root, rel);
   const claudeText = readTextIfExists(at('CLAUDE.md'));

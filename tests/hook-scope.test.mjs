@@ -7,7 +7,7 @@ import { callMain, tmpDir } from './helpers.mjs';
 
 // A fake user home: <top>/.riverwright is the workspace, <top>/project is the user's own repo.
 function world({ active = true } = {}) {
-  const top = tmpDir('upf-user-');
+  const top = tmpDir('riverwright-user-');
   const home = path.join(top, '.riverwright');
   const worktree = path.join(home, 'o', 'r', 'worktrees', 'issue-1');
   const project = path.join(top, 'project');

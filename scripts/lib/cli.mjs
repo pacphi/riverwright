@@ -1,4 +1,4 @@
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { version } from './version.mjs';
 
 export const HOOK_LIKE = new Set(['hook', 'guard']);
@@ -43,7 +43,7 @@ export async function main(argv, io) {
     const mod = await load();
     return await mod.run(rest, io);
   } catch (err) {
-    const message = err instanceof UpfError ? err.message : `unexpected error: ${err?.stack ?? err}`;
+    const message = err instanceof RiverwrightError ? err.message : `unexpected error: ${err?.stack ?? err}`;
     io.stderr.write(`riverwright ${name}: ${message}\n`);
     return HOOK_LIKE.has(name) ? 2 : 1;
   }

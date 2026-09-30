@@ -18,7 +18,7 @@ test('runFile runs a program without a shell and captures output', async () => {
 });
 
 test('runFile reports a missing program instead of throwing', async () => {
-  const r = await runFile('definitely-not-a-real-program-upf', ['--version']);
+  const r = await runFile('definitely-not-a-real-program-riverwright', ['--version']);
   assert.equal(r.code, null);
   assert.equal(r.error, 'not-found');
 });
@@ -85,7 +85,7 @@ test('launcherHookCommand goes through the launcher, which denies (exit 2) when 
 
 test('launcherHookCommand runs the hook when node is present', posixOnly, () => {
   const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'linux' });
-  const r = spawnSync('/bin/sh', ['-c', cmd], { input: '{}', encoding: 'utf8', env: { ...process.env, RIVERWRIGHT_HOME: tmpDir('upf-home-') }, cwd: tmpDir() });
+  const r = spawnSync('/bin/sh', ['-c', cmd], { input: '{}', encoding: 'utf8', env: { ...process.env, RIVERWRIGHT_HOME: tmpDir('riverwright-home-') }, cwd: tmpDir() });
   assert.equal(r.status, 0, r.stderr);
 });
 

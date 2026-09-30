@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { UpfError } from '../errors.mjs';
+import { RiverwrightError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 import { readAll } from '../io.mjs';
 import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
@@ -21,7 +21,7 @@ function emit(io, rendered) {
 }
 
 export async function run([host], io) {
-  if (!HOSTS.includes(host)) throw new UpfError('UNKNOWN_HOST', `unknown host "${host}"`);
+  if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
   const raw = await readAll(io.stdin);
   let payload = null;
   try {

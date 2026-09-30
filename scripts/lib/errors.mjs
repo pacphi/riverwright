@@ -1,7 +1,7 @@
-export class UpfError extends Error {
+export class RiverwrightError extends Error {
   constructor(code, message, details = {}) {
     super(message);
-    this.name = 'UpfError';
+    this.name = 'RiverwrightError';
     this.code = code;
     this.details = details;
   }

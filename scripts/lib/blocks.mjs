@@ -1,4 +1,4 @@
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { detectEol, toLf } from './fsx.mjs';
 
 export const begin = (slug) => `<!-- BEGIN ${slug} -->`;
@@ -6,7 +6,7 @@ export const end = (slug) => `<!-- END ${slug} -->`;
 const SLUG_RE = /^[a-z0-9][a-z0-9-]*$/;
 
 function assertSlug(slug) {
-  if (!SLUG_RE.test(String(slug))) throw new UpfError('BAD_SLUG', `"${slug}" is not a valid block name`);
+  if (!SLUG_RE.test(String(slug))) throw new RiverwrightError('BAD_SLUG', `"${slug}" is not a valid block name`);
 }
 
 export function splitLines(text) {

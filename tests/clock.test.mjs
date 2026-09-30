@@ -28,7 +28,7 @@ test('RIVERWRIGHT_NOW is ignored by evidence, fingerprint and setup outside the 
   const fp = path.join(tmpDir(), 'f.json');
   assert.equal((await callMain(['fingerprint', '--repo', tmpDir(), '--out', fp], { env: { RIVERWRIGHT_NOW: PAST } })).code, 0);
   assert.ok(recent(JSON.parse(fs.readFileSync(fp, 'utf8')).collectedAt));
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   const repo = tmpDir('repo-');
   fs.writeFileSync(path.join(repo, 'AGENTS.md'), '# A\n');
   assert.equal((await callMain(['setup', '--project', '--yes', '--repo', repo], { env: { RIVERWRIGHT_HOME: home, RIVERWRIGHT_NOW: PAST } })).code, 0);

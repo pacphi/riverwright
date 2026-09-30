@@ -1,4 +1,4 @@
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 
 // Spec §5.2.
 export const PRESETS = Object.freeze({
@@ -9,6 +9,6 @@ export const PRESETS = Object.freeze({
 
 export function preset(name) {
   const p = PRESETS[name];
-  if (!p) throw new UpfError('UNKNOWN_PRESET', `unknown preset "${name}" (use frugal, balanced or thorough)`);
+  if (!p) throw new RiverwrightError('UNKNOWN_PRESET', `unknown preset "${name}" (use frugal, balanced or thorough)`);
   return p;
 }

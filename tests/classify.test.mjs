@@ -53,8 +53,8 @@ const launcher = path.join(ROOT, 'bin', 'riverwright');
 const script = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
 test('riverwright submit and riverwright post are the sanctioned publish commands', () => {
-  assert.deepEqual(classifyCommand(`"${launcher}" submit ruvnet/ruflo#3509`, { trustedLauncher }), { outward: false, upfPublish: true });
-  assert.deepEqual(classifyCommand(`node "${script}" post o/r#1 comment`, { trustedLauncher }), { outward: false, upfPublish: true });
+  assert.deepEqual(classifyCommand(`"${launcher}" submit ruvnet/ruflo#3509`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
+  assert.deepEqual(classifyCommand(`node "${script}" post o/r#1 comment`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
   assert.equal(classifyCommand(`"${launcher}" submit o/r#1 && git push`, { trustedLauncher }).outward, true);
 });
 
@@ -62,7 +62,7 @@ test('a program merely named riverwright or riverwright.mjs is not the sanctione
   for (const cmd of ['/tmp/riverwright submit git push origin HEAD', 'node /tmp/riverwright.mjs post gh pr create', 'riverwright submit git push origin HEAD', './riverwright post gh pr create']) {
     for (const v of [classifyCommand(cmd, { trustedLauncher }), classifyCommand(cmd)]) {
       assert.equal(v.outward, true, cmd);
-      assert.notEqual(v.upfPublish, true, cmd);
+      assert.notEqual(v.riverwrightPublish, true, cmd);
     }
   }
 });
@@ -71,7 +71,7 @@ test('the real launcher is exempt only as one plain command', () => {
   assert.equal(classifyCommand(`${launcher} submit o/r#1 && git push`, { trustedLauncher }).outward, true);
   assert.equal(classifyCommand(`${launcher} submit git push; git push`, { trustedLauncher }).outward, true);
   assert.equal(classifyCommand(`${launcher} submit $(git push)`, { trustedLauncher }).outward, true);
-  assert.equal(classifyCommand(`${launcher} post gh pr create > /tmp/x`, { trustedLauncher }).upfPublish, undefined);
+  assert.equal(classifyCommand(`${launcher} post gh pr create > /tmp/x`, { trustedLauncher }).riverwrightPublish, undefined);
   assert.equal(classifyCommand(`/tmp/node ${script} submit git push`, { trustedLauncher }).outward, true);
 });
 
@@ -79,18 +79,18 @@ test('a symlink to the real launcher resolves to it', { skip: process.platform =
   const dir = tmpDir();
   const link = path.join(dir, 'riverwright');
   fs.symlinkSync(launcher, link);
-  assert.deepEqual(classifyCommand(`${link} submit o/r#1`, { trustedLauncher }), { outward: false, upfPublish: true });
+  assert.deepEqual(classifyCommand(`${link} submit o/r#1`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
 });
 
 test('on Windows, backslash paths are path separators for the exemption, never a way to hide metacharacters', () => {
   // Forward-slash form of the real launcher is accepted on either platform.
-  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher, platform: 'win32' }), { outward: false, upfPublish: true });
+  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher, platform: 'win32' }), { outward: false, riverwrightPublish: true });
   for (const cmd of [`"${launcher}" submit o/r#1 \; git push`, `"${launcher}" submit o/r#1 ^& git push`, `"${launcher}" post o/r#1 %X%`]) {
-    assert.notEqual(classifyCommand(cmd, { trustedLauncher, platform: 'win32' }).upfPublish, true, cmd);
+    assert.notEqual(classifyCommand(cmd, { trustedLauncher, platform: 'win32' }).riverwrightPublish, true, cmd);
   }
 });
 
 test('a native Windows launcher path gets the exemption on Windows', { skip: process.platform !== 'win32' }, () => {
   assert.equal(launcher.includes('\\'), true);
-  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher }), { outward: false, upfPublish: true });
+  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
 });

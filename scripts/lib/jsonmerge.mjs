@@ -1,5 +1,5 @@
 import { isDeepStrictEqual } from 'node:util';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { detectEol, fromLf } from './fsx.mjs';
 
 const isPlain = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
@@ -10,7 +10,7 @@ export function parseJsonStrict(text) {
   try {
     return JSON.parse(t.charCodeAt(0) === 0xfeff ? t.slice(1) : t);
   } catch (e) {
-    throw new UpfError('JSON_UNPARSEABLE', `not strict JSON (comments or a syntax error): ${e.message}`);
+    throw new RiverwrightError('JSON_UNPARSEABLE', `not strict JSON (comments or a syntax error): ${e.message}`);
   }
 }
 
@@ -27,7 +27,7 @@ function addWalk(dst, src, trail, added) {
 }
 
 export function addAbsentKeys(target, additions) {
-  if (!isPlain(target)) throw new UpfError('JSON_NOT_OBJECT', 'the settings file does not contain a JSON object');
+  if (!isPlain(target)) throw new RiverwrightError('JSON_NOT_OBJECT', 'the settings file does not contain a JSON object');
   const result = structuredClone(target);
   const added = [];
   addWalk(result, additions, [], added);

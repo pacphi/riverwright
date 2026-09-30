@@ -1,4 +1,4 @@
-import { UpfError } from '../errors.mjs';
+import { RiverwrightError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 
 export function extractCommand(payload) {
@@ -14,7 +14,7 @@ export function extractCommand(payload) {
 
 // Every host honours exit code 2 as "deny"; the JSON is belt and braces in each host's own dialect.
 export function renderDeny(host, reason) {
-  if (!HOSTS.includes(host)) throw new UpfError('UNKNOWN_HOST', `unknown host "${host}"`);
+  if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
   let body;
   if (host === 'claude-code' || host === 'codex' || host === 'grok-build') {
     body = { hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: 'deny', permissionDecisionReason: reason } };
@@ -29,6 +29,6 @@ export function renderDeny(host, reason) {
 }
 
 export function renderAllow(host) {
-  if (!HOSTS.includes(host)) throw new UpfError('UNKNOWN_HOST', `unknown host "${host}"`);
+  if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
   return { stdout: '', exitCode: 0 };
 }

@@ -16,7 +16,7 @@ function repo(files = {}) {
   }
   return root;
 }
-const home = () => tmpDir('upf-home-');
+const home = () => tmpDir('riverwright-home-');
 const plan = (root, h, opts = {}) => planIntegration(inspectRepo(root, { home: h }), { version: '0.1.0', ...opts });
 const actions = (p) => Object.fromEntries(p.steps.map((s) => [s.file, s.action]));
 

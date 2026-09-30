@@ -7,7 +7,7 @@ import path from 'node:path';
 import { main } from '../scripts/lib/cli.mjs';
 
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
-export const UPF = path.join(ROOT, 'scripts', 'riverwright.mjs');
+export const RIVERWRIGHT = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
 export function fakeTerminal(answer) {
   const input = new PassThrough();
@@ -35,13 +35,13 @@ export async function callMain(args, { stdin = '', env = {}, cwd = process.cwd()
   return { code, stdout, stderr };
 }
 
-export function runUpf(args, { stdin = '', env = {}, cwd } = {}) {
-  const r = spawnSync(process.execPath, [UPF, ...args], {
+export function runRiverwright(args, { stdin = '', env = {}, cwd } = {}) {
+  const r = spawnSync(process.execPath, [RIVERWRIGHT, ...args], {
     input: stdin, env: { ...process.env, ...env }, cwd, encoding: 'utf8',
   });
   return { code: r.status, stdout: r.stdout, stderr: r.stderr };
 }
 
-export function tmpDir(prefix = 'upf-test-') {
+export function tmpDir(prefix = 'riverwright-test-') {
   return fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), prefix)));
 }

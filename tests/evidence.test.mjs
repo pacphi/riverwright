@@ -29,7 +29,7 @@ test('buildEvidence rejects unknown hosts and levels outside 1–3', () => {
 });
 
 test('collectRunStates finds runs and skips broken ones with a reason', () => {
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   saveState(path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509'), passedIntake());
   const broken = path.join(home, 'o', 'r', 'runs', 'issue-1');
   fs.mkdirSync(broken, { recursive: true });
@@ -42,7 +42,7 @@ test('collectRunStates finds runs and skips broken ones with a reason', () => {
 });
 
 test('riverwright evidence export writes evidence.json with host levels', async () => {
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   saveState(path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509'), passedIntake());
   const hostsFile = path.join(tmpDir(), 'hosts.json');
   fs.writeFileSync(hostsFile, JSON.stringify({ 'claude-code': { level: 2, version: '2.1.284' } }));

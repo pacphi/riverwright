@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { toLf } from './fsx.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
 
@@ -35,8 +35,8 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
 
 export function renderPrePushHook(scriptPath) {
   const p = String(scriptPath);
-  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new UpfError('UNSAFE_PATH', 'script path must be absolute');
-  if (/["$`%\r\n]/.test(p)) throw new UpfError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
+  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new RiverwrightError('UNSAFE_PATH', 'script path must be absolute');
+  if (/["$`%\r\n]/.test(p)) throw new RiverwrightError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
   const template = fs.readFileSync(new URL('../../templates/pre-push.sh', import.meta.url), 'utf8');
   return template.replace('__RIVERWRIGHT_SCRIPT__', () => p.replace(/\\/g, '/'));
 }

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { callMain, runUpf } from './helpers.mjs';
+import { callMain, runRiverwright } from './helpers.mjs';
 
 test('riverwright --version prints the package version', async () => {
   const r = await callMain(['--version']);
@@ -22,7 +22,7 @@ test('an unknown command exits 2 and names the command', async () => {
 });
 
 test('the real entry point runs under the current node', () => {
-  const r = runUpf(['--version']);
+  const r = runRiverwright(['--version']);
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /^\d+\.\d+\.\d+/);
 });

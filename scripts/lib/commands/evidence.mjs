@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
-import { UpfError } from '../errors.mjs';
+import { RiverwrightError } from '../errors.mjs';
 import { riverwrightHome } from '../paths.mjs';
 import { writeFileAtomic } from '../fsx.mjs';
 import { buildEvidence, collectRunStates } from '../evidence.mjs';
@@ -8,7 +8,7 @@ import { nowIso } from '../clock.mjs';
 
 export async function run(args, io) {
   const [sub, ...rest] = args;
-  if (sub !== 'export') throw new UpfError('USAGE', 'usage: riverwright evidence export [--home DIR] [--hosts FILE] [--out FILE]');
+  if (sub !== 'export') throw new RiverwrightError('USAGE', 'usage: riverwright evidence export [--home DIR] [--hosts FILE] [--out FILE]');
   const { values } = parseArgs({ args: rest, options: { home: { type: 'string' }, hosts: { type: 'string' }, out: { type: 'string' } } });
   const home = values.home ?? riverwrightHome(io.env);
   const hosts = values.hosts ? JSON.parse(fs.readFileSync(values.hosts, 'utf8')) : {};

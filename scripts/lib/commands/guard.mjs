@@ -1,5 +1,5 @@
 import path from 'node:path';
-import { UpfError } from '../errors.mjs';
+import { RiverwrightError } from '../errors.mjs';
 import { readAll } from '../io.mjs';
 import { runFile } from '../exec.mjs';
 import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
@@ -32,7 +32,7 @@ async function runFromRepository(io, home) {
 
 export async function run(args, io) {
   const [sub, remoteName, remoteUrl] = args;
-  if (sub !== 'pre-push') throw new UpfError('USAGE', 'usage: riverwright guard pre-push <remote-name> <remote-url>');
+  if (sub !== 'pre-push') throw new RiverwrightError('USAGE', 'usage: riverwright guard pre-push <remote-name> <remote-url>');
   const updates = parsePrePushLines(await readAll(io.stdin));
   const home = riverwrightHome(io.env);
   let located = null;

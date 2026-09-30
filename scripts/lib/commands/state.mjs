@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
-import { UpfError } from '../errors.mjs';
+import { RiverwrightError } from '../errors.mjs';
 import { createState, beginStation, completeStation, stopRun, reopenForChanges, nextStation, loadState, saveState, stateFile } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { nowIso } from '../clock.mjs';
@@ -19,15 +19,15 @@ export async function run(args, io) {
     },
   });
   const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
-  if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
+  if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
   const now = nowIso(io.env);
   const host = assertHost(values.host ?? null);
   const model = values.model ?? null;
   let state;
   switch (sub) {
     case 'create': {
-      if (!values.id) throw new UpfError('USAGE', 'riverwright state create needs --id owner/repo#number');
-      if (fs.existsSync(stateFile(dir))) throw new UpfError('RUN_EXISTS', `a run record already exists at ${dir}`);
+      if (!values.id) throw new RiverwrightError('USAGE', 'riverwright state create needs --id owner/repo#number');
+      if (fs.existsSync(stateFile(dir))) throw new RiverwrightError('RUN_EXISTS', `a run record already exists at ${dir}`);
       state = saveState(dir, createState({ runId: values.id, kind: values.kind, presetName: values.preset, now }));
       appendEvent(dir, { type: 'run-created', at: now, runId: state.runId, kind: state.kind, preset: state.preset });
       break;
@@ -59,7 +59,7 @@ export async function run(args, io) {
       appendEvent(dir, { type: 'reopen', at: now });
       break;
     default:
-      throw new UpfError('USAGE', USAGE);
+      throw new RiverwrightError('USAGE', USAGE);
   }
   io.stdout.write(`${JSON.stringify({ runId: state.runId, status: state.status, current: state.current, next: nextStation(state), stop: state.stop }, null, 2)}\n`);
   return 0;

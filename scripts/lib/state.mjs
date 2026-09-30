@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { GATES, APPROVAL_MODES, BRANCH, isApprovalValid, revokeGate } from './approvals.mjs';
 import { preset } from './presets.mjs';
 import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
@@ -22,8 +22,8 @@ const DONE = new Set(['passed', 'skipped']);
 const pending = () => ({ status: 'pending', startedAt: null, completedAt: null, host: null, model: null });
 
 export function createState({ runId, kind = 'real', presetName = 'balanced', now }) {
-  if (!RUN_ID.test(String(runId)) || String(runId).includes('..')) throw new UpfError('BAD_RUN_ID', `"${runId}" is not owner/repo#number`);
-  if (!RUN_KINDS.includes(kind)) throw new UpfError('BAD_KIND', `kind must be real or fixture, not "${kind}"`);
+  if (!RUN_ID.test(String(runId)) || String(runId).includes('..')) throw new RiverwrightError('BAD_RUN_ID', `"${runId}" is not owner/repo#number`);
+  if (!RUN_KINDS.includes(kind)) throw new RiverwrightError('BAD_KIND', `kind must be real or fixture, not "${kind}"`);
   const p = preset(presetName);
   return {
     schema: 'riverwright-state/1', runId, kind, preset: presetName, createdAt: now, status: 'active', current: null,
@@ -42,38 +42,38 @@ export function nextStation(state) {
 const withStation = (state, name, patch) => ({ ...state, stations: { ...state.stations, [name]: { ...state.stations[name], ...patch } } });
 
 function assertActive(state) {
-  if (state.status !== 'active') throw new UpfError('RUN_NOT_ACTIVE', `run ${state.runId} is ${state.status}`);
+  if (state.status !== 'active') throw new RiverwrightError('RUN_NOT_ACTIVE', `run ${state.runId} is ${state.status}`);
 }
 
 export function beginStation(state, name, { now, host = null, model = null, headSha } = {}) {
   assertActive(state);
   assertHost(host);
-  if (!STATIONS.includes(name)) throw new UpfError('UNKNOWN_STATION', `unknown station "${name}"`);
-  if (state.current) throw new UpfError('STATION_IN_PROGRESS', `${state.current} is still in progress`);
+  if (!STATIONS.includes(name)) throw new RiverwrightError('UNKNOWN_STATION', `unknown station "${name}"`);
+  if (state.current) throw new RiverwrightError('STATION_IN_PROGRESS', `${state.current} is still in progress`);
   const next = nextStation(state);
-  if (name !== next) throw new UpfError('ILLEGAL_TRANSITION', `cannot begin ${name}; the next station is ${next ?? 'none'}`, { to: name, next });
+  if (name !== next) throw new RiverwrightError('ILLEGAL_TRANSITION', `cannot begin ${name}; the next station is ${next ?? 'none'}`, { to: name, next });
   const gate = GATE_BEFORE[name];
   if (gate) {
-    if (!headSha) throw new UpfError('GATE_NEEDS_SHA', `${name} needs --head <commit> so the ${gate} approval can be checked`);
+    if (!headSha) throw new RiverwrightError('GATE_NEEDS_SHA', `${name} needs --head <commit> so the ${gate} approval can be checked`);
     if (!isApprovalValid(state, gate, { sha: headSha })) {
-      throw new UpfError('GATE_NOT_APPROVED', `${gate} has no approval for commit ${String(headSha).slice(0, 12)}`);
+      throw new RiverwrightError('GATE_NOT_APPROVED', `${gate} has no approval for commit ${String(headSha).slice(0, 12)}`);
     }
   }
   return { ...withStation(state, name, { status: 'in-progress', startedAt: now, completedAt: null, host, model }), current: name };
 }
 
 export function stopRun(state, reason, { now, note = null } = {}) {
-  if (state.status === 'stopped') throw new UpfError('RUN_NOT_ACTIVE', `run ${state.runId} is already stopped`);
-  if (!STOP_REASONS.includes(reason)) throw new UpfError('BAD_STOP_REASON', `unknown stop reason "${reason}" (use one of: ${STOP_REASONS.join(', ')})`);
+  if (state.status === 'stopped') throw new RiverwrightError('RUN_NOT_ACTIVE', `run ${state.runId} is already stopped`);
+  if (!STOP_REASONS.includes(reason)) throw new RiverwrightError('BAD_STOP_REASON', `unknown stop reason "${reason}" (use one of: ${STOP_REASONS.join(', ')})`);
   const s = state.current ? withStation(state, state.current, { status: 'failed', completedAt: now }) : state;
   return { ...s, current: null, status: 'stopped', stop: { reason, at: now, note } };
 }
 
 export function completeStation(state, name, outcome, { now } = {}) {
   assertActive(state);
-  if (state.current !== name) throw new UpfError('NOT_CURRENT', `${name} is not the station in progress (current: ${state.current ?? 'none'})`);
+  if (state.current !== name) throw new RiverwrightError('NOT_CURRENT', `${name} is not the station in progress (current: ${state.current ?? 'none'})`);
   const allowed = name === 'review' ? ['passed', 'skipped', 'failed', 'changes-requested'] : ['passed', 'skipped', 'failed'];
-  if (!allowed.includes(outcome)) throw new UpfError('BAD_OUTCOME', `${outcome} is not a valid outcome for ${name}`);
+  if (!allowed.includes(outcome)) throw new RiverwrightError('BAD_OUTCOME', `${outcome} is not a valid outcome for ${name}`);
   let s = { ...state, current: null };
   if (outcome === 'changes-requested') {
     const rounds = s.counters.reviewRounds + 1;
@@ -95,14 +95,14 @@ export function completeStation(state, name, outcome, { now } = {}) {
 }
 
 export function reopenForChanges(state, { now } = {}) {
-  if (state.status !== 'submitted') throw new UpfError('NOT_SUBMITTED', 'only a submitted run can be reopened for maintainer changes');
+  if (state.status !== 'submitted') throw new RiverwrightError('NOT_SUBMITTED', 'only a submitted run can be reopened for maintainer changes');
   let s = revokeGate(state, 'submit-gate', { now });
   for (const st of ['fix', 'review', 'writeup', 'submit']) s = withStation(s, st, pending());
   return { ...s, status: 'active', counters: { fixAttempts: 0, reviewRounds: 0 } };
 }
 
 export function validateState(s) {
-  const fail = (msg) => { throw new UpfError('BAD_STATE', `state.json is invalid: ${msg}`); };
+  const fail = (msg) => { throw new RiverwrightError('BAD_STATE', `state.json is invalid: ${msg}`); };
   if (!s || typeof s !== 'object') fail('not an object');
   if (s.schema !== 'riverwright-state/1') fail(`unknown schema ${s.schema}`);
   if (!RUN_ID.test(String(s.runId)) || String(s.runId).includes('..')) fail('runId');
@@ -128,12 +128,12 @@ export const stateFile = (dir) => path.join(dir, 'state.json');
 
 export function loadState(dir) {
   const text = readTextIfExists(stateFile(dir));
-  if (text === null) throw new UpfError('NO_STATE', `no run record at ${stateFile(dir)}`);
+  if (text === null) throw new RiverwrightError('NO_STATE', `no run record at ${stateFile(dir)}`);
   let obj;
   try {
     obj = JSON.parse(text);
   } catch {
-    throw new UpfError('BAD_STATE', 'state.json is not valid JSON');
+    throw new RiverwrightError('BAD_STATE', 'state.json is not valid JSON');
   }
   return validateState(obj);
 }
@@ -145,7 +145,7 @@ export function saveState(dir, state) {
 }
 
 export function setFork(state, url) {
-  if (!normalizeRemoteUrl(url)) throw new UpfError('BAD_FORK_URL', `"${url}" is not a fork URL`);
+  if (!normalizeRemoteUrl(url)) throw new RiverwrightError('BAD_FORK_URL', `"${url}" is not a fork URL`);
   return { ...state, fork: { url: String(url) } };
 }
 

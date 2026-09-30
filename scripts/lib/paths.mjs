@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
@@ -12,14 +12,14 @@ export function riverwrightHome(env = process.env) {
 
 export function assertRepoName(kind, value) {
   if (typeof value !== 'string' || !NAME.test(value) || value.includes('..')) {
-    throw new UpfError('BAD_NAME', `${kind} "${value}" is not a valid GitHub name`);
+    throw new RiverwrightError('BAD_NAME', `${kind} "${value}" is not a valid GitHub name`);
   }
   return value;
 }
 
 export function parseIssueRef(ref) {
   const m = /^(?:https:\/\/github\.com\/)?([^/\s#]+)\/([^/\s#]+?)(?:\.git)?(?:\/issues\/|#)(\d+)\/?$/.exec(String(ref ?? '').trim());
-  if (!m || Number(m[3]) < 1) throw new UpfError('BAD_ISSUE_REF', `"${ref}" is not an issue URL or owner/repo#number`);
+  if (!m || Number(m[3]) < 1) throw new RiverwrightError('BAD_ISSUE_REF', `"${ref}" is not an issue URL or owner/repo#number`);
   return { owner: assertRepoName('owner', m[1]), repo: assertRepoName('repo', m[2]), number: Number(m[3]) };
 }
 
@@ -32,7 +32,7 @@ export function repoDir(home, owner, repo) {
 }
 
 export function runDir(home, { owner, repo, number }) {
-  if (!Number.isInteger(number) || number < 1) throw new UpfError('BAD_ISSUE_NUMBER', `issue number ${number} is not valid`);
+  if (!Number.isInteger(number) || number < 1) throw new RiverwrightError('BAD_ISSUE_NUMBER', `issue number ${number} is not valid`);
   return path.join(repoDir(home, owner, repo), 'runs', `issue-${number}`);
 }
 

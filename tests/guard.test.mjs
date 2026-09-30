@@ -8,7 +8,7 @@ import { createState, saveState, setFork } from '../scripts/lib/state.mjs';
 import { recordApproval } from '../scripts/lib/approvals.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
-import { callMain, runUpf, tmpDir } from './helpers.mjs';
+import { callMain, runRiverwright, tmpDir } from './helpers.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -107,7 +107,7 @@ test('setFork refuses a URL that is not a GitHub-style remote', () => {
 
 // The guard finds the run from the repository being pushed: <home>/<o>/<r>/worktrees/issue-<n>.
 async function workspace({ runId = 'ruvnet/ruflo#3509', approve = true } = {}) {
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   const worktree = path.join(home, 'ruvnet', 'ruflo', 'worktrees', 'issue-3509');
   fs.mkdirSync(worktree, { recursive: true });
   await runFile('git', ['init', '-q'], { cwd: worktree });
@@ -134,7 +134,7 @@ test('the guard finds the run from the worktree it is pushing from', async () =>
 test('a forged RIVERWRIGHT_RUN_DIR does not make the guard allow', async () => {
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_RUN_DIR: await forgedRun(), RIVERWRIGHT_HOME: tmpDir('upf-home-') } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_RUN_DIR: await forgedRun(), RIVERWRIGHT_HOME: tmpDir('riverwright-home-') } });
   assert.notEqual(r.code, 0);
   const w = await workspace({ approve: false });
   const r2 = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { RIVERWRIGHT_RUN_DIR: await forgedRun(), RIVERWRIGHT_HOME: w.home } });
@@ -146,16 +146,16 @@ test('a forged git config riverwright.run does not make the guard allow', async 
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
   await runFile('git', ['config', 'riverwright.run', await forgedRun()], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_HOME: tmpDir('upf-home-') } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-') } });
   assert.notEqual(r.code, 0);
 });
 
 test('config injected through GIT_CONFIG_COUNT does not make the guard allow', async () => {
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
-  const r = runUpf(['guard', 'pre-push', 'fork', FORK], {
+  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], {
     stdin: line(A), cwd: repo,
-    env: { RIVERWRIGHT_HOME: tmpDir('upf-home-'), RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'riverwright.run', GIT_CONFIG_VALUE_0: await forgedRun() },
+    env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-'), RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'riverwright.run', GIT_CONFIG_VALUE_0: await forgedRun() },
   });
   assert.notEqual(r.code, 0, r.stderr);
 });
@@ -178,7 +178,7 @@ test('pushing from the plain clone (not a run worktree) is refused', async () =>
 });
 
 test('the guard finds the run from a linked worktree of the clone (git worktree add)', async () => {
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   const clone = path.join(home, 'ruvnet', 'ruflo', 'clone');
   fs.mkdirSync(clone, { recursive: true });
   const git = (cwd, ...a) => runFile('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...a], { cwd });
@@ -245,7 +245,7 @@ test('riverwright guard refuses the approved commit on a branch other than the a
 });
 
 test('the guard finds the run with the environment git gives a pre-push hook in a linked worktree', async () => {
-  const home = tmpDir('upf-home-');
+  const home = tmpDir('riverwright-home-');
   const clone = path.join(home, 'ruvnet', 'ruflo', 'clone');
   fs.mkdirSync(clone, { recursive: true });
   const git = (cwd, ...a) => runFile('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...a], { cwd });
@@ -258,9 +258,9 @@ test('the guard finds the run with the environment git gives a pre-push hook in 
   saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'riverwright/3509-codex' }));
   // Git runs hooks from the worktree root with GIT_DIR (and GIT_INDEX_FILE) exported, and no GIT_WORK_TREE.
   const hookEnv = { RIVERWRIGHT_HOME: home, RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(gitDir, 'index'), GIT_PREFIX: '' };
-  const r = runUpf(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: worktree, env: hookEnv });
+  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: worktree, env: hookEnv });
   assert.equal(r.code, 0, r.stderr);
-  const other = runUpf(['guard', 'pre-push', 'fork', FORK], { stdin: line(B), cwd: worktree, env: hookEnv });
+  const other = runRiverwright(['guard', 'pre-push', 'fork', FORK], { stdin: line(B), cwd: worktree, env: hookEnv });
   assert.notEqual(other.code, 0);
   assert.match(other.stderr, /not the approved commit/);
 });

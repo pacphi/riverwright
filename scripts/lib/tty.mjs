@@ -1,6 +1,6 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 
 export function openTerminal({ platform = process.platform, paths } = {}) {
   const [inPath, outPath] = paths ?? (platform === 'win32' ? ['CONIN$', 'CONOUT$'] : ['/dev/tty', '/dev/tty']);
@@ -11,7 +11,7 @@ export function openTerminal({ platform = process.platform, paths } = {}) {
     outFd = fs.openSync(outPath, 'w');
   } catch {
     if (inFd !== undefined) fs.closeSync(inFd);
-    throw new UpfError('NO_TTY', 'Terminal approval needs a real terminal. Run this riverwright command yourself in a terminal window.');
+    throw new RiverwrightError('NO_TTY', 'Terminal approval needs a real terminal. Run this riverwright command yourself in a terminal window.');
   }
   const input = fs.createReadStream('', { fd: inFd, autoClose: true });
   const output = fs.createWriteStream('', { fd: outFd, autoClose: true });

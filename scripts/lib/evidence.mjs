@@ -1,13 +1,13 @@
 import fs from 'node:fs';
 import path from 'node:path';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 import { HOSTS } from './hosts.mjs';
 import { STATIONS, loadState } from './state.mjs';
 
 export function buildEvidence({ states, hosts = {}, now }) {
   for (const [id, h] of Object.entries(hosts)) {
-    if (!HOSTS.includes(id)) throw new UpfError('UNKNOWN_HOST', `unknown host "${id}"`);
-    if (![1, 2, 3].includes(h?.level)) throw new UpfError('BAD_LEVEL', `host ${id} needs a level of 1, 2 or 3`);
+    if (!HOSTS.includes(id)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${id}"`);
+    if (![1, 2, 3].includes(h?.level)) throw new RiverwrightError('BAD_LEVEL', `host ${id} needs a level of 1, 2 or 3`);
   }
   return {
     schema: 'riverwright-evidence/1',

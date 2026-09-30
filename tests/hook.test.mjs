@@ -5,9 +5,9 @@ import path from 'node:path';
 import { HOSTS } from '../scripts/lib/hosts.mjs';
 import { createState, saveState } from '../scripts/lib/state.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
-import { callMain, runUpf, tmpDir, ROOT } from './helpers.mjs';
+import { callMain, runRiverwright, tmpDir, ROOT } from './helpers.mjs';
 
-const home = tmpDir('upf-home-');
+const home = tmpDir('riverwright-home-');
 const worktree = path.join(home, 'o', 'r', 'worktrees', 'issue-1');
 const runDir = path.join(home, 'o', 'r', 'runs', 'issue-1');
 fs.mkdirSync(worktree, { recursive: true });
@@ -64,7 +64,7 @@ test('an unreadable payload inside the workspace is denied', async () => {
 });
 
 test('an unknown host is denied (exit 2)', async () => {
-  const r = runUpf(['hook', 'notahost'], { stdin: '{}', env });
+  const r = runRiverwright(['hook', 'notahost'], { stdin: '{}', env });
   assert.equal(r.code, 2);
 });
 

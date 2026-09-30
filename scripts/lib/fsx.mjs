@@ -1,7 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { UpfError } from './errors.mjs';
+import { RiverwrightError } from './errors.mjs';
 
 export const detectEol = (s) => (String(s).includes('\r\n') ? '\r\n' : '\n');
 export const toLf = (s) => String(s).replace(/\r\n/g, '\n');
@@ -43,11 +43,11 @@ export function writeFileAtomic(p, data, { mode, followSymlink = false } = {}) {
     if (e.code !== 'ENOENT') throw e;
   }
   if (st?.isSymbolicLink()) {
-    if (!followSymlink) throw new UpfError('SYMLINK', `${p} is a symbolic link; refusing to write through it`);
+    if (!followSymlink) throw new RiverwrightError('SYMLINK', `${p} is a symbolic link; refusing to write through it`);
     try {
       target = fs.realpathSync(p);
     } catch {
-      throw new UpfError('SYMLINK', `${p} links to a file that does not exist; refusing to create it`);
+      throw new RiverwrightError('SYMLINK', `${p} links to a file that does not exist; refusing to create it`);
     }
   }
   const dir = path.dirname(target);
