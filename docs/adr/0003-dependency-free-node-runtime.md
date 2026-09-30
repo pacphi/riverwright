@@ -49,4 +49,4 @@ now fixed and covered by tests that run the real wrapper wherever PowerShell exi
 
 Implemented and verified in CI on Ubuntu, macOS and Windows for Node 24 and 26.
 
-Updated 2026-09-29: "no npm dependencies" applies to the runtime, meaning everything under `scripts/` and what a user installs. Development tools may be `devDependencies` (the Markdown linter, `markdownlint-cli2`, is the first). `tests/runtime-dependencies.test.mjs` enforces the boundary.
+Updated 2026-09-29: "no npm dependencies" applies to the runtime, meaning everything under `scripts/` and what a user installs. Development tools may be `devDependencies` (the Markdown linter, `markdownlint-cli2`, is the first), installed with pnpm ([ADR-0009](0009-pnpm-for-development-tools.md)). `tests/runtime-dependencies.test.mjs` enforces the boundary.

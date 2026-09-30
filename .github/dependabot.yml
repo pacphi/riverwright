@@ -1,6 +1,7 @@
 # Keeps CI actions and any future npm dependencies current.
 # Riverwright itself has no runtime dependencies (Node built-ins only); the npm entry keeps
-# the development tools (the Markdown linter) current.
+# the development tools (the Markdown linter) current. Dependabot's "npm" ecosystem also
+# reads pnpm-lock.yaml, so it covers pnpm.
 version: 2
 updates:
   - package-ecosystem: github-actions

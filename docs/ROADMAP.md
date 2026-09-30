@@ -160,12 +160,13 @@ tested on the practice project, and seen in a real run.
 |---|---|---|---|---|
 | Q-01 | CI matrix: Ubuntu, macOS and Windows on Node 24 and 26 | `verified` | M1 | [workflow](../.github/workflows/ci.yml), [CI](https://github.com/pacphi/riverwright/pull/1) |
 | Q-02 | Dependabot for GitHub Actions and npm | `implemented` | M0 | [config](../.github/dependabot.yml) |
-| Q-07 | Markdown linting in CI and locally (`npm run lint:md`) | `implemented` | M0 | [config](../.markdownlint-cli2.jsonc), [workflow](../.github/workflows/ci.yml) |
-| Q-08 | The runtime stays dependency-free, enforced by a test | `implemented` | M0 | [test](../tests/runtime-dependencies.test.mjs), [ADR-0003](adr/0003-dependency-free-node-runtime.md) |
 | Q-03 | Fixture repository with planted bugs, including twins and a same-function pair | `designed` | M3 | [spec §15](specs/core-single-issue-pipeline.md) |
 | Q-04 | Real captured hook payloads replacing documented ones | `proposed` | M3 | [plans](plans/README.md) |
 | Q-05 | First real upstream run (candidate `ruvnet/ruflo#3509`), every public step approved | `designed` | M3 | [spec §15](specs/core-single-issue-pipeline.md) |
 | Q-06 | Roadmap and documentation layout enforced by tests | `implemented` | M0 | [roadmap test](../tests/roadmap.test.mjs), [layout test](../tests/docs-layout.test.mjs) |
+| Q-07 | Markdown linting in CI and locally (`pnpm lint:md`) | `implemented` | M0 | [config](../.markdownlint-cli2.jsonc), [workflow](../.github/workflows/ci.yml) |
+| Q-08 | The runtime stays dependency-free, enforced by a test | `implemented` | M0 | [test](../tests/runtime-dependencies.test.mjs), [ADR-0003](adr/0003-dependency-free-node-runtime.md) |
+| Q-09 | Development tools use pnpm, pinned in `package.json`, with a frozen lockfile in CI | `implemented` | M0 | [test](../tests/package-manager.test.mjs), [ADR-0009](adr/0009-pnpm-for-development-tools.md), [workflow](../.github/workflows/ci.yml) |
 
 ## Decisions
 
@@ -182,6 +183,7 @@ roadmap:
 | 2026-09-29 | Fork at the submit gate; draft pull requests | [ADR-0006](adr/0006-fork-at-submit-gate-draft-pull-requests.md) |
 | 2026-09-29 | Follow and adopt in Riverwright's own vocabulary; named Riverwright | [ADR-0007](adr/0007-follow-and-adopt-loop-own-vocabulary.md) |
 | 2026-09-29 | Existing repositories are never overwritten | [ADR-0008](adr/0008-never-overwrite-existing-repositories.md) |
+| 2026-09-29 | pnpm, pinned by `packageManager`, for development tools | [ADR-0009](adr/0009-pnpm-for-development-tools.md) |
 
 ## Risks and open items
 
@@ -208,5 +210,5 @@ roadmap:
 
 | Date | Change |
 |---|---|
-| 2026-09-29 | Markdown linting (markdownlint-cli2) added to CI and as `npm run lint:md`; a test pins the dependency-free runtime. |
+| 2026-09-29 | Markdown linting (markdownlint-cli2) added to CI and as `pnpm lint:md`; a test pins the dependency-free runtime. Development tools switch from npm to pnpm 12.8.1 (ADR-0009). |
 | 2026-09-29 | Roadmap created. M0 and M1 verified (CI green on six jobs); M2 designed; the documentation layout and eight decision records adopted. |

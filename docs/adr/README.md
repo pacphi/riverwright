@@ -23,3 +23,4 @@ Decision, Consequences, Verification, Related and Implementation status. Start f
 | [0006](0006-fork-at-submit-gate-draft-pull-requests.md) | Work on a plain clone, create the fork only at the submit gate, open drafts | Accepted |
 | [0007](0007-follow-and-adopt-loop-own-vocabulary.md) | Riverwright follows threads to release and adopts fixes, in its own vocabulary | Accepted |
 | [0008](0008-never-overwrite-existing-repositories.md) | Existing repositories are never overwritten: managed blocks and additive merges only | Accepted |
+| [0009](0009-pnpm-for-development-tools.md) | pnpm, pinned by `packageManager`, installs the development tools | Accepted |

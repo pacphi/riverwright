@@ -113,7 +113,7 @@ agentic-kit, autopilot's tooling, Codex, Gemini CLI and the generator run.
 
 - **No npm runtime dependencies** (development tools such as the Markdown linter are `devDependencies`, never installed for users). Only Node built-ins (`node:fs`, `node:path`, `node:child_process`,
   `node:crypto`, `node:test`, `node:readline`, `node:util` `parseArgs`). Installing the plugin is a
-  file copy; there is never an `npm install` step.
+  file copy; there is never a package-install step for users.
 - **Launchers.** `bin/riverwright` (POSIX sh) and `bin/riverwright.cmd` (Windows) find `node` and run
   `scripts/riverwright.mjs`. If Node is missing they print how to install it and exit 1, or exit 2 when
   called as a hook, so a missing runtime denies instead of allowing. `bin/rw` and `bin/rw.cmd` are a
