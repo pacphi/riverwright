@@ -6,6 +6,7 @@ import { loadState, saveState } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
 import { nowIso } from '../clock.mjs';
+import { assertHost } from '../hosts.mjs';
 
 // The submit gate publishes, so it is confirmed in the terminal by default. The host's own permission
 // prompt (host-ask) remains the default for checkpoint-1 and the post gates.
@@ -19,6 +20,7 @@ export async function run(args, io) {
   });
   const dir = values.run ?? io.env.UPF_RUN_DIR;
   if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set UPF_RUN_DIR');
+  const host = assertHost(values.host ?? null);
   const mode = values.mode ?? io.env.UPF_APPROVAL_MODE ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
   if (gate === 'submit-gate' && mode === 'host-ask' && io.env.UPF_ALLOW_HOST_ASK_SUBMIT !== '1') {
     throw new UpfError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "upf approve submit-gate ... --mode tty" yourself (host-ask for this gate needs UPF_ALLOW_HOST_ASK_SUBMIT=1)');
@@ -38,7 +40,6 @@ export async function run(args, io) {
       return 1;
     }
   }
-  const host = values.host ?? null;
   saveState(dir, recordApproval(state, { gate, sha: values.sha, content, mode, host, now }));
   appendEvent(dir, { type: 'approval', at: now, gate, binding, mode, host });
   io.stdout.write(`Approved ${gate} for ${state.runId}: ${binding.kind} ${binding.value}\n`);

@@ -69,3 +69,18 @@ test('host-ask stays the default for checkpoint-1 and posts', async () => {
   assert.equal(r.code, 0, r.stderr);
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
 });
+
+test('--host must be a known host id', async () => {
+  const dir = tmpDir();
+  await callMain(['state', 'create', '--id', 'o/r#1'], { env: env(dir) });
+  const begun = await callMain(['state', 'begin', 'start', '--host', 'totally-claude'], { env: env(dir) });
+  assert.equal(begun.code, 1);
+  assert.match(begun.stderr, /unknown host/);
+  assert.equal(loadState(dir).current, null);
+  const approved = await callMain(['approve', 'checkpoint-1', '--sha', A, '--host', 'notahost'], { env: env(dir) });
+  assert.equal(approved.code, 1);
+  assert.match(approved.stderr, /unknown host/);
+  assert.equal(loadState(dir).approvals.length, 0);
+  const ok = await callMain(['state', 'begin', 'start', '--host', 'codex'], { env: env(dir) });
+  assert.equal(ok.code, 0, ok.stderr);
+});

@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import { UpfError } from './errors.mjs';
 import { toLf } from './fsx.mjs';
+import { assertHost } from './hosts.mjs';
 
 export const GATES = ['checkpoint-1', 'submit-gate', 'post-issue', 'post-comment'];
 export const APPROVAL_MODES = ['host-ask', 'tty'];
@@ -26,7 +27,7 @@ export function recordApproval(state, { gate, sha, content, mode, host = null, n
   if (!GATES.includes(gate)) throw new UpfError('UNKNOWN_GATE', `unknown gate "${gate}" (use ${GATES.join(', ')})`);
   if (!APPROVAL_MODES.includes(mode)) throw new UpfError('UNKNOWN_MODE', `unknown approval mode "${mode}" (use host-ask or tty)`);
   const binding = makeBinding({ sha, content });
-  return { ...state, approvals: [...state.approvals, { gate, binding, approvedAt: now, mode, host, revoked: false }] };
+  return { ...state, approvals: [...state.approvals, { gate, binding, approvedAt: now, mode, host: assertHost(host), revoked: false }] };
 }
 
 function latest(state, gate) {

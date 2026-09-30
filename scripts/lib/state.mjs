@@ -5,6 +5,7 @@ import { GATES, APPROVAL_MODES, isApprovalValid, revokeGate } from './approvals.
 import { preset } from './presets.mjs';
 import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
+import { HOSTS, assertHost } from './hosts.mjs';
 
 // Station names are the story contract (docs/story/paddling-upstream.html data-station values).
 export const STATIONS = ['start', 'intake', 'recon', 'environment', 'reproduce', 'root-cause', 'fix', 'review', 'writeup', 'submit'];
@@ -46,6 +47,7 @@ function assertActive(state) {
 
 export function beginStation(state, name, { now, host = null, model = null, headSha } = {}) {
   assertActive(state);
+  assertHost(host);
   if (!STATIONS.includes(name)) throw new UpfError('UNKNOWN_STATION', `unknown station "${name}"`);
   if (state.current) throw new UpfError('STATION_IN_PROGRESS', `${state.current} is still in progress`);
   const next = nextStation(state);
@@ -108,11 +110,14 @@ export function validateState(s) {
   if (!RUN_STATUSES.includes(s.status)) fail('status');
   const keys = Object.keys(s.stations ?? {});
   if (keys.length !== STATIONS.length || !STATIONS.every((k) => keys.includes(k))) fail('stations');
+  const knownHost = (h) => h === null || h === undefined || HOSTS.includes(h);
   for (const k of STATIONS) if (!STATION_STATUSES.includes(s.stations[k]?.status)) fail(`station ${k} status`);
+  for (const k of STATIONS) if (!knownHost(s.stations[k].host)) fail(`station ${k} host`);
   if (s.current !== null && !STATIONS.includes(s.current)) fail('current');
   if (!Array.isArray(s.approvals)) fail('approvals');
   for (const a of s.approvals) {
     if (!GATES.includes(a.gate) || !APPROVAL_MODES.includes(a.mode) || !['sha', 'content'].includes(a.binding?.kind)) fail('approvals');
+    if (!knownHost(a.host)) fail('approval host');
   }
   if (s.stop !== null && !STOP_REASONS.includes(s.stop?.reason)) fail('stop');
   return s;

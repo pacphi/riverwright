@@ -124,3 +124,11 @@ test('templates/state.schema.json lists the same enums as the code', () => {
   assert.deepEqual(schema.properties.kind.enum, RUN_KINDS);
   assert.deepEqual(schema.$defs.stopReason.enum, STOP_REASONS);
 });
+
+test('hosts recorded in state are known host ids or null', () => {
+  assert.throws(() => beginStation(fresh(), 'start', { now: 't', host: 'vim' }), /unknown host/);
+  assert.throws(() => recordApproval(fresh(), { gate: 'checkpoint-1', sha: A, mode: 'tty', host: 'vim', now: 't' }), /unknown host/);
+  const s = beginStation(fresh(), 'start', { now: 't', host: 'gemini-cli' });
+  assert.equal(s.stations.start.host, 'gemini-cli');
+  assert.throws(() => validateState({ ...s, stations: { ...s.stations, start: { ...s.stations.start, host: 'vim' } } }), /host/);
+});
