@@ -1,9 +1,10 @@
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { parseArgs } from 'node:util';
 import { RiverwrightError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 import { readAll } from '../io.mjs';
-import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
+import { workspaceHomeFromArg, isInside, realish, runDirForPath } from '../paths.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { hasActiveRun } from '../state.mjs';
 import { classifyCommand, hasUnresolved } from '../hooks/classify.mjs';
@@ -20,8 +21,11 @@ function emit(io, rendered) {
   return rendered.exitCode;
 }
 
-export async function run([host], io) {
+export async function run([host, ...rest], io) {
   if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
+  // The workspace comes from the generated hook command's --home, never from the environment.
+  const { values } = parseArgs({ args: rest, options: { home: { type: 'string' } } });
+  const home = workspaceHomeFromArg(values.home);
   const raw = await readAll(io.stdin);
   let payload = null;
   try {
@@ -30,7 +34,6 @@ export async function run([host], io) {
     payload = null;
   }
   const { command, cwd } = extractCommand(payload);
-  const home = riverwrightHome(io.env);
   const where = path.resolve(io.cwd, cwd ?? '.');
   const readable = typeof command === 'string' && command.trim() !== '';
   const inScope = isInside(where, home) || (readable && touchesHome(command, { home, cwd: where, env: io.env, platform: io.platform }));

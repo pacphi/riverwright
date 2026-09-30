@@ -16,10 +16,10 @@ function world({ active = true } = {}) {
   let s = createState({ runId: 'o/r#1', kind: 'fixture', now: 't' });
   if (!active) s = stopRun(s, 'user-stopped', { now: 't' });
   saveState(path.join(home, 'o', 'r', 'runs', 'issue-1'), s);
-  return { top, home, worktree, project, env: { HOME: top, USERPROFILE: top, RIVERWRIGHT_HOME: home } };
+  return { top, home, worktree, project, env: { HOME: top, USERPROFILE: top } };
 }
 
-const hook = (w, command, cwd, stdin) => callMain(['hook', 'claude-code'], {
+const hook = (w, command, cwd, stdin) => callMain(['hook', 'claude-code', '--home', w.home], {
   stdin: stdin ?? JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd }),
   env: w.env,
   cwd,

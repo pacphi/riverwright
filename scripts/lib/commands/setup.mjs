@@ -36,6 +36,8 @@ export async function run(args, io) {
     io.stderr.write(USAGE);
     return 2;
   }
+  // A person runs setup, so RIVERWRIGHT_HOME is honored here. The pre-push guard and the host hook never
+  // read it: they take --home (see workspaceHomeFromArg).
   const home = riverwrightHome(io.env);
   const now = nowIso(io);
   const info = inspectRepo(values.repo ?? io.cwd, { home });

@@ -84,8 +84,8 @@ test('launcherHookCommand goes through the launcher, which denies (exit 2) when 
 });
 
 test('launcherHookCommand runs the hook when node is present', posixOnly, () => {
-  const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'linux' });
-  const r = spawnSync('/bin/sh', ['-c', cmd], { input: '{}', encoding: 'utf8', env: { ...process.env, RIVERWRIGHT_HOME: tmpDir('riverwright-home-') }, cwd: tmpDir() });
+  const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'linux', home: tmpDir('riverwright-home-') });
+  const r = spawnSync('/bin/sh', ['-c', cmd], { input: '{}', encoding: 'utf8', env: process.env, cwd: tmpDir() });
   assert.equal(r.status, 0, r.stderr);
 });
 

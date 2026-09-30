@@ -56,7 +56,7 @@ test('everything else is refused with a reason', () => {
 test('renderPrePushHook quotes install paths with spaces and refuses unsafe ones', () => {
   const text = renderPrePushHook('/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs');
   assert.match(text, /^#!\/bin\/sh\n/);
-  assert.match(text, /exec node "\/Users\/Jane Doe\/Library\/Application Support\/riverwright\/scripts\/riverwright\.mjs" guard pre-push "\$@"/);
+  assert.match(text, /exec node "\/Users\/Jane Doe\/Library\/Application Support\/riverwright\/scripts\/riverwright\.mjs" guard pre-push -- "\$@"/);
   assert.throws(() => renderPrePushHook('/a$b/riverwright.mjs'), /cannot be quoted/);
 });
 
@@ -126,7 +126,7 @@ async function forgedRun() {
 
 test('the guard finds the run from the worktree it is pushing from', async () => {
   const w = await workspace();
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { RIVERWRIGHT_HOME: w.home } });
+  const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A), cwd: w.worktree });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(readLedger(w.dir).at(-1).decision, 'allow');
 });
@@ -134,10 +134,10 @@ test('the guard finds the run from the worktree it is pushing from', async () =>
 test('a forged RIVERWRIGHT_RUN_DIR does not make the guard allow', async () => {
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_RUN_DIR: await forgedRun(), RIVERWRIGHT_HOME: tmpDir('riverwright-home-') } });
+  const r = await callMain(['guard', 'pre-push', '--home', tmpDir('riverwright-home-'), '--', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_RUN_DIR: await forgedRun() } });
   assert.notEqual(r.code, 0);
   const w = await workspace({ approve: false });
-  const r2 = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { RIVERWRIGHT_RUN_DIR: await forgedRun(), RIVERWRIGHT_HOME: w.home } });
+  const r2 = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { RIVERWRIGHT_RUN_DIR: await forgedRun() } });
   assert.notEqual(r2.code, 0);
   assert.match(r2.stderr, /Nothing has been approved/);
 });
@@ -146,23 +146,23 @@ test('a forged git config riverwright.run does not make the guard allow', async 
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
   await runFile('git', ['config', 'riverwright.run', await forgedRun()], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-') } });
+  const r = await callMain(['guard', 'pre-push', '--home', tmpDir('riverwright-home-'), '--', 'fork', FORK], { stdin: line(A), cwd: repo });
   assert.notEqual(r.code, 0);
 });
 
 test('config injected through GIT_CONFIG_COUNT does not make the guard allow', async () => {
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
-  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], {
+  const r = runRiverwright(['guard', 'pre-push', '--home', tmpDir('riverwright-home-'), '--', 'fork', FORK], {
     stdin: line(A), cwd: repo,
-    env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-'), RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'riverwright.run', GIT_CONFIG_VALUE_0: await forgedRun() },
+    env: { RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'riverwright.run', GIT_CONFIG_VALUE_0: await forgedRun() },
   });
   assert.notEqual(r.code, 0, r.stderr);
 });
 
 test('a run record that belongs to another issue is refused', async () => {
   const w = await workspace({ runId: 'ruvnet/ruflo#1' });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: w.worktree, env: { RIVERWRIGHT_HOME: w.home } });
+  const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A), cwd: w.worktree });
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /belongs to ruvnet\/ruflo#1/);
 });
@@ -172,7 +172,7 @@ test('pushing from the plain clone (not a run worktree) is refused', async () =>
   const clone = path.join(w.home, 'ruvnet', 'ruflo', 'clone');
   fs.mkdirSync(clone, { recursive: true });
   await runFile('git', ['init', '-q'], { cwd: clone });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: clone, env: { RIVERWRIGHT_HOME: w.home } });
+  const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A), cwd: clone });
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /run record is missing/);
 });
@@ -189,7 +189,7 @@ test('the guard finds the run from a linked worktree of the clone (git worktree 
   assert.equal(added.code, 0, added.stderr);
   const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
   saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'riverwright/3509-codex' }));
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: path.join(worktree), env: { RIVERWRIGHT_HOME: home } });
+  const r = await callMain(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], { stdin: line(A), cwd: path.join(worktree) });
   assert.equal(r.code, 0, r.stderr);
 });
 
@@ -239,7 +239,7 @@ test('the approval is bound to one branch: another riverwright/ branch is refuse
 
 test('riverwright guard refuses the approved commit on a branch other than the approved one', async () => {
   const w = await workspace();
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A, 'refs/heads/riverwright/3509-other'), cwd: w.worktree, env: { RIVERWRIGHT_HOME: w.home } });
+  const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A, 'refs/heads/riverwright/3509-other'), cwd: w.worktree });
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /approved branch/);
 });
@@ -257,10 +257,11 @@ test('the guard finds the run with the environment git gives a pre-push hook in 
   const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
   saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'riverwright/3509-codex' }));
   // Git runs hooks from the worktree root with GIT_DIR (and GIT_INDEX_FILE) exported, and no GIT_WORK_TREE.
-  const hookEnv = { RIVERWRIGHT_HOME: home, RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(gitDir, 'index'), GIT_PREFIX: '' };
-  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: worktree, env: hookEnv });
+  const hookEnv = { RIVERWRIGHT_TEST: '', RIVERWRIGHT_RUN_DIR: '', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(gitDir, 'index'), GIT_PREFIX: '' };
+  const hookArgs = ['guard', 'pre-push', '--home', home, '--', 'fork', FORK];
+  const r = runRiverwright(hookArgs, { stdin: line(A), cwd: worktree, env: hookEnv });
   assert.equal(r.code, 0, r.stderr);
-  const other = runRiverwright(['guard', 'pre-push', 'fork', FORK], { stdin: line(B), cwd: worktree, env: hookEnv });
+  const other = runRiverwright(hookArgs, { stdin: line(B), cwd: worktree, env: hookEnv });
   assert.notEqual(other.code, 0);
   assert.match(other.stderr, /not the approved commit/);
 });

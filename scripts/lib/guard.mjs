@@ -33,10 +33,23 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
   return { allow: true, reason: 'approved push to your fork' };
 }
 
-export function renderPrePushHook(scriptPath) {
-  const p = String(scriptPath);
-  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new RiverwrightError('UNSAFE_PATH', 'script path must be absolute');
+function assertHookPath(p, what) {
+  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new RiverwrightError('UNSAFE_PATH', `${what} must be absolute`);
   if (/["$`%\r\n]/.test(p)) throw new RiverwrightError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
+}
+
+// The hook fixes the workspace home with --home (when given; otherwise the guard uses the account's
+// ~/.riverwright), so neither RIVERWRIGHT_HOME nor HOME in the pushing shell can move it. "--" keeps git's
+// remote name and URL from being read as options (a remote can be named "--home=/elsewhere").
+export function renderPrePushHook(scriptPath, { home } = {}) {
+  const p = String(scriptPath);
+  assertHookPath(p, 'script path');
+  let homeArg = '';
+  if (home !== undefined && home !== null) {
+    const h = String(home).replace(/[\\/]+$/, '');
+    assertHookPath(h, 'workspace home');
+    homeArg = ` --home "${h.replace(/\\/g, '/')}"`;
+  }
   const template = fs.readFileSync(new URL('../../templates/pre-push.sh', import.meta.url), 'utf8');
-  return template.replace('__RIVERWRIGHT_SCRIPT__', () => p.replace(/\\/g, '/'));
+  return template.replace('__RIVERWRIGHT_SCRIPT__', () => p.replace(/\\/g, '/')).replace('__RIVERWRIGHT_HOME_ARG__', () => homeArg);
 }

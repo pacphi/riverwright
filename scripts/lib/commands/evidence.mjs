@@ -10,6 +10,8 @@ export async function run(args, io) {
   const [sub, ...rest] = args;
   if (sub !== 'export') throw new RiverwrightError('USAGE', 'usage: riverwright evidence export [--home DIR] [--hosts FILE] [--out FILE]');
   const { values } = parseArgs({ args: rest, options: { home: { type: 'string' }, hosts: { type: 'string' }, out: { type: 'string' } } });
+  // A person runs evidence export, so RIVERWRIGHT_HOME is honored here. The pre-push guard and the host
+  // hook never read it: they take --home (see workspaceHomeFromArg).
   const home = values.home ?? riverwrightHome(io.env);
   const hosts = values.hosts ? JSON.parse(fs.readFileSync(values.hosts, 'utf8')) : {};
   const { states, skipped } = collectRunStates(home);

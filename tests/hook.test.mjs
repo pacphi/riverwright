@@ -31,34 +31,35 @@ const DENY_SHAPE = {
   'hermes-agent': (o) => o.decision === 'block',
 };
 
-const env = { RIVERWRIGHT_HOME: home };
+// The workspace is named with --home (as the generated hook command does); the environment is not read.
+const env = {};
 
 for (const host of HOSTS) {
   test(`${host}: an outward command inside the workspace is denied in the host's dialect`, async () => {
-    const r = await callMain(['hook', host], { stdin: payload(host, 'pytest -q && git push origin riverwright/1-x', worktree), env, cwd: outside });
+    const r = await callMain(['hook', host, '--home', home], { stdin: payload(host, 'pytest -q && git push origin riverwright/1-x', worktree), env, cwd: outside });
     assert.equal(r.code, 2);
     assert.ok(DENY_SHAPE[host](JSON.parse(r.stdout)), r.stdout);
   });
 
   test(`${host}: a safe command inside the workspace is allowed silently`, async () => {
-    const r = await callMain(['hook', host], { stdin: payload(host, 'pytest -q', worktree), env, cwd: outside });
+    const r = await callMain(['hook', host, '--home', home], { stdin: payload(host, 'pytest -q', worktree), env, cwd: outside });
     assert.equal(r.code, 0);
     assert.equal(r.stdout, '');
   });
 
   test(`${host}: the user's own projects are out of scope`, async () => {
-    const r = await callMain(['hook', host], { stdin: payload(host, 'git push origin main', outside), env, cwd: outside });
+    const r = await callMain(['hook', host, '--home', home], { stdin: payload(host, 'git push origin main', outside), env, cwd: outside });
     assert.equal(r.code, 0);
   });
 }
 
 test('a command aimed at the workspace from outside it is in scope', async () => {
-  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', `git -C "${worktree}" push`, outside), env, cwd: outside });
+  const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: payload('claude-code', `git -C "${worktree}" push`, outside), env, cwd: outside });
   assert.equal(r.code, 2);
 });
 
 test('an unreadable payload inside the workspace is denied', async () => {
-  const r = await callMain(['hook', 'cursor'], { stdin: 'not json', env, cwd: worktree });
+  const r = await callMain(['hook', 'cursor', '--home', home], { stdin: 'not json', env, cwd: worktree });
   assert.equal(r.code, 2);
   assert.equal(JSON.parse(r.stdout).permission, 'deny');
 });
@@ -69,7 +70,7 @@ test('an unknown host is denied (exit 2)', async () => {
 });
 
 test('a denial is recorded in the run ledger', async () => {
-  await callMain(['hook', 'hermes-agent'], { stdin: payload('hermes-agent', 'gh pr create --fill', worktree), env, cwd: outside });
+  await callMain(['hook', 'hermes-agent', '--home', home], { stdin: payload('hermes-agent', 'gh pr create --fill', worktree), env, cwd: outside });
   const last = readLedger(runDir).at(-1);
   assert.equal(last.type, 'guard');
   assert.equal(last.decision, 'deny');
@@ -77,11 +78,11 @@ test('a denial is recorded in the run ledger', async () => {
 });
 
 test('a fake riverwright inside the workspace does not get the publish exemption', async () => {
-  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', '/tmp/riverwright submit git push origin HEAD', worktree), env, cwd: outside });
+  const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: payload('claude-code', '/tmp/riverwright submit git push origin HEAD', worktree), env, cwd: outside });
   assert.equal(r.code, 2, r.stdout);
 });
 
 test('the installed launcher itself may run riverwright submit inside the workspace', async () => {
-  const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', `"${path.join(ROOT, 'bin', 'riverwright')}" submit o/r#1`, worktree), env, cwd: outside });
+  const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: payload('claude-code', `"${path.join(ROOT, 'bin', 'riverwright')}" submit o/r#1`, worktree), env, cwd: outside });
   assert.equal(r.code, 0, r.stdout);
 });

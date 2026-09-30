@@ -92,18 +92,27 @@ export const HOOK_SHELLS = ['sh', 'cmd', 'powershell'];
 // The hook command a host runs. It goes through bin/riverwright or bin/riverwright.cmd, which exit 2 (deny) when node
 // is missing. `shell` is the shell the host runs hook commands with: sh (POSIX, Git Bash), cmd, or
 // PowerShell (whose -Command turns native exit codes other than 0/1 into 1 unless passed through).
-export function launcherHookCommand(root, host, { platform = process.platform, shell } = {}) {
+// `home` is written into the command as --home, so the hook's workspace is fixed when the adapter is
+// generated and never read from the environment; without it the hook uses the account's ~/.riverwright.
+export function launcherHookCommand(root, host, { platform = process.platform, shell, home } = {}) {
   if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
   const r = String(root);
   assertQuotablePath(r, 'plugin root');
   const sh = shell ?? (platform === 'win32' ? 'cmd' : 'sh');
   if (!HOOK_SHELLS.includes(sh)) throw new RiverwrightError('UNKNOWN_SHELL', `unknown shell "${sh}" (use ${HOOK_SHELLS.join(', ')})`);
+  let h = null;
+  if (home !== undefined && home !== null) {
+    // A trailing backslash would escape the closing quote for the Windows argument parser.
+    h = String(home).replace(/[\\/]+$/, '');
+    assertQuotablePath(h, 'workspace home');
+  }
   if (sh === 'sh') {
     // /bin/sh runs the launcher even if the plugin cache dropped its executable bit.
     const launcher = `${r.replace(/\\/g, '/').replace(/\/+$/, '')}/bin/riverwright`;
-    return `/bin/sh "${launcher}" hook ${host}`;
+    return `/bin/sh "${launcher}" hook ${host}${h === null ? '' : ` --home "${h.replace(/\\/g, '/')}"`}`;
   }
   const launcher = `${r.replace(/\//g, '\\').replace(/\\+$/, '')}\\bin\\riverwright.cmd`;
-  if (sh === 'cmd') return `"${launcher}" hook ${host}`;
-  return `& "${launcher}" hook ${host}; exit $LASTEXITCODE`;
+  const homeArg = h === null ? '' : ` --home "${h}"`;
+  if (sh === 'cmd') return `"${launcher}" hook ${host}${homeArg}`;
+  return `& "${launcher}" hook ${host}${homeArg}; exit $LASTEXITCODE`;
 }

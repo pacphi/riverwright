@@ -34,8 +34,8 @@ async function plainRepo() {
 test('in a real process, RIVERWRIGHT_TEST=1 with RIVERWRIGHT_RUN_DIR does not point the guard at a forged run', async () => {
   const repo = await plainRepo();
   const forged = forgedRun();
-  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], {
-    stdin: LINE, cwd: repo, env: { ...seamEnv(forged), RIVERWRIGHT_HOME: tmpDir('riverwright-home-') },
+  const r = runRiverwright(['guard', 'pre-push', '--home', tmpDir('riverwright-home-'), '--', 'fork', FORK], {
+    stdin: LINE, cwd: repo, env: seamEnv(forged),
   });
   assert.notEqual(r.code, 0, r.stderr);
   assert.match(r.stderr, /run record is missing/);
@@ -46,8 +46,8 @@ test('in a real process, RIVERWRIGHT_TEST=1 does not reopen the git config river
   const repo = await plainRepo();
   const forged = forgedRun();
   await runFile('git', ['config', 'riverwright.run', forged], { cwd: repo });
-  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], {
-    stdin: LINE, cwd: repo, env: { ...seamEnv(''), RIVERWRIGHT_HOME: tmpDir('riverwright-home-') },
+  const r = runRiverwright(['guard', 'pre-push', '--home', tmpDir('riverwright-home-'), '--', 'fork', FORK], {
+    stdin: LINE, cwd: repo, env: seamEnv(''),
   });
   assert.notEqual(r.code, 0, r.stderr);
   assert.deepEqual(readLedger(forged), []);
@@ -73,8 +73,8 @@ test('in a real process, the guard records the real time even with RIVERWRIGHT_T
   await runFile('git', ['init', '-q'], { cwd: worktree });
   const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
   saveState(dir, setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK));
-  const r = runRiverwright(['guard', 'pre-push', 'fork', FORK], {
-    stdin: LINE, cwd: worktree, env: { ...seamEnv(forgedRun()), RIVERWRIGHT_HOME: home },
+  const r = runRiverwright(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], {
+    stdin: LINE, cwd: worktree, env: seamEnv(forgedRun()),
   });
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /Nothing has been approved/);
@@ -102,9 +102,9 @@ test('io.testing is honored in process: now pins the clock and runDir is used on
   const repo = await plainRepo();
   const forged = forgedRun();
   const home = tmpDir('riverwright-home-');
-  const without = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: LINE, cwd: repo, env: { RIVERWRIGHT_HOME: home }, testing: { runDir: forged } });
+  const without = await callMain(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], { stdin: LINE, cwd: repo, testing: { runDir: forged } });
   assert.notEqual(without.code, 0);
-  const withOverride = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: LINE, cwd: repo, env: { RIVERWRIGHT_HOME: home }, testing: { runDir: forged, allowRunDirOverride: true } });
+  const withOverride = await callMain(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], { stdin: LINE, cwd: repo, testing: { runDir: forged, allowRunDirOverride: true } });
   assert.equal(withOverride.code, 0, withOverride.stderr);
 });
 

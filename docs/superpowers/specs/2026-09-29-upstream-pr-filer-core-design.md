@@ -237,8 +237,11 @@ On every host the submit gate defaults to `tty` (§7.3); `host-ask` there needs
   match), the ref is exactly the branch named in the submit-gate approval, and the SHA equals the
   approved SHA.
 - The guard locates the run from the repository being pushed, not from environment variables or git
-  config: `git rev-parse --show-toplevel` must be `<RIVERWRIGHT_HOME>/<owner>/<repo>/worktrees/issue-<n>`,
-  and `runs/issue-<n>/state.json` must carry the run id `<owner>/<repo>#<n>`.
+  config: `git rev-parse --show-toplevel` must be `<home>/<owner>/<repo>/worktrees/issue-<n>`,
+  and `runs/issue-<n>/state.json` must carry the run id `<owner>/<repo>#<n>`. `<home>` is the `--home`
+  written into the generated hook (`guard pre-push --home "<home>" -- "$@"`), or else `~/.riverwright` of
+  the account as the OS records it; the guard and the host hooks never read `RIVERWRIGHT_HOME` or `HOME`
+  from the environment. Commands a person runs (`init`, `setup`, `evidence`) still honor `RIVERWRIGHT_HOME`.
 - The fork remote does not exist until the submit gate; `riverwright submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
 - Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live
@@ -249,7 +252,7 @@ On every host the submit gate defaults to `tty` (§7.3); `host-ask` there needs
 
 ### 7.2 Lock 2: host hooks (second layer)
 
-Generated per host, active only for commands run under `$RIVERWRIGHT_HOME`. They deny outward `gh` calls
+Generated per host, active only for commands run under the workspace home (the hook command's `--home`). They deny outward `gh` calls
 (`pr create|ready|comment|edit`, `issue create|comment`, `repo fork`, `api` with a write method),
 `git push --no-verify`, `-c core.hooksPath`, and edits to remote or credential config, unless the
 command is `riverwright submit` or `riverwright post` run through the installed launcher's exact real

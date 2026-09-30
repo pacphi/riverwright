@@ -5,9 +5,34 @@ import { RiverwrightError } from './errors.mjs';
 
 const NAME = /^[A-Za-z0-9][A-Za-z0-9._-]{0,99}$/;
 
+// For commands a person runs (init, state, setup, evidence), which may honor RIVERWRIGHT_HOME.
+// The pre-push guard and the host hook never call this: see workspaceHomeFromArg.
 export function riverwrightHome(env = process.env) {
   const v = env.RIVERWRIGHT_HOME && String(env.RIVERWRIGHT_HOME).trim();
   return path.resolve(v || path.join(os.homedir(), '.riverwright'));
+}
+
+// The workspace home for the pre-push guard and the host hook. It comes from their --home argument,
+// which the generated hook files carry, or else from the account's home directory as the operating
+// system records it (os.userInfo(): the password database, or the user profile on Windows). The
+// environment is never read: an agent can export RIVERWRIGHT_HOME or HOME in its shell and point these
+// checks at a tree it forged, and os.homedir() follows HOME.
+export function workspaceHomeFromArg(value, { userInfo = os.userInfo } = {}) {
+  if (value !== undefined && value !== null) {
+    const v = String(value);
+    if (!v.trim() || !path.isAbsolute(v)) throw new RiverwrightError('BAD_HOME', `--home must be an absolute path (got ${JSON.stringify(v)})`);
+    return path.resolve(v);
+  }
+  let dir = null;
+  try {
+    dir = userInfo().homedir;
+  } catch {
+    dir = null;
+  }
+  if (typeof dir !== 'string' || !path.isAbsolute(dir)) {
+    throw new RiverwrightError('NO_HOME', 'cannot find your account\'s home directory; pass --home <absolute path of the Riverwright workspace>');
+  }
+  return path.join(dir, '.riverwright');
 }
 
 export function assertRepoName(kind, value) {

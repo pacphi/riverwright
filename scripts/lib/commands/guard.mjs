@@ -1,8 +1,9 @@
 import path from 'node:path';
+import { parseArgs } from 'node:util';
 import { RiverwrightError } from '../errors.mjs';
 import { readAll } from '../io.mjs';
 import { runFile } from '../exec.mjs';
-import { riverwrightHome, isInside, realish, runDirForPath } from '../paths.mjs';
+import { workspaceHomeFromArg, isInside, realish, runDirForPath } from '../paths.mjs';
 import { loadState } from '../state.mjs';
 import { approvedSha, approvedBranch } from '../approvals.mjs';
 import { appendEvent } from '../ledger.mjs';
@@ -31,11 +32,16 @@ async function runFromRepository(io, home) {
   return dir ? { dir, runId: `${parts[0]}/${parts[1]}#${m[1]}` } : null;
 }
 
+const USAGE = 'usage: riverwright guard pre-push [--home <workspace>] -- <remote-name> <remote-url>';
+
 export async function run(args, io) {
-  const [sub, remoteName, remoteUrl] = args;
-  if (sub !== 'pre-push') throw new RiverwrightError('USAGE', 'usage: riverwright guard pre-push <remote-name> <remote-url>');
+  const [sub, ...rest] = args;
+  if (sub !== 'pre-push') throw new RiverwrightError('USAGE', USAGE);
+  // The generated hook passes --home and then "--", so git's remote name and URL are never read as options.
+  const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { home: { type: 'string' } } });
+  const [remoteName, remoteUrl] = positionals;
+  const home = workspaceHomeFromArg(values.home);
   const updates = parsePrePushLines(await readAll(io.stdin));
-  const home = riverwrightHome(io.env);
   let located = null;
   if (io.testing?.allowRunDirOverride) {
     const dir = await testRunDir(io);
