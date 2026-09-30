@@ -217,6 +217,22 @@ export function backupRoot(home, repoRoot) {
   return path.join(home, 'backups', `${path.basename(root)}-${id}`);
 }
 
+// Per-repository ownership stamp for a file Riverwright created: <backups>/<repo>-<id>/created-<sha8 of the
+// path>, holding the created file's hash. Removal deletes a created file only when a manifest and this
+// marker agree. It lives outside the repository but still under the workspace, which an agent can write,
+// so it narrows the planted-manifest risk without removing it; the per-file confirmation is the control.
+export function createdMarker(home, repoRoot, file) {
+  return path.join(backupRoot(home, repoRoot), `created-${sha256(String(file)).slice(0, 8)}`);
+}
+
+function readCreatedMarker(home, repoRoot, file) {
+  try {
+    return readTextIfExists(createdMarker(home, repoRoot, file))?.trim() ?? null;
+  } catch {
+    return null;
+  }
+}
+
 // Backups live under <home>/backups, which an agent can also write. Every folder that already exists
 // from <home>/backups down to the file being written must be a real folder, not a link (or a file):
 // mkdir -p and rename follow links, so a planted link would send backup copies and the manifest elsewhere.
@@ -276,6 +292,7 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
     const followSymlink = step.kind === 'block' && INSTRUCTION_FILES.includes(step.file);
     if (step.action === 'delete') fs.rmSync(abs);
     else writeFileAtomic(abs, step.after, { followSymlink });
+    if (step.action === 'create') writeBackupFile(home, createdMarker(home, plan.root, step.file), `${sha256(step.after)}\n`);
     manifest.steps.push({
       file: step.file,
       kind: step.kind,
@@ -368,6 +385,11 @@ export function planRemoval(info, { home }) {
     }
   }
   const steps = [];
+  // A manifest is a hint anyone can plant; deleting a created file also needs the ownership marker.
+  const owned = (file) => {
+    const s = created.get(file);
+    return Boolean(s) && typeof s.createdHash === 'string' && readCreatedMarker(home, info.root, file) === s.createdHash;
+  };
 
   for (const file of INSTRUCTION_FILES) {
     const abs = path.join(info.root, file);
@@ -381,7 +403,7 @@ export function planRemoval(info, { home }) {
     const before = fs.readFileSync(abs, 'utf8');
     const { text, removed } = stripBlock(before, SLUG);
     if (!removed) continue;
-    if (created.has(file) && text === '') steps.push(withDiff({ file, kind: 'block', action: 'delete', before, after: null }));
+    if (owned(file) && text === '') steps.push(withDiff({ file, kind: 'block', action: 'delete', before, after: null }));
     else steps.push(withDiff({ file, kind: 'block', action: 'update', before, after: text }));
   }
 
@@ -389,10 +411,13 @@ export function planRemoval(info, { home }) {
     if (INSTRUCTION_FILES.includes(file)) continue;
     const before = readTextIfExists(path.join(info.root, file));
     if (before === null) continue;
-    if (sha256(before) === s.createdHash) {
+    const unchanged = sha256(before) === s.createdHash;
+    if (unchanged && owned(file)) {
       steps.push(withDiff({ file, kind: s.kind, action: 'delete', before, after: null }));
     } else if (s.kind === 'json' && file === SETTINGS_FILE && isAddedPaths(s.addedPaths)) {
       merged.set(file, { ...s, backupCopy: null });
+    } else if (unchanged) {
+      steps.push({ file, kind: s.kind, action: 'keep', reason: 'Riverwright has no ownership record for it outside this repository, so it was left in place', before, after: null });
     } else {
       steps.push({ file, kind: s.kind, action: 'keep', reason: 'changed since Riverwright created it, so it was left in place', before, after: null });
     }

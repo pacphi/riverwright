@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { inspectRepo, planIntegration, planRemoval, applyPlan, backupRoot, sha256, TEAM_SETTINGS } from '../scripts/lib/project.mjs';
+import { inspectRepo, planIntegration, planRemoval, applyPlan, backupRoot, createdMarker, sha256, TEAM_SETTINGS } from '../scripts/lib/project.mjs';
 import { tmpDir } from './helpers.mjs';
 
 function repo(files = {}) {
@@ -168,4 +168,53 @@ test('a backup that hides a value behind a duplicate key is not restored verbati
   const after = fs.readFileSync(path.join(root, '.claude/settings.json'), 'utf8');
   assert.doesNotMatch(after, /evil/);
   assert.deepEqual(JSON.parse(after), { model: 'x' });
+});
+
+// Ownership: a created file is deleted on removal only if the manifest's hash matches the file AND the
+// marker applyPlan wrote outside the repository (<backups>/<repo>-<id>/created-<sha8 of the path>) says so.
+test('install writes an ownership marker for each file it creates', async () => {
+  const root = repo({ 'AGENTS.md': '# A\n' });
+  const h = tmpDir('riverwright-home-');
+  await install(root, h);
+  const marker = createdMarker(h, root, 'riverwright.json');
+  assert.equal(path.dirname(marker), backupRoot(h, root));
+  assert.equal(path.basename(marker), `created-${sha256('riverwright.json').slice(0, 8)}`);
+  assert.equal(fs.readFileSync(marker, 'utf8').trim(), sha256(fs.readFileSync(path.join(root, 'riverwright.json'), 'utf8')));
+  assert.equal(fs.existsSync(createdMarker(h, root, 'AGENTS.md')), false);
+});
+
+test('a planted manifest without the ownership marker cannot claim a user file as created', async () => {
+  const root = repo({ 'AGENTS.md': '# A\n', 'riverwright.json': '{"mine":true}\n', '.cursor/rules/riverwright.mdc': 'my own rule\n' });
+  const h = tmpDir('riverwright-home-');
+  plant(h, root, [
+    { file: 'riverwright.json', kind: 'owned-file', action: 'create', createdHash: sha256('{"mine":true}\n'), afterHash: sha256('{"mine":true}\n'), addedPaths: null },
+    { file: '.cursor/rules/riverwright.mdc', kind: 'owned-file', action: 'create', createdHash: sha256('my own rule\n'), afterHash: sha256('my own rule\n'), addedPaths: null },
+  ]);
+  const plan = planRemoval(inspectRepo(root, { home: h }), { home: h });
+  assert.deepEqual(plan.steps.filter((s) => s.action === 'delete'), []);
+  for (const s of plan.steps) assert.match(s.reason, /no ownership record/);
+  await applyPlan(plan, { home: h, now: 't' });
+  assert.equal(fs.readFileSync(path.join(root, 'riverwright.json'), 'utf8'), '{"mine":true}\n');
+  assert.equal(fs.readFileSync(path.join(root, '.cursor/rules/riverwright.mdc'), 'utf8'), 'my own rule\n');
+});
+
+test('a planted manifest without the marker cannot turn stripping an instruction file into deleting it', async () => {
+  const root = repo({ 'AGENTS.md': '' });
+  const h = tmpDir('riverwright-home-');
+  await install(root, h);
+  plant(h, root, [{ file: 'AGENTS.md', kind: 'block', action: 'create', createdHash: sha256('x'), afterHash: sha256('x'), addedPaths: null }]);
+  await remove(root, h);
+  assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '');
+});
+
+test('a created file whose ownership marker is gone is kept, with a reason', async () => {
+  const root = repo({ 'AGENTS.md': '# A\n' });
+  const h = tmpDir('riverwright-home-');
+  await install(root, h);
+  fs.rmSync(createdMarker(h, root, 'riverwright.json'));
+  const { results } = await remove(root, h);
+  const r = results.find((x) => x.file === 'riverwright.json');
+  assert.equal(r.result, 'kept');
+  assert.match(r.reason, /no ownership record/);
+  assert.ok(fs.existsSync(path.join(root, 'riverwright.json')));
 });
