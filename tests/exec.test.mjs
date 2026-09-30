@@ -127,8 +127,9 @@ test('Windows launcher hook command denies (exit 2) under cmd when node is missi
 test('Windows launcher hook command denies (exit 2) under PowerShell when node is missing', { skip: process.platform !== 'win32' }, () => {
   const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'win32', shell: 'powershell' });
   const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
+  // PowerShell starts a .cmd through cmd.exe, which it finds via ComSpec; node stays absent.
   const r = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-Command', cmd], {
-    input: '{}', encoding: 'utf8', env: { PATH: 'C:\\nonexistent', SystemRoot: process.env.SystemRoot },
+    input: '{}', encoding: 'utf8', env: { PATH: 'C:\\nonexistent', SystemRoot: process.env.SystemRoot, ComSpec: process.env.ComSpec },
   });
   assert.equal(r.status, 2, r.stderr);
 });
