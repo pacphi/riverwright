@@ -69,10 +69,41 @@ export function resolveHostLaunch(bin, { platform = process.platform, env = proc
   return { kind: 'plain', file: bin, prefixArgs: [] };
 }
 
+// Characters no quoting survives in every shell: sh expands $ and `, cmd expands %, PowerShell treats
+// typographic quotes as quotes.
+const UNQUOTABLE = /["$`%\r\n\0“”„‘’]/;
+
+function assertQuotablePath(p, what) {
+  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new UpfError('UNSAFE_PATH', `${what} must be absolute`);
+  if (UNQUOTABLE.test(p)) throw new UpfError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
+}
+
+// Fails OPEN when node is missing (the shell exits 127, which most hosts treat as "allow").
+// Host adapters must use launcherHookCommand instead.
 export function buildHookCommand(scriptPath, host) {
   if (!HOSTS.includes(host)) throw new UpfError('UNKNOWN_HOST', `unknown host "${host}"`);
   const p = String(scriptPath);
-  if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new UpfError('UNSAFE_PATH', 'hook script path must be absolute');
-  if (/["$`%\r\n]/.test(p)) throw new UpfError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
+  assertQuotablePath(p, 'hook script path');
   return `node "${p}" hook ${host}`;
+}
+
+export const HOOK_SHELLS = ['sh', 'cmd', 'powershell'];
+
+// The hook command a host runs. It goes through bin/upf or bin/upf.cmd, which exit 2 (deny) when node
+// is missing. `shell` is the shell the host runs hook commands with: sh (POSIX, Git Bash), cmd, or
+// PowerShell (whose -Command turns native exit codes other than 0/1 into 1 unless passed through).
+export function launcherHookCommand(root, host, { platform = process.platform, shell } = {}) {
+  if (!HOSTS.includes(host)) throw new UpfError('UNKNOWN_HOST', `unknown host "${host}"`);
+  const r = String(root);
+  assertQuotablePath(r, 'plugin root');
+  const sh = shell ?? (platform === 'win32' ? 'cmd' : 'sh');
+  if (!HOOK_SHELLS.includes(sh)) throw new UpfError('UNKNOWN_SHELL', `unknown shell "${sh}" (use ${HOOK_SHELLS.join(', ')})`);
+  if (sh === 'sh') {
+    // /bin/sh runs the launcher even if the plugin cache dropped its executable bit.
+    const launcher = `${r.replace(/\\/g, '/').replace(/\/+$/, '')}/bin/upf`;
+    return `/bin/sh "${launcher}" hook ${host}`;
+  }
+  const launcher = `${r.replace(/\//g, '\\').replace(/\\+$/, '')}\\bin\\upf.cmd`;
+  if (sh === 'cmd') return `"${launcher}" hook ${host}`;
+  return `& "${launcher}" hook ${host}; exit $LASTEXITCODE`;
 }
