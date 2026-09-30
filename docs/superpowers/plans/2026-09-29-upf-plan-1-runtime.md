@@ -6,13 +6,13 @@
 
 **Architecture:** One entry point, `scripts/upf.mjs`, dispatches to one module per subcommand under `scripts/lib/commands/`. All logic lives in small pure modules under `scripts/lib/` that take their inputs as arguments (clock, environment, runner, terminal), so tests never depend on the machine. Tiny `bin/upf` (POSIX sh) and `bin/upf.cmd` (Windows) launchers start Node and fail closed when Node is missing.
 
-**Tech Stack:** Node.js 22+ built-ins only (`node:fs`, `node:path`, `node:child_process`, `node:crypto`, `node:readline`, `node:util`, `node:test`, `node:assert`); git; GitHub Actions matrix on ubuntu-latest, macos-latest, windows-latest.
+**Tech Stack:** Node.js 24+ built-ins only (`node:fs`, `node:path`, `node:child_process`, `node:crypto`, `node:readline`, `node:util`, `node:test`, `node:assert`); git; GitHub Actions matrix on ubuntu-latest, macos-latest, windows-latest.
 
 **Spec:** [`docs/superpowers/specs/2026-09-29-upstream-pr-filer-core-design.md`](../specs/2026-09-29-upstream-pr-filer-core-design.md) (read §2, §3, §6, §7, §11, §12.6, §15). Roadmap: [`2026-09-29-upf-roadmap.md`](2026-09-29-upf-roadmap.md).
 
 ## Global Constraints
 
-- Node.js 22 or newer. **No npm dependencies.** Only Node built-ins. There is never an `npm install` step.
+- Node.js 24 or newer. **No npm dependencies.** Only Node built-ins. There is never an `npm install` step.
 - Launchers: `bin/upf` (POSIX sh) and `bin/upf.cmd` (Windows). When Node is missing they print how to install it and exit 1, or exit 2 when called as `hook` or `guard`.
 - Hooks are invoked as `node "<plugin root>/scripts/upf.mjs" hook <host>`. The entry point converts any exception to exit 2 for `hook` and `guard`.
 - `git` and `gh` run through `execFile` with argument arrays, never a shell string.
@@ -107,7 +107,7 @@ docs/story/                      # the published story and its evidence.json see
   "type": "module",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=22" },
+  "engines": { "node": ">=24" },
   "bin": { "upf": "scripts/upf.mjs" },
   "scripts": { "test": "node --test" }
 }
@@ -315,8 +315,8 @@ export async function main(argv, io) {
 // upstream-pr-filer command line. Node built-ins only (spec §3.2).
 const HOOK_LIKE = new Set(['hook', 'guard']);
 const major = Number(process.versions.node.split('.')[0]);
-if (major < 22) {
-  process.stderr.write(`upstream-pr-filer needs Node.js 22 or newer (found ${process.versions.node}): https://nodejs.org\n`);
+if (major < 24) {
+  process.stderr.write(`upstream-pr-filer needs Node.js 24 or newer (found ${process.versions.node}): https://nodejs.org\n`);
   process.exit(HOOK_LIKE.has(process.argv[2]) ? 2 : 1);
 }
 const { main } = await import('./lib/cli.mjs');
@@ -368,7 +368,7 @@ test('POSIX launcher works through a symlink (setup may link it into ~/.local/bi
 test('POSIX launcher denies hook calls when node is missing', { skip: !posix }, () => {
   const r = spawnSync('/bin/sh', [launcher, 'hook', 'claude-code'], { encoding: 'utf8', env: { PATH: '/nonexistent' } });
   assert.equal(r.status, 2);
-  assert.match(r.stderr, /needs Node\.js 22/);
+  assert.match(r.stderr, /needs Node\.js 24/);
 });
 
 test('POSIX launcher exits 1 for ordinary commands when node is missing', { skip: !posix }, () => {
@@ -417,7 +417,7 @@ root=$(CDPATH= cd -- "$dir/.." && pwd -P)
 if command -v node >/dev/null 2>&1; then
   exec node "$root/scripts/upf.mjs" "$@"
 fi
-echo "upstream-pr-filer needs Node.js 22 or newer: https://nodejs.org" >&2
+echo "upstream-pr-filer needs Node.js 24 or newer: https://nodejs.org" >&2
 case ${1-} in
   hook|guard) exit 2 ;;
 esac
@@ -434,7 +434,7 @@ if errorlevel 1 goto nonode
 node "%~dp0..\scripts\upf.mjs" %*
 exit /b %ERRORLEVEL%
 :nonode
->&2 echo upstream-pr-filer needs Node.js 22 or newer: https://nodejs.org
+>&2 echo upstream-pr-filer needs Node.js 24 or newer: https://nodejs.org
 if /i "%~1"=="hook" exit /b 2
 if /i "%~1"=="guard" exit /b 2
 exit /b 1
@@ -472,7 +472,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
-        node: ['22', '24']
+        node: ['24', '26']
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v5
@@ -4378,7 +4378,7 @@ git commit -m "feat(runtime): export run evidence for the story and pin the stor
 ## Plan 1 done when
 
 - [ ] `node --test` passes locally.
-- [ ] CI is green on ubuntu-latest, macos-latest and windows-latest, each on Node 22 and 24. (Pushing the branch so CI can run is an outward action: the user pushes, or explicitly approves the push.)
+- [ ] CI is green on ubuntu-latest, macos-latest and windows-latest, each on Node 24 and 26. (Pushing the branch so CI can run is an outward action: the user pushes, or explicitly approves the push.)
 - [ ] `upf help` lists: `approve`, `evidence`, `fingerprint`, `guard`, `hook`, `sanitize`, `setup`, `state`, `version`.
 - [ ] No file under `scripts/` imports anything outside Node built-ins (`grep -rhoE "from '[^'.][^']*'" scripts | sort -u` shows only `node:` modules).
 - [ ] The Review Focus items each have a passing test (Tasks 3, 7, 8, 9).

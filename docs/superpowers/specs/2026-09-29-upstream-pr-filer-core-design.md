@@ -60,7 +60,7 @@ These are load-bearing. An edit that weakens one is a bug.
    never runs a host subcommand not listed as side-effect-free in `references/hosts/<host>.md`, and
    probes unverified hosts with `--version` only (see Appendix A for why).
 9. **Accelerators are optional.** ruflo, agentic-qe, beads and similar tools may speed a phase up;
-   their absence never blocks one. The floor is Node.js 22+, git, gh and one supported host.
+   their absence never blocks one. The floor is Node.js 24+, git, gh and one supported host.
 10. **The user's repositories are not ours.** The downstream repo is read-only input. `upf` never
     overwrites or rewrites a file it did not create. Optional project integration (§12.6) touches
     only a clearly marked block or adds absent keys, shows the diff first, asks, and can remove
@@ -98,7 +98,7 @@ those root directories belong to the Gemini adapter. The Claude adapter lives un
 
 ### 3.2 Runtime
 
-Required: **Node.js 22 or newer** (a line still in LTS support), `git`, `gh` (authenticated), one
+Required: **Node.js 24 or newer** (Node 24 is the LTS baseline; CI also runs Node 26, which becomes LTS on 2026-10-28), `git`, `gh` (authenticated), one
 supported host. Optional: Docker Desktop, OrbStack or another Docker engine for the container tier
 (WSL2 on Windows).
 
