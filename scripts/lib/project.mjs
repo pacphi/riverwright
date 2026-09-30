@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { isDeepStrictEqual } from 'node:util';
 import { UpfError } from './errors.mjs';
 import { isInside, realish } from './paths.mjs';
 import { readTextIfExists, writeFileAtomic, resolveWriteTarget } from './fsx.mjs';
@@ -25,6 +26,18 @@ export const CURSOR_RULE = [
   'Never push to an upstream remote directly. Project settings: `.upstream-pr.json`.',
   '',
 ].join('\n');
+
+// Every file upstream-pr-filer may ever create, update or delete in a repository (§12.6).
+export const OWNED_TARGETS = Object.freeze([...INSTRUCTION_FILES, '.cursor/rules/upstream-pr-filer.mdc', '.upstream-pr.json', '.claude/settings.json']);
+const SETTINGS_FILE = '.claude/settings.json';
+
+// A path from a plan or a backup manifest is acted on only if it is one of the fixed targets and,
+// with every symlink resolved, still lands inside the repository.
+export function isSafeTarget(root, file) {
+  if (typeof file !== 'string' || !OWNED_TARGETS.includes(file)) return false;
+  if (path.posix.isAbsolute(file) || path.win32.isAbsolute(file) || file.split(/[\\/]/).includes('..')) return false;
+  return isInside(realish(path.join(root, file)), root);
+}
 
 export const sha256 = (text) => crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 
@@ -183,6 +196,11 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
       results.push({ file: step.file, result: 'declined' });
       continue;
     }
+    // Re-checked here, right before touching the disk: the plan may be old or may not be ours.
+    if (!isSafeTarget(plan.root, step.file)) {
+      results.push({ file: step.file, result: 'refused', reason: 'it is not a file upstream-pr-filer manages inside this repository' });
+      continue;
+    }
     const abs = path.join(plan.root, step.file);
     if (step.before !== null) {
       const copy = path.join(dir, 'files', step.file);
@@ -213,11 +231,51 @@ function installManifests(home, root) {
   } catch {
     return [];
   }
-  return names
-    .map((name) => ({ dir: path.join(dir, name), text: readTextIfExists(path.join(dir, name, 'manifest.json')) }))
-    .filter((m) => m.text !== null)
-    .map((m) => ({ ...JSON.parse(m.text), dir: m.dir }))
-    .filter((m) => m.mode === 'install');
+  const out = [];
+  for (const name of names) {
+    let m;
+    try {
+      const text = readTextIfExists(path.join(dir, name, 'manifest.json'));
+      m = text === null ? null : JSON.parse(text);
+    } catch {
+      m = null;
+    }
+    // Backups live in a folder anyone with shell access can write, so a manifest is only a hint:
+    // it must be for this exact repository, and each step is checked again below.
+    if (!m || m.mode !== 'install' || m.root !== root || !Array.isArray(m.steps)) continue;
+    out.push({ ...m, dir: path.join(dir, name) });
+  }
+  return out;
+}
+
+const isAddedPaths = (v) => Array.isArray(v) && v.every((p) => Array.isArray(p) && p.length > 0 && p.every((k) => typeof k === 'string'));
+
+// Whitespace outside strings removed, so a backup can be compared with JSON.stringify of its content.
+function stripJsonWhitespace(text) {
+  const t = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  let out = '';
+  let inString = false;
+  for (let i = 0; i < t.length; i += 1) {
+    const c = t[i];
+    if (inString) {
+      out += c;
+      if (c === '\\') { out += t[i + 1] ?? ''; i += 1; } else if (c === '"') inString = false;
+    } else if (c === '"') { inString = true; out += c; } else if (!' \t\n\r'.includes(c)) out += c;
+  }
+  return out;
+}
+
+// True when `text` is `value` and nothing else: same data, no duplicate keys or odd escapes, differing
+// from JSON.stringify only in whitespace. Then its bytes can be restored without restoring any content
+// the backup might have gained.
+function isFormattingOf(text, value) {
+  let parsed;
+  try {
+    parsed = parseJsonStrict(text);
+  } catch {
+    return false;
+  }
+  return isDeepStrictEqual(parsed, value) && stripJsonWhitespace(text) === JSON.stringify(parsed);
 }
 
 function withDiff(step) {
@@ -232,10 +290,11 @@ export function planRemoval(info, { home }) {
   const merged = new Map();
   for (const m of installManifests(home, info.root)) {
     for (const s of m.steps) {
+      if (!s || !isSafeTarget(info.root, s.file)) continue;
       // Latest create wins (a file can be created, removed and created again).
       if (s.action === 'create') created.set(s.file, s);
-      if (s.kind === 'json' && s.action === 'update') {
-        // Earliest backup holds the true original; the latest afterHash says whether it is still ours.
+      if (s.kind === 'json' && s.action === 'update' && s.file === SETTINGS_FILE && isAddedPaths(s.addedPaths)) {
+        // Earliest backup holds the original formatting; the latest afterHash says whether it is still ours.
         const prev = merged.get(s.file);
         merged.set(s.file, { ...s, backupCopy: prev?.backupCopy ?? path.join(m.dir, 'files', s.file), addedPaths: [...(prev?.addedPaths ?? []), ...s.addedPaths] });
       }
@@ -265,7 +324,7 @@ export function planRemoval(info, { home }) {
     if (before === null) continue;
     if (sha256(before) === s.createdHash) {
       steps.push(withDiff({ file, kind: s.kind, action: 'delete', before, after: null }));
-    } else if (s.kind === 'json') {
+    } else if (s.kind === 'json' && file === SETTINGS_FILE && isAddedPaths(s.addedPaths)) {
       merged.set(file, { ...s, backupCopy: null });
     } else {
       steps.push({ file, kind: s.kind, action: 'keep', reason: 'changed since upstream-pr-filer created it, so it was left in place', before, after: null });
@@ -275,10 +334,6 @@ export function planRemoval(info, { home }) {
   for (const [file, s] of merged) {
     const before = readTextIfExists(path.join(info.root, file));
     if (before === null) continue;
-    if (s.backupCopy && sha256(before) === s.afterHash && fs.existsSync(s.backupCopy)) {
-      steps.push(withDiff({ file, kind: 'json', action: 'update', before, after: fs.readFileSync(s.backupCopy, 'utf8') }));
-      continue;
-    }
     let parsed;
     try {
       parsed = parseJsonStrict(before);
@@ -286,8 +341,21 @@ export function planRemoval(info, { home }) {
       steps.push({ file, kind: 'json', action: 'keep', reason: 'no longer strict JSON; remove the upstream-pr-filer entries by hand', before, after: null });
       continue;
     }
+    // The content written back is always what removeAddedKeys leaves. The backup copy only supplies the
+    // original formatting, and only when it holds exactly that content.
     const { result, removed } = removeAddedKeys(parsed, s.addedPaths, TEAM_SETTINGS);
-    if (removed.length) steps.push(withDiff({ file, kind: 'json', action: 'update', before, after: formatJsonLike(before, result) }));
+    if (!removed.length) continue;
+    let after = formatJsonLike(before, result);
+    if (s.backupCopy && sha256(before) === s.afterHash) {
+      let original = null;
+      try {
+        original = readTextIfExists(s.backupCopy);
+      } catch {
+        original = null;
+      }
+      if (original !== null && isFormattingOf(original, result)) after = original;
+    }
+    steps.push(withDiff({ file, kind: 'json', action: 'update', before, after }));
   }
   return { root: info.root, mode: 'remove', steps };
 }
