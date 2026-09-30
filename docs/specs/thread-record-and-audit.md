@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft for review (revision 2) |
+| Status | Approved 2026-09-29 (revision 2) |
 | Date | 2026-09-29 |
 | Scope | The data Riverwright keeps about upstream threads, workarounds, correspondence and its own actions: what is stored, where, who may change it, and how it is audited. The checker (Spec 4) and the adopter (Spec 5) are designed later against this. |
 | Builds on | [Spec 1](core-single-issue-pipeline.md) §3.4, §6, §7, §11 |

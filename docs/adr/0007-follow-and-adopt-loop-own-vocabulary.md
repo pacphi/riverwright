@@ -44,4 +44,4 @@ The thread-record spec defines the field mapping and is checked when the import 
 
 ## Implementation status
 
-Designed (draft awaiting approval). Implementation is Specs 4 and 5, after the plugin.
+Designed; the thread-record spec was approved 2026-09-29. Implementation is Specs 4 and 5, after the plugin.

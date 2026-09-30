@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | Draft for review |
+| Status | Approved 2026-09-29 |
 | Date | 2026-09-29 |
 | Scope | Spec 1 of 3: the single-issue pipeline, state, guardrails, roles, write-up, evidence export, and the Claude Code reference adapter |
 | Follows | Spec 2 (the other five host adapters), Spec 3 (batch mode) |

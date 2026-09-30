@@ -193,7 +193,6 @@ roadmap:
 | Hook payloads for Codex, Gemini, Cursor and Grok come from documentation | the deny logic is tested against assumed shapes until captured (Q-04) | M3 |
 | Windows PowerShell 5.1 behavior is covered by CI, not by a local run | the first Windows run already found one fail-open bug | continuous |
 | Trademark search for the name "Riverwright" is not done | required before any public launch | M8, owner |
-| The thread-record spec awaits the owner's approval | Spec 4 and 5 design depends on it | owner |
 | Whether agentic-kit switches to Riverwright's checker | affects how much the import must preserve | later |
 
 ## Keeping this document current
@@ -210,6 +209,7 @@ roadmap:
 
 | Date | Change |
 |---|---|
+| 2026-09-29 | The core spec and the thread-record spec are approved by the owner, which makes every `designed` row in the roadmap a reviewed design. |
 | 2026-09-29 | Q-07, Q-08 and Q-09 verified: all 8 checks pass on the pull request, including the pnpm lint job. |
 | 2026-09-29 | Markdown linting (markdownlint-cli2) added to CI and as `pnpm lint:md`; a test pins the dependency-free runtime. Development tools switch from npm to pnpm 12.8.1 (ADR-0009). |
 | 2026-09-29 | Roadmap created. M0 and M1 verified (CI green on six jobs); M2 designed; the documentation layout and eight decision records adopted. |
