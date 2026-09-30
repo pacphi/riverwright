@@ -1,6 +1,7 @@
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
+import { UpfError } from './errors.mjs';
 
 export const detectEol = (s) => (String(s).includes('\r\n') ? '\r\n' : '\n');
 export const toLf = (s) => String(s).replace(/\r\n/g, '\n');
@@ -31,8 +32,24 @@ export function resolveWriteTarget(p) {
   }
 }
 
-export function writeFileAtomic(p, data, { mode } = {}) {
-  const target = resolveWriteTarget(p);
+// Writes via a temp file and rename. A symlink at `p` is refused unless the caller has vetted it and
+// passes followSymlink; even then a link to a missing file is refused rather than creating its target.
+export function writeFileAtomic(p, data, { mode, followSymlink = false } = {}) {
+  let target = p;
+  let st = null;
+  try {
+    st = fs.lstatSync(p);
+  } catch (e) {
+    if (e.code !== 'ENOENT') throw e;
+  }
+  if (st?.isSymbolicLink()) {
+    if (!followSymlink) throw new UpfError('SYMLINK', `${p} is a symbolic link; refusing to write through it`);
+    try {
+      target = fs.realpathSync(p);
+    } catch {
+      throw new UpfError('SYMLINK', `${p} links to a file that does not exist; refusing to create it`);
+    }
+  }
   const dir = path.dirname(target);
   fs.mkdirSync(dir, { recursive: true });
   let existingMode;

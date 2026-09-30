@@ -39,6 +39,34 @@ export function isSafeTarget(root, file) {
   return isInside(realish(path.join(root, file)), root);
 }
 
+// Why writing (or deleting) root/file would reach outside the repository, or null when it is safe.
+// Every existing component below root is checked with lstat, because realpath-based checks cannot see
+// through a broken link: a link must resolve, and must resolve inside the repository.
+export function writeHazard(root, file) {
+  const parts = String(file).split(/[\\/]/).filter(Boolean);
+  let cur = root;
+  for (let k = 0; k < parts.length; k += 1) {
+    cur = path.join(cur, parts[k]);
+    let st;
+    try {
+      st = fs.lstatSync(cur);
+    } catch (e) {
+      if (e.code === 'ENOENT') return null;
+      throw e;
+    }
+    if (!st.isSymbolicLink()) continue;
+    const leaf = k === parts.length - 1;
+    let target;
+    try {
+      target = fs.realpathSync(cur);
+    } catch {
+      return leaf ? 'it is a link to a file that does not exist' : 'a folder on its path is a broken link';
+    }
+    if (!isInside(target, root)) return leaf ? 'it links to a file outside this repository' : 'a folder on its path links outside this repository';
+  }
+  return null;
+}
+
 export const sha256 = (text) => crypto.createHash('sha256').update(String(text), 'utf8').digest('hex');
 
 export function blockBody(version) {
@@ -114,6 +142,8 @@ export async function changedFiles(root) {
 function vet(info, step, changed) {
   const abs = path.join(info.root, step.file);
   const snippetOnly = (reason) => ({ file: step.file, kind: step.kind, action: 'print-snippet', reason, snippet: step.snippet, before: step.before, after: null });
+  const hazard = writeHazard(info.root, step.file);
+  if (hazard) return snippetOnly(hazard);
   if (step.before !== null) {
     if (!isInside(resolveWriteTarget(abs), info.root)) return snippetOnly('it links to a file outside this repository');
     try {
@@ -201,14 +231,17 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
       results.push({ file: step.file, result: 'refused', reason: 'it is not a file upstream-pr-filer manages inside this repository' });
       continue;
     }
-    const abs = path.join(plan.root, step.file);
-    if (step.before !== null) {
-      const copy = path.join(dir, 'files', step.file);
-      fs.mkdirSync(path.dirname(copy), { recursive: true });
-      fs.writeFileSync(copy, step.before, 'utf8');
+    const hazard = writeHazard(plan.root, step.file);
+    if (hazard) {
+      results.push({ file: step.file, result: 'refused', reason: hazard });
+      continue;
     }
+    const abs = path.join(plan.root, step.file);
+    if (step.before !== null) writeFileAtomic(path.join(dir, 'files', step.file), step.before);
+    // Only an instruction file may be a (vetted, in-repository) link, e.g. CLAUDE.md -> AGENTS.md.
+    const followSymlink = step.kind === 'block' && INSTRUCTION_FILES.includes(step.file);
     if (step.action === 'delete') fs.rmSync(abs);
-    else writeFileAtomic(abs, step.after);
+    else writeFileAtomic(abs, step.after, { followSymlink });
     manifest.steps.push({
       file: step.file,
       kind: step.kind,

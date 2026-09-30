@@ -134,3 +134,66 @@ test('declined steps are not written', async () => {
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
   assert.equal(results.find((r) => r.file === 'AGENTS.md').result, 'declined');
 });
+
+const posixOnly = { skip: process.platform === 'win32' };
+const outsideDir = () => tmpDir('outside-');
+
+test('a dangling symlink in place of a new file is not written through', posixOnly, async () => {
+  const root = repo({ 'AGENTS.md': '# A\n' });
+  const out = outsideDir();
+  fs.symlinkSync(path.join(out, 'planted.json'), path.join(root, '.upstream-pr.json'));
+  const h = home();
+  const p = plan(root, h);
+  assert.equal(actions(p)['.upstream-pr.json'], 'print-snippet');
+  await applyPlan(p, { home: h, now: 't' });
+  assert.equal(fs.existsSync(path.join(out, 'planted.json')), false);
+});
+
+test('a dangling AGENTS.md symlink is not written through', posixOnly, async () => {
+  const root = repo();
+  const out = outsideDir();
+  fs.symlinkSync(path.join(out, 'AGENTS.md'), path.join(root, 'AGENTS.md'));
+  const h = home();
+  const p = plan(root, h);
+  assert.equal(actions(p)['AGENTS.md'], 'print-snippet');
+  await applyPlan(p, { home: h, now: 't' });
+  assert.deepEqual(fs.readdirSync(out), []);
+});
+
+test('a folder on the way that links outside the repository is not written through', posixOnly, async () => {
+  const root = repo({ 'AGENTS.md': '# A\n' });
+  const out = outsideDir();
+  fs.mkdirSync(path.join(out, 'rules'));
+  fs.symlinkSync(out, path.join(root, '.cursor'));
+  const claudeOut = outsideDir();
+  fs.symlinkSync(claudeOut, path.join(root, '.claude'));
+  const h = home();
+  const p = plan(root, h, { team: true });
+  assert.equal(actions(p)['.cursor/rules/upstream-pr-filer.mdc'], 'print-snippet');
+  assert.equal(actions(p)['.claude/settings.json'], 'print-snippet');
+  await applyPlan(p, { home: h, now: 't' });
+  assert.deepEqual(fs.readdirSync(path.join(out, 'rules')), []);
+  assert.deepEqual(fs.readdirSync(claudeOut), []);
+});
+
+test('applyPlan refuses a create through a broken folder link even if the plan says create', posixOnly, async () => {
+  const root = repo({ 'AGENTS.md': '# A\n' });
+  const out = outsideDir();
+  fs.symlinkSync(path.join(out, 'gone'), path.join(root, '.cursor'));
+  const h = home();
+  const forged = { root, mode: 'install', steps: [{ file: '.cursor/rules/upstream-pr-filer.mdc', kind: 'owned-file', action: 'create', before: null, after: 'x' }] };
+  const { results } = await applyPlan(forged, { home: h, now: 't' });
+  assert.equal(results[0].result, 'refused');
+  assert.equal(fs.existsSync(path.join(out, 'gone')), false);
+});
+
+test('a symlink between files inside the repository is still followed for instruction files', posixOnly, async () => {
+  const root = repo({ 'docs/AGENTS.md': '# Shared\n' });
+  fs.symlinkSync(path.join('docs', 'AGENTS.md'), path.join(root, 'AGENTS.md'));
+  const h = home();
+  const p = plan(root, h);
+  assert.equal(actions(p)['AGENTS.md'], 'update');
+  await applyPlan(p, { home: h, now: 't' });
+  assert.match(fs.readFileSync(path.join(root, 'docs', 'AGENTS.md'), 'utf8'), /BEGIN upstream-pr-filer/);
+  assert.equal(fs.lstatSync(path.join(root, 'AGENTS.md')).isSymbolicLink(), true);
+});

@@ -38,7 +38,27 @@ test('writeFileAtomic writes through a symlink and keeps the link', { skip: proc
   const link = path.join(dir, 'CLAUDE.md');
   fs.writeFileSync(target, 'one\n');
   fs.symlinkSync('AGENTS.md', link);
-  writeFileAtomic(link, 'two\n');
+  writeFileAtomic(link, 'two\n', { followSymlink: true });
   assert.equal(fs.lstatSync(link).isSymbolicLink(), true);
   assert.equal(fs.readFileSync(target, 'utf8'), 'two\n');
+});
+
+test('writeFileAtomic refuses to write through a symlink unless asked to', { skip: process.platform === 'win32' }, () => {
+  const dir = tmpDir();
+  const out = path.join(tmpDir('outside-'), 'target.txt');
+  fs.writeFileSync(out, 'keep\n');
+  const link = path.join(dir, 'state.json');
+  fs.symlinkSync(out, link);
+  assert.throws(() => writeFileAtomic(link, 'overwritten\n'), /symbolic link/);
+  assert.equal(fs.readFileSync(out, 'utf8'), 'keep\n');
+});
+
+test('writeFileAtomic never creates the target of a dangling symlink', { skip: process.platform === 'win32' }, () => {
+  const dir = tmpDir();
+  const out = path.join(tmpDir('outside-'), 'planted.txt');
+  const link = path.join(dir, 'x.json');
+  fs.symlinkSync(out, link);
+  assert.throws(() => writeFileAtomic(link, 'x'), /symbolic link/);
+  assert.throws(() => writeFileAtomic(link, 'x', { followSymlink: true }), /does not exist/);
+  assert.equal(fs.existsSync(out), false);
 });
