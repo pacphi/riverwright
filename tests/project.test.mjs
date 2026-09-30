@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
-import { inspectRepo, planIntegration, applyPlan, changedFiles, writeHazard, REGISTRY } from '../scripts/lib/project.mjs';
+import { inspectRepo, planIntegration, applyPlan, changedFiles, writeHazard, REGISTRY, TEAM_SETTINGS } from '../scripts/lib/project.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
 import { callMain, tmpDir } from './helpers.mjs';
 
@@ -220,4 +220,15 @@ test('riverwright setup --project handles a .cursor file without crashing', asyn
   const r = await callMain(['setup', '--project', '--yes', '--team', '--repo', root], { env: { RIVERWRIGHT_HOME: home() } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /\.cursor\/rules\/riverwright\.mdc: print-snippet \(a folder on its path is a file, not a folder\)/);
+});
+
+// The public repository is pacphi/riverwright. A team's settings that name any other repository would send
+// their Claude Code to a marketplace that is not this one.
+test('the team settings point at the public repository, and no shipped code names another organization', () => {
+  assert.equal(TEAM_SETTINGS.extraKnownMarketplaces.riverwright.source.repo, 'pacphi/riverwright');
+  assert.deepEqual(TEAM_SETTINGS.enabledPlugins, { 'riverwright@riverwright': true });
+  const dir = path.join(path.dirname(new URL(import.meta.url).pathname.replace(/^\/([A-Za-z]:)/, '$1')), '..', 'scripts');
+  for (const f of fs.readdirSync(dir, { recursive: true }).filter((n) => n.endsWith('.mjs'))) {
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /agentic-incubator/, f);
+  }
 });

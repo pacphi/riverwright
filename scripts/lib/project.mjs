@@ -14,7 +14,7 @@ export const SLUG = 'riverwright';
 export const REGISTRY = 'src/lib/hook-audit/agentic-dependency-constraints.json';
 export const INSTRUCTION_FILES = ['AGENTS.md', 'CLAUDE.md', 'GEMINI.md'];
 export const TEAM_SETTINGS = Object.freeze({
-  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'agentic-incubator/riverwright' } } },
+  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'pacphi/riverwright' } } },
   enabledPlugins: { 'riverwright@riverwright': true },
 });
 export const CURSOR_RULE = [

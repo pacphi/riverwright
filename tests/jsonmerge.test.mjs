@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { parseJsonStrict, addAbsentKeys, removeAddedKeys, formatJsonLike } from '../scripts/lib/jsonmerge.mjs';
 
 const TEAM = {
-  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'agentic-incubator/riverwright' } } },
+  extraKnownMarketplaces: { 'riverwright': { source: { source: 'github', repo: 'pacphi/riverwright' } } },
   enabledPlugins: { 'riverwright@riverwright': true },
 };
 
