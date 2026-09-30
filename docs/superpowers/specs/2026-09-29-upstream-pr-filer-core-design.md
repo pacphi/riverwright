@@ -222,22 +222,44 @@ Approval modes:
 Hermes `-z/--oneshot` auto-bypasses approvals, so Hermes never offers `host-ask`; its submit gate
 uses `tty` or hands back to an interactive session.
 
+On every host the submit gate defaults to `tty` (§7.3); `host-ask` there needs
+`UPF_ALLOW_HOST_ASK_SUBMIT=1`. The submit-gate record also names the run branch (`upf/<n>-<slug>`).
+
 ## 7. Guardrails
 
 ### 7.1 Lock 1: git (primary, every host)
 
 - The clone's upstream remote push URL is `DISABLED_BY_UPF`; local `credential.helper` is empty.
-- `.git/hooks/pre-push` runs `upf guard pre-push`: allow only when the destination URL equals the
-  recorded fork URL, the ref is `refs/heads/upf/*`, and the SHA equals the run's `approved_sha`.
+- `.git/hooks/pre-push` runs `upf guard pre-push`: allow only when the destination URL is the
+  recorded fork (https on the default port, or ssh as `git@`; other schemes, ports and hosts never
+  match), the ref is exactly the branch named in the submit-gate approval, and the SHA equals the
+  approved SHA.
+- The guard locates the run from the repository being pushed, not from environment variables or git
+  config: `git rev-parse --show-toplevel` must be `<UPF_HOME>/<owner>/<repo>/worktrees/issue-<n>`,
+  and `runs/issue-<n>/state.json` must carry the run id `<owner>/<repo>#<n>`.
 - The fork remote does not exist until the submit gate; `upf submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
+- Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live
+  under `UPF_HOME`, which an agent with shell access can write, so Lock 1 stops accidental and
+  injection-driven pushes, not a deliberate forger. Plan 2 must add credential separation (push and
+  API credentials reach only `upf submit`/`upf post`, after a human step) and keep approval records
+  outside the agent-writable workspace.
 
 ### 7.2 Lock 2: host hooks (second layer)
 
 Generated per host, active only for commands run under `$UPF_HOME`. They deny outward `gh` calls
 (`pr create|ready|comment|edit`, `issue create|comment`, `repo fork`, `api` with a write method),
 `git push --no-verify`, `-c core.hooksPath`, and edits to remote or credential config, unless the
-command is `upf submit` or `upf post`.
+command is `upf submit` or `upf post` run through the installed launcher's exact real path
+(`bin/upf`, `bin/upf.cmd` or `scripts/upf.mjs`) as one plain command; a program merely named `upf`
+gets no exemption.
+
+Scope is decided from resolved paths: the payload cwd and every path in the command, after expanding
+`~`, `$HOME`, `${HOME}`, `$UPF_HOME` and `%USERPROFILE%`, following `cd` and `-C`, and resolving
+symlinks. The classifier parses the command like a shell; anything it cannot resolve (a variable or
+substitution as the program or git/gh subcommand, `eval`, code piped into a shell) is outward with
+rule `unresolvable`. While any run is active, an outward command that contains an unresolved variable
+or substitution is denied even outside the workspace, and so is an unreadable payload.
 
 The hook entry (`upf.mjs hook <host>`) converts every exception to exit code 2 and prints a deny
 decision, and its launcher exits 2 when Node is missing, so a hook failure denies. Remaining per-host behavior, verified on this machine (evidence in `docs/research.md` §H):
@@ -254,7 +276,10 @@ decision, and its launcher exits 2 when Node is missing, so a hook failure denie
 ### 7.3 Lock 3: a human click
 
 Host-native **ask** rules on `upf approve` and `upf submit` (Claude permission rules, Gemini Policy
-Engine `ask`, Codex approval policy, Cursor and Grok permission rules), or `tty` mode (§6).
+Engine `ask`, Codex approval policy, Cursor and Grok permission rules), or `tty` mode (§6). The
+submit gate defaults to `tty` on every host: the human types the short SHA in a real terminal, and
+`host-ask` for that gate needs `UPF_ALLOW_HOST_ASK_SUBMIT=1`. checkpoint-1 and the post gates keep
+`host-ask` as their default.
 
 **Residual risk, stated in user docs:** an agent with shell access that deliberately circumvents all
 three layers can still push. The design makes accidental and injection-driven pushes fail and puts a
