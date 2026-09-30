@@ -1,0 +1,23 @@
+#!/bin/sh
+# Riverwright launcher for macOS, Linux and Git Bash: runs scripts/riverwright.mjs with Node.
+self=$0
+while [ -h "$self" ]; do
+  link=$(readlink "$self") || break
+  case $link in
+    /*) self=$link ;;
+    *) self=${self%/*}/$link ;;
+  esac
+done
+case $self in
+  */*) dir=${self%/*} ;;
+  *) dir=. ;;
+esac
+root=$(CDPATH= cd -- "$dir/.." && pwd -P)
+if command -v node >/dev/null 2>&1; then
+  exec node "$root/scripts/riverwright.mjs" "$@"
+fi
+echo "Riverwright needs Node.js 24 or newer: https://nodejs.org" >&2
+case ${1-} in
+  hook|guard) exit 2 ;;
+esac
+exit 1

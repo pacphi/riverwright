@@ -1,0 +1,14 @@
+# Local tooling state (not part of the plugin)
+*.db
+*.db-shm
+*.db-wal
+.claude/
+.claude-flow/
+.swarm/
+.agentic-qe/
+.ruvnet-brain/
+.mcp.json
+
+# Node and OS noise
+node_modules/
+.DS_Store

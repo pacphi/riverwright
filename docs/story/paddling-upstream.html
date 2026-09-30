@@ -1,0 +1,1102 @@
+<title>Paddling Upstream</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&family=Newsreader:ital,wght@1,400;1,500&family=Sofia+Sans+Extra+Condensed:wght@600;800&display=swap">
+<style>
+:root{
+  --paper:#E9F0ED; --paper-2:#DCE7E3; --card:#F4F8F6;
+  --ink:#12302E; --ink-soft:#44615D; --line:rgba(18,48,46,.16);
+  --water:#2C7A89; --shallow:#A7D0CE; --mud:#8C6A40;
+  --buoy:#D9482B; --buoy-ink:#B23A1F;
+  --lantern:#E9A21F; --lantern-ink:#8F5E00;
+  --hill-far:#CFDEDA; --hill-mid:#B7CFC8; --hill-near:#97B8AF;
+  --f-display:"Sofia Sans Extra Condensed","Arial Narrow","Roboto Condensed",sans-serif;
+  --f-serif:"Newsreader",Georgia,"Times New Roman",serif;
+  --f-body:"Atkinson Hyperlegible",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){
+  :root:not([data-theme="light"]){
+    --paper:#0D1B1D; --paper-2:#14292C; --card:#112326;
+    --ink:#DDEBE7; --ink-soft:#A3BDB8; --line:rgba(221,235,231,.15);
+    --water:#62B4C2; --shallow:#1E4B51; --mud:#A8845A;
+    --buoy:#FF7654; --buoy-ink:#FF9677;
+    --lantern:#F4BE4A; --lantern-ink:#F4C862;
+    --hill-far:#14302F; --hill-mid:#193A38; --hill-near:#20473F;
+    color-scheme:dark;
+  }
+}
+:root[data-theme="dark"]{
+  --paper:#0D1B1D; --paper-2:#14292C; --card:#112326;
+  --ink:#DDEBE7; --ink-soft:#A3BDB8; --line:rgba(221,235,231,.15);
+  --water:#62B4C2; --shallow:#1E4B51; --mud:#A8845A;
+  --buoy:#FF7654; --buoy-ink:#FF9677;
+  --lantern:#F4BE4A; --lantern-ink:#F4C862;
+  --hill-far:#14302F; --hill-mid:#193A38; --hill-near:#20473F;
+  color-scheme:dark;
+}
+
+*{box-sizing:border-box}
+html{scroll-behavior:smooth}
+body{background:var(--paper);color:var(--ink);font-family:var(--f-body);font-size:18px;line-height:1.6;margin:0}
+a{color:var(--water)}
+:focus-visible{outline:3px solid var(--lantern);outline-offset:3px;border-radius:4px}
+.wrap{max-width:1180px;margin:0 auto;padding-inline:clamp(16px,4vw,40px)}
+
+/* ---------- hero ---------- */
+.hero{position:relative;overflow:hidden;min-height:clamp(540px,76vh,740px);isolation:isolate}
+.hero .layer{position:absolute;inset:0;width:100%;height:100%;will-change:transform;z-index:0}
+.hero-copy{position:relative;z-index:2;padding-block:clamp(40px,8vh,96px) 40px;max-width:760px}
+.eyebrow{font-family:var(--f-mono);font-size:12px;letter-spacing:.14em;text-transform:uppercase;color:var(--water);margin:0 0 14px}
+.hero h1{font-family:var(--f-display);font-weight:800;text-transform:uppercase;font-size:clamp(64px,12vw,156px);line-height:.84;letter-spacing:.005em;margin:0;text-wrap:balance}
+.lede{font-family:var(--f-serif);font-style:italic;font-size:clamp(22px,3.1vw,31px);line-height:1.3;margin:18px 0 12px;max-width:26ch;text-wrap:balance}
+.hero p.sub{max-width:52ch;margin:0;color:var(--ink-soft)}
+.scale{display:flex;align-items:center;gap:10px;margin-top:20px;font-family:var(--f-mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:var(--ink-soft)}
+.scale i{display:inline-block;width:64px;height:8px;border:1.5px solid var(--ink-soft);background:linear-gradient(90deg,var(--ink-soft) 50%,transparent 50%)}
+
+/* ---------- miles ---------- */
+.mile{padding-block:clamp(64px,10vh,120px) 0}
+.mile-head{max-width:66ch}
+.mile-head h2{font-family:var(--f-display);font-weight:800;text-transform:uppercase;font-size:clamp(38px,6.2vw,72px);line-height:.92;margin:0 0 18px;text-wrap:balance}
+.mile-head p{font-size:19px;margin:0;max-width:62ch}
+.mile-head p + p{margin-top:12px}
+dfn{font-style:normal;font-weight:700;background:linear-gradient(transparent 62%,color-mix(in srgb,var(--shallow) 80%,transparent) 62%)}
+
+.scrolly{display:grid;grid-template-columns:minmax(0,1.12fr) minmax(0,.88fr);gap:clamp(24px,4vw,64px);align-items:start;margin-top:clamp(28px,5vh,56px)}
+.stage{position:sticky;top:calc(env(safe-area-inset-top,0px) + 3vh);height:94vh;display:flex;align-items:center;justify-content:center}
+.stage figure{margin:0;width:100%}
+.stage svg{display:block;width:100%;height:auto;max-height:80vh;color:var(--ink)}
+.stage figcaption{font-family:var(--f-serif);font-style:italic;font-size:15px;color:var(--ink-soft);margin-top:10px;text-align:center;text-wrap:balance}
+.steps{display:flex;flex-direction:column;gap:38vh;padding-block:34vh 46vh}
+.step{max-width:46ch;padding:16px 20px 18px;border-left:3px solid var(--line);color:var(--ink-soft);transition:color .35s,border-color .35s,background-color .35s;border-radius:0 10px 10px 0}
+.step.is-active{color:var(--ink);border-left-color:var(--water);background:var(--card)}
+.step.gate{border-left-style:double;border-left-width:5px}
+.step.gate.is-active{border-left-color:var(--lantern)}
+.step h3{font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.03em;font-size:25px;line-height:1;margin:0 0 8px;color:var(--ink)}
+.step p{margin:0}
+.tag{display:inline-block;font-family:var(--f-mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:2px 8px;border-radius:999px;margin-bottom:8px}
+.tag.you{background:var(--lantern);color:#2A1C00}
+.tag.stop{border:1.5px solid var(--buoy-ink);color:var(--buoy-ink)}
+a.cite{font-family:var(--f-mono);font-size:.7em;letter-spacing:.02em;white-space:nowrap;text-decoration:none;color:var(--ink-soft);border:1px solid var(--line);border-radius:999px;padding:1px 7px;vertical-align:.12em}
+a.cite:hover{color:var(--water);border-color:var(--water)}
+
+/* ---------- svg vocabulary ---------- */
+svg text{font-family:var(--f-body)}
+.lbl{font-family:var(--f-display);font-weight:800;font-size:16px;letter-spacing:.06em;text-transform:uppercase;fill:var(--ink)}
+.lbl.sm{font-size:14px}
+.it{font-family:var(--f-serif);font-style:italic;font-size:14px;fill:var(--ink-soft)}
+.it.sm{font-size:12.5px}
+.mono{font-family:var(--f-mono);font-size:12px;fill:var(--ink)}
+.t-water{fill:var(--water)} .t-buoy{fill:var(--buoy-ink)} .t-lantern{fill:var(--lantern-ink)}
+.riv{fill:none;stroke:var(--shallow);stroke-linecap:round;stroke-linejoin:round}
+.core{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:5 11;stroke-linecap:round;animation:flow 2.6s linear infinite}
+.core.up{animation-name:flowup}
+@keyframes flow{to{stroke-dashoffset:-32}}
+@keyframes flowup{to{stroke-dashoffset:32}}
+.house{fill:var(--card);stroke:var(--ink);stroke-width:1.6}
+.roof{fill:var(--ink-soft)}
+.spin{transform-box:fill-box;transform-origin:center;animation:spin 7s linear infinite}
+.spin.rev{animation-direction:reverse;animation-duration:5s}
+@keyframes spin{to{transform:rotate(360deg)}}
+.bob{animation:bob 3.2s ease-in-out infinite}
+@keyframes bob{0%,100%{transform:translateY(0) rotate(-2deg)}50%{transform:translateY(-3px) rotate(2deg)}}
+.fade{opacity:0;transition:opacity .6s ease}
+
+/* fig: river of code */
+#fig-river .mud{fill:none;stroke:var(--mud);stroke-width:16;stroke-linecap:round;stroke-dasharray:1 1;stroke-dashoffset:1;opacity:0;transition:stroke-dashoffset 1.5s ease-in-out,opacity .2s}
+#fig-river .mud.b{transition-delay:.9s,.9s}
+#fig-river.on-2 .mud{stroke-dashoffset:0;opacity:.92}
+#fig-river .crack{fill:none;stroke:var(--buoy);stroke-width:3.2;stroke-linecap:round;stroke-linejoin:round;opacity:0;transition:opacity .4s}
+#fig-river.on-2 .crack{opacity:1}
+#fig-river .uses{opacity:0;transition:opacity .5s}
+#fig-river.on-1 .uses{opacity:1}
+#fig-river .village .house{transition:stroke .4s}
+#fig-river.on-1 .village .house{stroke:var(--water)}
+#fig-river .note{opacity:0;transform:translate(130px,410px);transition:transform 1.6s cubic-bezier(.5,.1,.25,1),opacity .4s}
+#fig-river.on-3 .note{opacity:1;transform:translate(404px,72px)}
+#fig-river .pile{opacity:0;transition:opacity .5s .2s}
+#fig-river.on-3 .pile{opacity:1}
+.env{fill:var(--card);stroke:var(--ink);stroke-width:1.5}
+
+/* fig: why hard */
+#fig-hard .halo{fill:none;stroke:var(--buoy);stroke-width:2;stroke-dasharray:4 5;opacity:0;transition:opacity .4s}
+#fig-hard .ob.is-on .halo{opacity:1}
+#fig-hard .ob .lbl{transition:fill .3s}
+#fig-hard .ob.is-on .lbl{fill:var(--buoy-ink)}
+#fig-hard .flood .pb{opacity:0;transition:opacity .4s}
+#fig-hard.on-5 .flood .pb{opacity:1}
+.pb path{fill:var(--card);stroke:var(--ink-soft);stroke-width:1.3}
+.gear{fill:none;stroke:var(--ink);stroke-width:6}
+.fogbar{fill:var(--ink-soft);opacity:.45}
+
+/* fig: journey */
+#fig-journey .st circle.dot{fill:var(--paper);stroke:var(--ink);stroke-width:2.2;transition:fill .4s,stroke .4s}
+#fig-journey .st.done circle.dot{fill:var(--water);stroke:var(--water)}
+#fig-journey .st.current circle.dot{fill:var(--card);stroke:var(--water);stroke-width:4}
+#fig-journey .st.check circle.dot{stroke:var(--lantern-ink)}
+#fig-journey .st.check.done circle.dot{fill:var(--lantern);stroke:var(--lantern)}
+#fig-journey .st .ring{fill:none;stroke:var(--water);stroke-width:2;opacity:0}
+#fig-journey .st.current .ring{opacity:1;animation:ping 1.8s ease-out infinite;transform-box:fill-box;transform-origin:center}
+@keyframes ping{0%{transform:scale(.7);opacity:.9}100%{transform:scale(1.7);opacity:0}}
+#fig-journey .st .lbl{transition:fill .3s}
+#fig-journey .st.current .lbl{fill:var(--water)}
+
+/* fig: door */
+.box{fill:var(--card);stroke:var(--ink);stroke-width:1.8}
+.pill{fill:var(--paper-2);stroke:var(--ink-soft);stroke-width:1.2}
+.arrow{fill:none;stroke:var(--ink);stroke-width:2}
+.xmark{stroke:var(--buoy);stroke-width:3.4;stroke-linecap:round}
+#fig-door .fork-path{fill:none;stroke:var(--ink-soft);stroke-width:2.4;stroke-dasharray:3 6;transition:stroke .4s}
+#fig-door.on-1 .fork-path{stroke:var(--water);stroke-dasharray:8 6;animation:flow 1.4s linear infinite}
+#fig-door.on-2 .fork-path{stroke:var(--ink-soft);stroke-dasharray:3 6;animation:none}
+#fig-door .fork-x{opacity:0;transition:opacity .4s}
+#fig-door.on-2 .fork-x{opacity:1}
+#fig-door .pr{opacity:.18;transition:opacity .6s .5s}
+#fig-door.on-1 .pr{opacity:1}
+#fig-door .fork-tag{opacity:.25;transition:opacity .5s .3s}
+#fig-door.on-1 .fork-tag{opacity:1}
+#fig-door .v-new,#fig-door .ask{opacity:0;transition:opacity .4s}
+#fig-door.on-2 .v-new,#fig-door.on-2 .ask{opacity:1}
+#fig-door.on-2 .v-ok{opacity:0}
+#fig-door .yes{opacity:0;transition:opacity .4s}
+#fig-door.on-1 .yes{opacity:1}
+#fig-door.on-2 .yes{opacity:0}
+#fig-door .lockbody{fill:var(--ink);transition:fill .4s}
+#fig-door .shackle{fill:none;stroke:var(--ink);stroke-width:3.2;transition:transform .5s,stroke .4s}
+#fig-door.on-1 .lockbody{fill:var(--water)}
+#fig-door.on-1 .shackle{stroke:var(--water);transform:translateY(-5px)}
+#fig-door.on-2 .lockbody{fill:var(--buoy)}
+#fig-door.on-2 .shackle{stroke:var(--buoy);transform:none}
+#fig-door .ck{fill:none;stroke:var(--water);stroke-width:2.6;stroke-linecap:round;stroke-linejoin:round;opacity:0;transition:opacity .35s}
+#fig-door.on-1 .ck{opacity:1}
+#fig-door.on-2 .ck.c3{opacity:0}
+#fig-door .cx3{opacity:0;transition:opacity .35s}
+#fig-door.on-2 .cx3{opacity:1}
+
+/* fig: batch */
+.zone{fill:none;stroke:var(--line);stroke-width:1.6;stroke-dasharray:4 5}
+.lane{fill:var(--shallow);opacity:.28;transition:opacity .5s}
+#fig-batch.on-3 .lane{opacity:.8}
+#fig-batch .lanes-lbl,#fig-batch .lane-note{opacity:.3;transition:opacity .5s}
+#fig-batch.on-3 .lanes-lbl,#fig-batch.on-3 .lane-note{opacity:1}
+#fig-batch .practice{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:6 5;opacity:.25;transition:opacity .5s}
+#fig-batch.on-4 .practice{opacity:1}
+#fig-batch .green{opacity:0;transition:opacity .5s .7s}
+#fig-batch.on-4 .green{opacity:1}
+#fig-batch .gate line{stroke:var(--ink);stroke-width:2.2;opacity:.25;transition:opacity .5s}
+#fig-batch.on-5 .gate line{opacity:1}
+#fig-batch .harbor{opacity:.35;transition:opacity .5s}
+#fig-batch.on-5 .harbor{opacity:1}
+#fig-batch .twins{opacity:0;transition:opacity .4s}
+#fig-batch[data-step="2"] .twins{opacity:1}
+#fig-batch .aside-z{opacity:.4;transition:opacity .5s}
+#fig-batch.on-1 .aside-z{opacity:1}
+.btl{transition:transform 1s cubic-bezier(.55,.05,.25,1),opacity .5s}
+.btl .body{fill:var(--card);stroke:var(--ink);stroke-width:1.6}
+.btl .neck{fill:var(--ink-soft)}
+.btl text{font-family:var(--f-mono);font-size:11px;font-weight:500;fill:var(--ink);text-anchor:middle}
+.btl.twin .body{stroke:var(--water);stroke-width:2.2}
+.btl.aside .body{stroke-dasharray:3 3}
+
+/* fig: hosts */
+.link{fill:none;stroke:var(--water);stroke-width:2;stroke-dasharray:6 7;animation:flow 2.2s linear infinite}
+.dot-on{fill:var(--water)} .dot-off{fill:none;stroke:var(--water);stroke-width:2}
+.card{fill:var(--card);stroke:var(--ink);stroke-width:1.6}
+.cardline{stroke:var(--ink-soft);stroke-width:2;stroke-linecap:round;opacity:.55}
+
+/* evidence: meters, badges, card kinds */
+.pips circle{fill:none;stroke:var(--water);stroke-width:1.6}
+.pips[data-level="1"] circle:nth-child(1),.pips[data-level="2"] circle:nth-child(-n+2),.pips[data-level="3"] circle{fill:var(--water)}
+.ev{display:inline-block;font-family:var(--f-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;padding:1px 8px;border-radius:999px;border:1px dashed var(--ink-soft);color:var(--ink-soft);margin:0 6px 8px 0}
+.ev[data-level="fixture"]{border-style:solid;border-color:var(--water);color:var(--water)}
+.ev[data-level="real"]{background:var(--water);border-color:var(--water);color:var(--paper)}
+.tag.retro{border:1.5px solid var(--ink-soft);color:var(--ink-soft)}
+.tag.plan{border:1.5px solid var(--lantern-ink);color:var(--lantern-ink)}
+.tag.seen{background:var(--water);color:var(--paper)}
+.mile-head .tag{margin-bottom:0}
+
+/* fig: real river (agentic-kit) */
+#fig-real .halo{fill:none;stroke:var(--buoy);stroke-width:2;stroke-dasharray:4 5;opacity:0;transition:opacity .4s}
+#fig-real[data-step="1"] .mh-ruflo,#fig-real[data-step="4"] .mh-ruflo,#fig-real[data-step="5"] .mh-ruflo,#fig-real[data-step="2"] .mh-aqe,#fig-real[data-step="3"] .mh-brain{opacity:1}
+#fig-real .ov{opacity:0;transition:opacity .5s}
+#fig-real[data-step="1"] .o1,#fig-real[data-step="2"] .o2,#fig-real[data-step="3"] .o3,#fig-real[data-step="4"] .o4,#fig-real[data-step="5"] .o5{opacity:1}
+#fig-real .lbl{text-transform:none;letter-spacing:.02em;font-size:18px}
+
+/* getting it */
+.getting{margin-top:40px;max-width:66ch}
+.getting ol{padding-left:1.3em;margin:10px 0 0}
+.getting li{margin:10px 0}
+code{font-family:var(--f-mono);font-size:.86em;background:var(--paper-2);border-radius:5px;padding:1px 5px}
+
+/* ---------- hosts table ---------- */
+.tbl-wrap{overflow-x:auto;margin-top:28px;border:1px solid var(--line);border-radius:12px;background:var(--card)}
+table{border-collapse:collapse;width:100%;min-width:640px;font-size:16px}
+th,td{text-align:left;padding:10px 14px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-family:var(--f-display);font-weight:800;text-transform:uppercase;letter-spacing:.05em;font-size:15px;color:var(--ink-soft)}
+tr:last-child td{border-bottom:0}
+td:first-child{font-weight:700;white-space:nowrap}
+.warn{color:var(--buoy-ink)}
+.static-fig{margin:36px 0 0}
+.static-fig svg{display:block;width:100%;height:auto;max-width:900px;margin:0 auto;color:var(--ink)}
+.static-fig figcaption{font-family:var(--f-serif);font-style:italic;font-size:15px;color:var(--ink-soft);text-align:center;margin-top:10px}
+
+/* ---------- ending ---------- */
+.remember{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:20px;margin-top:32px}
+.remember div{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:20px}
+.remember b{display:block;font-family:var(--f-display);font-weight:800;text-transform:uppercase;font-size:22px;letter-spacing:.03em;line-height:1.05;margin-bottom:8px}
+.next{margin-top:40px;max-width:66ch}
+.next ol{padding-left:1.3em;margin:10px 0 0}
+.next li{margin:6px 0}
+.refs{margin-top:56px;border-top:1px solid var(--line);padding-top:28px}
+.refs h2{font-family:var(--f-display);font-weight:800;text-transform:uppercase;font-size:32px;margin:0 0 6px}
+.refs ol{columns:2 360px;column-gap:40px;padding-left:1.2em;font-size:15px;line-height:1.5;margin:18px 0 0}
+.refs li{break-inside:avoid;margin:0 0 10px}
+.refs li:target{background:color-mix(in srgb,var(--lantern) 25%,transparent);border-radius:6px}
+.pre{font-family:var(--f-mono);font-size:10.5px;letter-spacing:.08em;text-transform:uppercase;color:var(--buoy-ink);border:1px solid currentColor;border-radius:999px;padding:0 6px;margin-left:4px;white-space:nowrap}
+footer{padding-block:48px 72px;color:var(--ink-soft);font-size:15px}
+
+/* ---------- river-mile gauge ---------- */
+.gauge{position:fixed;right:18px;top:50%;transform:translateY(-50%);z-index:20}
+.gauge ol{list-style:none;margin:0;padding:6px 0;display:flex;flex-direction:column;gap:14px;border-right:2px solid var(--line);padding-right:12px}
+.gauge a{display:flex;align-items:center;justify-content:flex-end;gap:8px;text-decoration:none;color:var(--ink-soft);font-family:var(--f-mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase}
+.gauge a span{display:inline-grid;place-items:center;width:22px;height:22px;border-radius:50%;border:1.5px solid var(--line);background:var(--paper)}
+.gauge a em{font-style:normal;opacity:0;transform:translateX(6px);transition:opacity .25s,transform .25s;white-space:nowrap}
+.gauge a:hover em,.gauge a:focus-visible em,.gauge a.on em{opacity:1;transform:none}
+.gauge a.on{color:var(--water)}
+.gauge a.on span{border-color:var(--water);background:var(--water);color:var(--paper)}
+@media (max-width:1180px){.gauge{display:none}}
+
+/* ---------- narrow screens ---------- */
+@media (max-width:860px){
+  .scrolly{grid-template-columns:1fr;gap:0}
+  .stage{height:auto;top:env(safe-area-inset-top,0px);z-index:3;background:var(--paper);padding-block:8px;border-bottom:1px solid var(--line)}
+  .stage svg{max-height:42vh}
+  .stage figcaption{display:none}
+  .steps{gap:48vh;padding-block:10vh 40vh}
+  .step{max-width:none;background:var(--card)}
+  .remember{grid-template-columns:1fr}
+  body{font-size:17px}
+}
+@media (prefers-reduced-motion:reduce){
+  html{scroll-behavior:auto}
+  .core,.spin,.bob,.link,#fig-journey .st.current .ring,#fig-door.on-1 .fork-path{animation:none!important}
+  *,*::before,*::after{transition-duration:0s!important;transition-delay:0s!important}
+}
+</style>
+
+<nav class="gauge" aria-label="River miles">
+  <ol>
+    <li><a href="#mile-1"><em>The problem</em><span>1</span></a></li>
+    <li><a href="#mile-2"><em>Why it's hard</em><span>2</span></a></li>
+    <li><a href="#mile-3"><em>The journey</em><span>3</span></a></li>
+    <li><a href="#mile-4"><em>The lock</em><span>4</span></a></li>
+    <li><a href="#mile-5"><em>Many notes</em><span>5</span></a></li>
+    <li><a href="#mile-6"><em>Six helpers</em><span>6</span></a></li>
+    <li><a href="#mile-7"><em>A real river</em><span>7</span></a></li>
+    <li><a href="#mile-8"><em>Remember</em><span>8</span></a></li>
+  </ol>
+</nav>
+
+<header class="hero" id="top">
+  <svg class="layer" data-speed="0.55" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <g fill="none" stroke="currentColor" style="color:var(--line)" stroke-width="1.5">
+      <ellipse cx="1180" cy="150" rx="70" ry="34"/><ellipse cx="1180" cy="150" rx="140" ry="68"/>
+      <ellipse cx="1180" cy="150" rx="210" ry="102"/><ellipse cx="1180" cy="150" rx="280" ry="136"/>
+      <ellipse cx="1180" cy="150" rx="350" ry="170"/>
+    </g>
+  </svg>
+  <svg class="layer" data-speed="0.42" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <path d="M0,330 L110,262 L200,300 L330,205 L450,280 L560,230 L700,150 L830,238 L950,196 L1070,258 L1210,176 L1330,246 L1440,214 L1440,640 L0,640 Z" style="fill:var(--hill-far)"/>
+  </svg>
+  <svg class="layer" data-speed="0.26" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <path d="M0,400 C170,350 310,382 450,344 C570,312 650,322 718,312 C820,300 950,334 1070,324 C1210,312 1330,352 1440,334 L1440,640 L0,640 Z" style="fill:var(--hill-mid)"/>
+    <path d="M708,316 C694,360 640,392 598,432 C540,490 518,560 470,640 L712,640 C730,560 752,488 800,430 C838,382 748,352 738,316 Z" style="fill:var(--shallow)"/>
+    <path id="heroRiverLine" class="core" d="M590,640 C628,548 662,470 712,404 C742,364 728,336 723,316"/>
+    <g>
+      <rect class="house" x="734" y="270" width="36" height="28"/>
+      <polygon class="roof" points="729,272 752,252 775,272"/>
+      <g transform="translate(728 296)"><g class="spin">
+        <circle r="13" fill="none" stroke="currentColor" style="color:var(--ink)" stroke-width="2"/>
+        <path d="M0,-13 V13 M-13,0 H13 M-9,-9 L9,9 M-9,9 L9,-9" stroke="currentColor" style="color:var(--ink)" stroke-width="1.6"/>
+      </g></g>
+    </g>
+    <g id="heroBoat" transform="translate(600 610)"><g class="bob">
+      <path d="M-22,0 L22,0 L15,10 L-15,10 Z" style="fill:var(--ink)"/>
+      <line x1="0" y1="0" x2="0" y2="-32" stroke="currentColor" style="color:var(--ink)" stroke-width="2.2"/>
+      <polygon points="2,-31 2,-4 21,-4" style="fill:var(--lantern)"/>
+    </g></g>
+  </svg>
+  <svg class="layer" data-speed="0.12" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <path d="M0,520 C150,486 300,520 430,560 C455,590 462,615 468,640 L0,640 Z" style="fill:var(--hill-near)"/>
+    <path d="M714,640 C742,570 860,528 1040,540 C1220,552 1340,512 1440,522 L1440,640 Z" style="fill:var(--hill-near)"/>
+    <path d="M120,522 l-7,-36 M130,524 l2,-44 M140,526 l9,-32 M1182,548 l-6,-34 M1192,548 l3,-42 M1202,550 l8,-30" stroke="currentColor" style="color:var(--ink-soft)" stroke-width="2.2" stroke-linecap="round"/>
+  </svg>
+  <svg class="layer" data-speed="0" viewBox="0 0 1440 640" preserveAspectRatio="xMidYMax slice" aria-hidden="true">
+    <path d="M0,612 C240,592 480,630 720,614 C960,598 1200,632 1440,608 L1440,640 L0,640 Z" style="fill:var(--paper)"/>
+  </svg>
+
+  <div class="wrap">
+    <div class="hero-copy">
+      <p class="eyebrow">A field guide in eight river miles · design stage · September 2026</p>
+      <h1>Paddling Upstream</h1>
+      <p class="lede">What to do when something you didn't build breaks the thing you did.</p>
+      <p class="sub">This is the story of a planned helper for software builders called <b>Riverwright</b>. It explains the problem, why it's hard, and how a careful crew of AI helpers could fix bugs in other people's projects, with proof, good manners, and you as captain.</p>
+      <div class="scale"><i></i> One chapter = one river mile · about 10 minutes</div>
+    </div>
+  </div>
+</header>
+
+<main class="wrap">
+
+<!-- ================= MILE 1 ================= -->
+<section class="mile" id="mile-1">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 1 of 8 · The problem</p>
+    <h2>Every app drinks from a river</h2>
+    <p>Almost nobody builds software from scratch. Apps are made from shared pieces that other people wrote and gave away. These pieces are called <dfn>open source</dfn>, and the people who look after them are <dfn>maintainers</dfn>. The project a piece comes from is <dfn>upstream</dfn>. Everyone who uses it is <dfn>downstream</dfn>.</p>
+  </div>
+  <div class="scrolly" data-kind="river">
+    <div class="stage">
+      <figure>
+        <svg id="fig-river" data-step="0" viewBox="0 0 640 520" role="img" aria-label="A mill at the top of a river feeds three villages downstream. A crack in the mill sends muddy water to all three, and one village sends a note back up to a pile of notes at the mill.">
+          <text class="it" x="320" y="24" text-anchor="middle">upstream</text>
+          <!-- river -->
+          <path class="riv" stroke-width="16" d="M330,112 C330,140 320,150 320,180 L320,270"/>
+          <path class="riv" stroke-width="16" d="M320,270 C320,340 130,340 130,418"/>
+          <path class="riv" stroke-width="16" d="M320,270 L320,418"/>
+          <path class="riv" stroke-width="16" d="M320,270 C320,340 510,340 510,418"/>
+          <path class="core" d="M330,112 C330,140 320,150 320,180 L320,270"/>
+          <path class="core" d="M320,270 C320,340 130,340 130,418"/>
+          <path class="core" d="M320,270 L320,418"/>
+          <path class="core" d="M320,270 C320,340 510,340 510,418"/>
+          <path class="mud" pathLength="1" d="M330,112 C330,140 320,150 320,180 L320,270"/>
+          <path class="mud b" pathLength="1" d="M320,270 C320,340 130,340 130,418"/>
+          <path class="mud b" pathLength="1" d="M320,270 L320,418"/>
+          <path class="mud b" pathLength="1" d="M320,270 C320,340 510,340 510,418"/>
+          <text class="it" x="332" y="232">the river of code</text>
+          <!-- mill -->
+          <rect class="house" x="292" y="52" width="56" height="40"/>
+          <polygon class="roof" points="286,54 320,30 354,54"/>
+          <g transform="translate(356 86)"><g class="spin">
+            <circle r="20" fill="none" stroke="currentColor" stroke-width="2.5"/>
+            <path d="M0,-20 V20 M-20,0 H20 M-14,-14 L14,14 M-14,14 L14,-14" stroke="currentColor" stroke-width="1.8"/>
+            <circle r="3" fill="currentColor"/>
+          </g></g>
+          <polyline class="crack" points="306,56 300,66 309,72 301,84"/>
+          <polyline class="crack" points="349,72 358,80 351,88 360,99"/>
+          <text class="lbl" x="280" y="70" text-anchor="end">Shared library</text>
+          <text class="it" x="280" y="88" text-anchor="end">kept by volunteers</text>
+          <!-- pile of notes -->
+          <g class="pile">
+            <rect class="env" x="392" y="78" width="26" height="17"/>
+            <rect class="env" x="396" y="72" width="26" height="17"/>
+            <rect class="env" x="389" y="66" width="26" height="17"/>
+            <rect class="env" x="400" y="60" width="26" height="17"/>
+            <text class="it" x="440" y="94">their pile of notes</text>
+          </g>
+          <!-- villages -->
+          <g class="village">
+            <rect class="house" x="106" y="428" width="20" height="16"/><polygon class="roof" points="103,430 116,418 129,430"/>
+            <rect class="house" x="132" y="424" width="22" height="20"/><polygon class="roof" points="129,426 143,412 157,426"/>
+            <rect class="house" x="296" y="428" width="20" height="16"/><polygon class="roof" points="293,430 306,418 319,430"/>
+            <rect class="house" x="322" y="424" width="22" height="20"/><polygon class="roof" points="319,426 333,412 347,426"/>
+            <rect class="house" x="486" y="428" width="20" height="16"/><polygon class="roof" points="483,430 496,418 509,430"/>
+            <rect class="house" x="512" y="424" width="22" height="20"/><polygon class="roof" points="509,426 523,412 537,426"/>
+          </g>
+          <text class="lbl t-water" x="130" y="474" text-anchor="middle">Your app</text>
+          <text class="lbl" x="320" y="474" text-anchor="middle">A school website</text>
+          <text class="lbl" x="510" y="474" text-anchor="middle">A weather game</text>
+          <text class="it" x="320" y="506" text-anchor="middle">downstream</text>
+          <text class="it uses" x="206" y="376" text-anchor="end">uses</text>
+          <text class="it uses" x="330" y="372">uses</text>
+          <text class="it uses" x="434" y="376">uses</text>
+          <!-- the note -->
+          <g class="note">
+            <rect class="env" x="-14" y="-10" width="28" height="19"/>
+            <polyline points="-14,-10 0,1 14,-10" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          </g>
+        </svg>
+        <figcaption>A crack upstream muddies every village downstream at once.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><h3>A mill at the top</h3><p>Picture a mill at the top of a river. It's a shared piece of software, looked after by a few volunteers. The water it sends down the river is their code.</p></article>
+      <article class="step"><h3>Villages downstream</h3><p>Downstream, lots of villages use that water: your app, a school's website, a weather game. None of them built the mill. All of them need it.</p></article>
+      <article class="step"><h3>A crack appears</h3><p>One day the mill's wheel cracks. That's a <b>bug</b>. The water turns muddy, and it turns muddy for every village at the same time.</p></article>
+      <article class="step"><h3>You send a note</h3><p>You spot it first, so you send a note upstream describing the crack. That note is called an <b>issue</b>. But the millers are volunteers with a big pile of notes, and yours is one more on the pile.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MILE 2 ================= -->
+<section class="mile" id="mile-2">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 2 of 8 · Why it's hard</p>
+    <h2>Fixing someone else's mill is hard work</h2>
+    <p>You could wait for the millers. Or you could paddle up and fix the crack yourself. Researchers who study this have found five hard parts on the way, and one new problem that makes robot helpers extra risky.</p>
+  </div>
+  <div class="scrolly" data-kind="hard">
+    <div class="stage">
+      <figure>
+        <svg id="fig-hard" data-step="0" viewBox="0 0 640 600" role="img" aria-label="A river climbs past five obstacles to a gatehouse: rapids, fog, gears, a letter, and the gatehouse itself. At the end, a crowd of paper boats jams the gatehouse.">
+          <path class="riv" stroke-width="22" d="M320,590 C320,545 200,545 200,500 C200,450 440,450 440,400 C440,350 200,350 200,300 C200,250 440,250 440,200 C440,150 320,150 320,100"/>
+          <path class="core up" d="M320,590 C320,545 200,545 200,500 C200,450 440,450 440,400 C440,350 200,350 200,300 C200,250 440,250 440,200 C440,150 320,150 320,100"/>
+          <!-- rapids -->
+          <g class="ob" data-i="0">
+            <circle class="halo" cx="200" cy="500" r="32"/>
+            <path d="M184,492 q8,-8 16,0 q8,8 16,0 M184,502 q8,-8 16,0 q8,8 16,0 M184,512 q8,-8 16,0 q8,8 16,0" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"/>
+            <text class="lbl" x="160" y="498" text-anchor="end">Rapids</text>
+            <text class="it" x="160" y="516" text-anchor="end">building their workshop</text>
+          </g>
+          <!-- fog -->
+          <g class="ob" data-i="1">
+            <circle class="halo" cx="440" cy="400" r="34"/>
+            <rect class="fogbar" x="412" y="384" width="56" height="7" rx="3.5"/>
+            <rect class="fogbar" x="420" y="396" width="48" height="7" rx="3.5"/>
+            <rect class="fogbar" x="410" y="408" width="56" height="7" rx="3.5"/>
+            <text class="lbl" x="484" y="398">Fog</text>
+            <text class="it" x="484" y="416">proving the bug</text>
+          </g>
+          <!-- gears -->
+          <g class="ob" data-i="2">
+            <circle class="halo" cx="202" cy="296" r="34"/>
+            <g transform="translate(194 302)"><g class="spin"><circle class="gear" r="12" stroke-dasharray="4 3.5"/><circle r="4" fill="none" stroke="currentColor" stroke-width="2"/></g></g>
+            <g transform="translate(215 287)"><g class="spin rev"><circle class="gear" r="7.5" stroke-width="5" stroke-dasharray="3 3"/></g></g>
+            <text class="lbl" x="160" y="296" text-anchor="end">Gears</text>
+            <text class="it" x="160" y="314" text-anchor="end">fixing without breaking</text>
+          </g>
+          <!-- letter -->
+          <g class="ob" data-i="3">
+            <circle class="halo" cx="440" cy="200" r="32"/>
+            <rect class="env" x="424" y="190" width="32" height="22"/>
+            <polyline points="424,190 440,203 456,190" fill="none" stroke="currentColor" stroke-width="1.5"/>
+            <text class="lbl" x="484" y="198">The letter</text>
+            <text class="it" x="484" y="216">explaining it clearly</text>
+          </g>
+          <!-- gatehouse -->
+          <g class="ob" data-i="4">
+            <circle class="halo" cx="320" cy="64" r="52"/>
+            <rect class="house" x="282" y="42" width="76" height="46"/>
+            <polygon class="roof" points="276,44 320,20 364,44"/>
+            <path d="M296,58 V88 M306,58 V88 M316,58 V88 M326,58 V88 M336,58 V88 M346,58 V88" stroke="currentColor" stroke-width="2"/>
+            <text class="lbl" x="380" y="54">The gatehouse</text>
+            <text class="it" x="380" y="72">their rules and their trust</text>
+          </g>
+          <!-- flood -->
+          <g class="flood">
+            <g class="pb" transform="translate(262 128)"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(292 116)" style="transition-delay:.05s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(348 118)" style="transition-delay:.1s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(378 132)" style="transition-delay:.15s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(240 150)" style="transition-delay:.2s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(276 150)" style="transition-delay:.25s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(320 138)" style="transition-delay:.3s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(364 156)" style="transition-delay:.35s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(402 156)" style="transition-delay:.4s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(300 172)" style="transition-delay:.45s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(338 176)" style="transition-delay:.5s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+            <g class="pb" transform="translate(252 178)" style="transition-delay:.55s"><path d="M-9,0 H9 L5,6 H-5 Z M0,0 V-10 L7,-2 H0"/></g>
+          </g>
+          <text class="it" x="298" y="592" text-anchor="end">your boat starts here</text>
+        </svg>
+        <figcaption>Five obstacles between you and the fix, and a new sixth one.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><h3>Rapids: building their workshop</h3><p>Before you can fix anything, you have to get their project running on your own computer. On a test set of tricky projects, AI helpers got only about 7 in 100 Python projects and 29 in 100 Java projects running. <a class="cite" href="#r-eliseeva">Eliseeva '25</a></p></article>
+      <article class="step"><h3>Fog: proving the bug</h3><p>Bug reports often leave out which computer or settings were used, so the bug can hide when you go looking for it. Some bugs only show up some of the time. <a class="cite" href="#r-johnson">Johnson '22</a> <a class="cite" href="#r-rahman">Rahman '20</a></p></article>
+      <article class="step"><h3>Gears: fixing without breaking</h3><p>A fix can make the broken thing work while quietly breaking something else. A classic study found that automatic repairs checked only against their own tests were about as likely to break other tests as to fix the bug. <a class="cite" href="#r-smith">Smith '15</a></p></article>
+      <article class="step"><h3>The letter: explaining it clearly</h3><p>Developers say the most useful parts of a bug report are the steps to make it happen, the error messages, and a test. Those are also the hardest parts for people to write. <a class="cite" href="#r-bettenburg">Bettenburg '08</a></p></article>
+      <article class="step"><h3>The gatehouse: rules and trust</h3><p>Every project has its own rules for sending changes, and first-time helpers face extra barriers. Maintainers also merge changes written by AI agents less often than changes written by people. <a class="cite" href="#r-steinmacher">Steinmacher '15</a> <a class="cite" href="#r-li">Li '25</a></p></article>
+      <article class="step"><h3>New: a flood of sloppy robot work</h3><p>Low-effort AI submissions have swamped some maintainers. The curl project ended its bug bounty in January 2026 because of them, and GitHub added a setting that caps how many pull requests one outsider can have open. A robot helper has to be more careful than a person, not less. <a class="cite" href="#r-stenberg">Stenberg '26</a> <a class="cite" href="#r-prcap">PR caps '26</a></p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MILE 3 ================= -->
+<section class="mile" id="mile-3">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 3 of 8 · What it does</p>
+    <h2>The journey, station by station</h2>
+    <p>The toolkit is a crew of AI helpers with a map. It moves one station at a time and writes down everything it learns in a notebook. It stops for you twice: after it proves the bug, and before anything is sent. At some stations it may stop early and tell you why.</p>
+  </div>
+  <div class="scrolly" data-kind="journey">
+    <div class="stage">
+      <figure>
+        <svg id="fig-journey" data-step="0" viewBox="0 0 720 740" role="img" aria-label="A winding river with ten stations from your project at the bottom to their project at the top. The boat stops at each station. Two stations, prove the bug and you say yes, wait for you. Two early stations may stop the trip.">
+          <text class="it" x="360" y="26" text-anchor="middle">upstream · their project</text>
+          <path class="riv" stroke-width="22" d="M360,700 C360,665 260,665 260,630 C260,595 460,595 460,560 C460,525 260,525 260,490 C260,455 460,455 460,420 C460,385 260,385 260,350 C260,315 460,315 460,280 C460,245 260,245 260,210 C260,175 460,175 460,140 C460,105 360,105 360,70"/>
+          <path id="journeyPath" class="core up" d="M360,700 C360,665 260,665 260,630 C260,595 460,595 460,560 C460,525 260,525 260,490 C260,455 460,455 460,420 C460,385 260,385 260,350 C260,315 460,315 460,280 C460,245 260,245 260,210 C260,175 460,175 460,140 C460,105 360,105 360,70"/>
+          <g class="st current" data-x="360" data-y="700"><circle class="ring" cx="360" cy="700" r="13"/><circle class="dot" cx="360" cy="700" r="11"/>
+            <text class="lbl" x="386" y="704">Your project</text><text class="it" x="386" y="721">start · downstream</text></g>
+          <g class="st" data-x="260" data-y="630"><circle class="ring" cx="260" cy="630" r="13"/><circle class="dot" cx="260" cy="630" r="11"/>
+            <text class="lbl" x="236" y="626" text-anchor="end">Read the note</text><text class="it t-buoy" x="236" y="643" text-anchor="end">stops if it's already fixed</text></g>
+          <g class="st" data-x="460" data-y="560"><circle class="ring" cx="460" cy="560" r="13"/><circle class="dot" cx="460" cy="560" r="11"/>
+            <text class="lbl" x="484" y="556">Learn their rules</text><text class="it t-buoy" x="484" y="573">stops if robots aren't welcome</text></g>
+          <g class="st" data-x="260" data-y="490"><circle class="ring" cx="260" cy="490" r="13"/><circle class="dot" cx="260" cy="490" r="11"/>
+            <text class="lbl" x="236" y="486" text-anchor="end">Build a safe copy</text><text class="it" x="236" y="503" text-anchor="end">inside a sealed box</text></g>
+          <g class="st check" data-x="460" data-y="420"><circle class="ring" cx="460" cy="420" r="13"/><circle class="dot" cx="460" cy="420" r="12"/>
+            <text class="lbl" x="484" y="416">Prove the bug</text><text class="it t-lantern" x="484" y="433">you look here</text></g>
+          <g class="st" data-x="260" data-y="350"><circle class="ring" cx="260" cy="350" r="13"/><circle class="dot" cx="260" cy="350" r="11"/>
+            <text class="lbl" x="236" y="346" text-anchor="end">Find the cause</text><text class="it" x="236" y="363" text-anchor="end">the why, not just the where</text></g>
+          <g class="st" data-x="460" data-y="280"><circle class="ring" cx="460" cy="280" r="13"/><circle class="dot" cx="460" cy="280" r="11"/>
+            <text class="lbl" x="484" y="276">Fix it, small</text><text class="it" x="484" y="293">and pass all their tests</text></g>
+          <g class="st" data-x="260" data-y="210"><circle class="ring" cx="260" cy="210" r="13"/><circle class="dot" cx="260" cy="210" r="11"/>
+            <text class="lbl" x="236" y="206" text-anchor="end">Second opinion</text><text class="it" x="236" y="223" text-anchor="end">a different AI checks it</text></g>
+          <g class="st" data-x="460" data-y="140"><circle class="ring" cx="460" cy="140" r="13"/><circle class="dot" cx="460" cy="140" r="11"/>
+            <text class="lbl" x="484" y="136">Write the letter</text><text class="it" x="484" y="153">what, why, where, how tested</text></g>
+          <g class="st check" data-x="360" data-y="70"><circle class="ring" cx="360" cy="70" r="13"/><circle class="dot" cx="360" cy="70" r="12"/>
+            <text class="lbl" x="386" y="66">You say yes</text><text class="it t-lantern" x="386" y="83">then a draft pull request</text></g>
+          <g id="journeyBoat" transform="translate(360 700)"><g class="bob">
+            <path d="M-15,-2 L15,-2 L10,6 L-10,6 Z" style="fill:var(--ink)"/>
+            <line x1="0" y1="-2" x2="0" y2="-24" stroke="currentColor" stroke-width="2"/>
+            <polygon points="1.5,-23 1.5,-5 14,-5" style="fill:var(--lantern)"/>
+          </g></g>
+          <circle cx="30" cy="684" r="6" style="fill:var(--buoy)"/><text class="it sm" x="44" y="688">may stop early and tell you</text>
+          <circle cx="30" cy="708" r="6" style="fill:var(--lantern)"/><text class="it sm" x="44" y="712">waits for your OK</text>
+        </svg>
+        <figcaption>Ten stations from your project to theirs. Gold stations wait for you.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><span class="ev" data-station="start">designed</span><h3>Push off</h3><p>The helper starts at your project. It writes down which version of their code you use, how your app uses it, and which other tools were running when the bug appeared. Maintainers want to know all three.</p></article>
+      <article class="step"><span class="ev" data-station="intake">designed</span><span class="tag stop">may stop here</span><h3>Read the note, don't obey it</h3><p>The helper reads the issue and its comments like a letter from a stranger: as information, never as orders. Hidden instructions in text can take over an AI helper, and in a 2026 test two out of three booby-trapped issues got past the built-in guardrails of popular AI coding tools. It also checks whether the bug is already fixed or someone else is on it. If so, it stops and tells you. <a class="cite" href="#r-greshake">Greshake '23</a> <a class="cite" href="#r-singh">Singh '26</a></p></article>
+      <article class="step"><span class="ev" data-station="recon">designed</span><span class="tag stop">may stop here</span><h3>Learn their rules</h3><p>The helper reads their contributing guide, their pull request template, and any rules about AI. About half of the AI policies researchers found ask you to say when a robot helped, and some projects don't accept robot-made pull requests at all. If a project says no, the trip ends here. <a class="cite" href="#r-hora">Hora '26</a></p></article>
+      <article class="step"><span class="ev" data-station="environment">designed</span><h3>Build a safe copy</h3><p>The helper copies their project into a sealed box called a <b>container</b>, so strange code can't reach the rest of your computer. It reads their automatic test recipe first; one research helper that did this got 33 of 50 projects running. Then it records the exact computer, system, and tool versions it used. <a class="cite" href="#r-bouzenia">Bouzenia '25</a></p></article>
+      <article class="step gate"><span class="ev" data-station="reproduce">designed</span><span class="tag you">You check here</span><h3>Prove the bug</h3><p>The helper writes a small test that fails because of the crack. One trick is to write a test that passes, then flip what it expects. Checking fixes against a test like this about doubled how often researchers picked a correct fix. It runs the test several times, because some bugs come and go. Then you look: is this really the bug? <a class="cite" href="#r-mundler">Mündler '24</a> <a class="cite" href="#r-khatib">Khatib '25</a></p></article>
+      <article class="step"><span class="ev" data-station="root-cause">designed</span><h3>Find the cause</h3><p>A symptom is where it hurts. A cause is why. The helper follows the error back to the first line where things go wrong, and writes that path down so the maintainers can follow it too.</p></article>
+      <article class="step"><span class="ev" data-station="fix">designed</span><h3>Fix it, small</h3><p>It makes the smallest change that turns the failing test green, then runs all of their tests and their style checks. AI-made pull requests that failed tended to be bigger, touch more files, and fail their checks more often. <a class="cite" href="#r-smith">Smith '15</a> <a class="cite" href="#r-ehsani">Ehsani '26</a></p></article>
+      <article class="step"><span class="ev" data-station="review">designed</span><h3>Second opinion</h3><p>A different AI reviews the work, ideally one from another company, because AIs tend to prefer their own writing. It asks whether the fix really behaves like the right fix: in one study, about 3 in 10 fixes that passed the tests still behaved differently from the fix the real developers made. The tests keep the final say. <a class="cite" href="#r-panickssery">Panickssery '24</a> <a class="cite" href="#r-wang">Wang '26</a></p></article>
+      <article class="step"><span class="ev" data-station="writeup">designed</span><h3>Write the letter</h3><p>The pull request explains what broke, how to see it, who it affects, the exact setup where it was found, which other tools were involved, how the fix was tested, and a plain note saying an AI helped. <a class="cite" href="#r-bettenburg">Bettenburg '08</a> <a class="cite" href="#r-hora">Hora '26</a></p></article>
+      <article class="step gate"><span class="ev" data-station="submit">designed</span><span class="tag you">You say yes</span><h3>Nothing leaves without you</h3><p>After you approve, the helper makes your own public copy of their project (a <b>fork</b>), runs the checks there, and opens the pull request as a draft. It is marked ready only when the checks pass and you agree. You sign off, because only a person can promise the work is theirs to give. <a class="cite" href="#r-kernel">Linux kernel docs</a></p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MILE 4 ================= -->
+<section class="mile" id="mile-4">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 4 of 8 · Staying safe</p>
+    <h2>One door out, and you hold the key</h2>
+    <p>Telling a robot to be careful is not a lock. A real lock works even when the robot gets confused. So this lock lives inside <b>git</b>, the tool that moves code around, instead of in the robot's instructions. Nothing public happens before your yes, not even making your fork.</p>
+  </div>
+  <div class="scrolly" data-kind="door">
+    <div class="stage">
+      <figure>
+        <svg id="fig-door" data-step="0" viewBox="0 0 700 380" role="img" aria-label="The helper's workshop can reach the outside only through a guard. The path to their project is switched off. The path to your fork opens only for the helper's branch, after your yes, and for the exact fingerprint you approved. A change after approval locks the door again.">
+          <!-- workshop -->
+          <rect class="box" x="20" y="96" width="210" height="150" rx="10"/>
+          <text class="lbl" x="125" y="124" text-anchor="middle">The helper's workshop</text>
+          <text class="it" x="125" y="142" text-anchor="middle">a copy of their project</text>
+          <rect x="44" y="158" width="118" height="5" rx="2.5" style="fill:var(--ink-soft)" opacity=".4"/>
+          <rect x="44" y="170" width="86" height="5" rx="2.5" style="fill:var(--ink-soft)" opacity=".4"/>
+          <rect x="44" y="182" width="140" height="5" rx="2.5" style="fill:var(--water)"/>
+          <rect x="44" y="194" width="70" height="5" rx="2.5" style="fill:var(--ink-soft)" opacity=".4"/>
+          <rect class="pill" x="60" y="210" width="130" height="24" rx="12"/>
+          <text class="mono v-ok" x="125" y="226" text-anchor="middle">a1f9c3e</text>
+          <text class="mono v-new t-buoy" x="125" y="226" text-anchor="middle">7be20d4</text>
+          <!-- arrow to door -->
+          <line class="arrow" x1="232" y1="170" x2="292" y2="170"/>
+          <polygon points="298,170 288,164 288,176" style="fill:var(--ink)"/>
+          <text class="it sm" x="262" y="160" text-anchor="middle">push</text>
+          <!-- door -->
+          <rect class="house" x="300" y="112" width="74" height="118" rx="6"/>
+          <g transform="translate(0 0)"><path class="shackle" d="M330,176 v-8 a7,7 0 0 1 14,0 v8"/></g>
+          <rect class="lockbody" x="325" y="175" width="24" height="19" rx="3"/>
+          <text class="lbl sm" x="337" y="252" text-anchor="middle">The guard</text>
+          <text class="it sm" x="337" y="268" text-anchor="middle">a check inside git</text>
+          <text class="it sm t-lantern yes" x="337" y="102" text-anchor="middle">you said yes to a1f9c3e</text>
+          <text class="it sm t-buoy ask" x="337" y="102" text-anchor="middle">changed after yes: ask again</text>
+          <!-- upstream -->
+          <rect class="box" x="470" y="20" width="210" height="104" rx="10"/>
+          <text class="lbl" x="575" y="52" text-anchor="middle">Their project</text>
+          <text class="it" x="575" y="70" text-anchor="middle">upstream</text>
+          <line class="arrow" x1="374" y1="140" x2="468" y2="84" stroke-dasharray="3 5" style="stroke:var(--ink-soft)"/>
+          <line class="xmark" x1="412" y1="104" x2="430" y2="122"/><line class="xmark" x1="430" y1="104" x2="412" y2="122"/>
+          <text class="it sm t-buoy" x="440" y="140">no direct push, ever</text>
+          <!-- fork -->
+          <rect class="box" x="470" y="236" width="210" height="112" rx="10"/>
+          <text class="lbl" x="575" y="266" text-anchor="middle">Your copy</text>
+          <text class="it" x="575" y="284" text-anchor="middle">your fork, made after your yes</text>
+          <rect class="pill fork-tag" x="510" y="300" width="130" height="24" rx="12"/>
+          <text class="mono fork-tag" x="575" y="316" text-anchor="middle">a1f9c3e</text>
+          <line class="fork-path" x1="374" y1="206" x2="468" y2="292"/>
+          <g class="fork-x"><line class="xmark" x1="412" y1="238" x2="430" y2="256"/><line class="xmark" x1="430" y1="238" x2="412" y2="256"/></g>
+          <!-- PR -->
+          <g class="pr">
+            <path d="M650,234 V132" fill="none" stroke="currentColor" stroke-width="2" stroke-dasharray="6 5"/>
+            <polygon points="650,126 644,137 656,137" style="fill:var(--ink)"/>
+            <text class="it sm" x="642" y="186" text-anchor="end">asks them to</text>
+            <text class="it sm" x="642" y="202" text-anchor="end">pull: a draft PR</text>
+          </g>
+          <!-- checklist -->
+          <text class="lbl sm" x="20" y="286">The guard opens only if</text>
+          <rect x="20" y="298" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <polyline class="ck" points="23,306 27,310 33,301"/>
+          <text class="it" x="44" y="311">it's the helper's own branch</text>
+          <rect x="20" y="322" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <polyline class="ck" points="23,330 27,334 33,325"/>
+          <text class="it" x="44" y="335">you said yes</text>
+          <rect x="20" y="346" width="16" height="16" rx="3" fill="none" stroke="currentColor" stroke-width="1.5"/>
+          <polyline class="ck c3" points="23,354 27,358 33,349"/>
+          <g class="cx3"><line class="xmark" x1="23" y1="349" x2="33" y2="359" stroke-width="2.4"/><line class="xmark" x1="33" y1="349" x2="23" y2="359" stroke-width="2.4"/></g>
+          <text class="it" x="44" y="359">the fingerprint matches what you saw</text>
+        </svg>
+        <figcaption>The path to their project is switched off. The path to your fork opens only on your yes.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><h3>Their door is bricked up</h3><p>The helper's copy has no way to push code straight into their project. The only thing it can ever do is ask, with a pull request, and the maintainers decide.</p></article>
+      <article class="step gate"><span class="tag you">Your yes</span><h3>Your door has a guard</h3><p>The guard opens only for the helper's own branch, only after you said yes, and only for the exact version you looked at. Every version of code has a fingerprint, like <code>a1f9c3e</code>. Your yes is tied to that fingerprint.</p></article>
+      <article class="step"><h3>Changed after yes? Locked</h3><p>If even one line changes after you approve, the fingerprint changes, the guard says no, and the helper has to ask you again. Some AI tools have their own safety checks too, and the toolkit uses them as a second lock. But some of those let things through if they crash, so they can't be the only lock.</p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MILE 5 ================= -->
+<section class="mile" id="mile-5">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 5 of 8 · Many notes at once</p>
+    <h2>Ten notes, many boats, one calm harbor</h2>
+    <p>Sometimes a project has many open issues you care about. The helper can work on several at once, each in its own boat. But notes can overlap, and the order fixes arrive in matters.</p>
+  </div>
+  <div class="scrolly" data-kind="batch">
+    <div class="stage">
+      <figure>
+        <svg id="fig-batch" data-step="0" viewBox="0 0 720 560" role="img" aria-label="Ten numbered bottles start in a pile of open issues. Two are set aside, two twins are paired, the rest get lanes, all fixes are tested together, and only three pull requests pass the gate while the others wait.">
+          <rect class="zone" x="16" y="16" width="688" height="150" rx="12"/>
+          <text class="lbl" x="32" y="42">Open issues on their project</text>
+          <g class="aside-z">
+            <rect class="zone" x="16" y="462" width="300" height="82" rx="12"/>
+            <text class="lbl sm" x="32" y="486">Set aside</text>
+            <text class="it sm" x="32" y="504">has a fix, or needs a decision</text>
+          </g>
+          <text class="lbl sm lanes-lbl" x="210" y="192">Each fix gets a lane</text>
+          <rect class="lane" x="210" y="200" width="350" height="28" rx="14"/>
+          <rect class="lane" x="210" y="240" width="350" height="28" rx="14"/>
+          <rect class="lane" x="210" y="280" width="350" height="28" rx="14"/>
+          <rect class="lane" x="210" y="320" width="350" height="28" rx="14"/>
+          <rect class="lane" x="210" y="360" width="350" height="28" rx="14"/>
+          <rect class="lane" x="210" y="400" width="350" height="28" rx="14"/>
+          <text class="it sm lane-note" x="200" y="258" text-anchor="end">#2 first, then #5</text>
+          <text class="it sm lane-note" x="200" y="298" text-anchor="end">twins: one fix</text>
+          <rect class="practice" x="420" y="192" width="70" height="244" rx="10"/>
+          <text class="lbl sm practice" x="455" y="452" text-anchor="middle" style="stroke:none;fill:var(--water)">Practice run</text>
+          <g class="green">
+            <circle cx="455" cy="476" r="10" style="fill:var(--water)"/>
+            <polyline points="450,476 454,480 461,471" fill="none" stroke="currentColor" style="color:var(--paper)" stroke-width="2.4" stroke-linecap="round"/>
+            <text class="it sm" x="455" y="506" text-anchor="middle">green together</text>
+          </g>
+          <g class="gate">
+            <line x1="580" y1="196" x2="580" y2="432"/>
+            <line x1="574" y1="196" x2="586" y2="196"/><line x1="574" y1="432" x2="586" y2="432"/>
+          </g>
+          <text class="it sm harbor" x="580" y="452" text-anchor="middle">3 at a time</text>
+          <g class="harbor">
+            <rect class="zone" x="598" y="196" width="108" height="110" rx="12"/>
+            <text class="lbl sm" x="652" y="218" text-anchor="middle">Sent as drafts</text>
+            <rect class="zone" x="598" y="320" width="108" height="112" rx="12"/>
+            <text class="lbl sm" x="652" y="342" text-anchor="middle">Waiting</text>
+            <text class="it sm" x="652" y="358" text-anchor="middle">for replies</text>
+          </g>
+          <text class="it sm twins" x="458" y="60" text-anchor="middle">twins: same error</text>
+          <g id="bottles"></g>
+        </svg>
+        <figcaption>Sort, pair, lane, test together, then send a few at a time.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><h3>Start with the pile</h3><p>The helper collects the open issues on their project, like bottles washed up on the shore. Each one is a possible fix.</p></article>
+      <article class="step"><h3>Set some aside</h3><p>It skips issues that already have a fix on the way, that someone else is working on, or that need the maintainers to make a decision first.</p></article>
+      <article class="step"><h3>Spot the twins</h3><p>Two notes can describe the same crack in different words. Matching error messages and the same lines in the error trail give them away. Twins get one fix that closes both. <a class="cite" href="#r-dang">Dang '12</a> <a class="cite" href="#r-zhang">Zhang '23</a></p></article>
+      <article class="step"><h3>Give each fix a lane</h3><p>Fixes that touch different parts of the code travel side by side. Fixes that touch the same gear go in order: #2 first, then #5. Uber's system for keeping its code working uses the same idea: only changes that touch the same parts wait in line. <a class="cite" href="#r-ananth">Ananthanarayanan '19</a></p></article>
+      <article class="step"><h3>Practice run</h3><p>Two fixes can each work alone and still break things together. So the helper combines every fix in a practice copy and runs all the tests. It also tells each boat what the others changed; in one 2026 study, that alone fixed 82% of these clashes. <a class="cite" href="#r-brun">Brun '11</a> <a class="cite" href="#r-xia">Xia '26</a></p></article>
+      <article class="step gate"><span class="tag you">You approve the plan</span><h3>Don't flood the harbor</h3><p>Only a few pull requests go out at first. The rest wait until the maintainers reply. Each one says which others it depends on ("Depends on #2"), because GitHub can't stack pull requests that come from a fork. You approve the whole plan before the boats leave. <a class="cite" href="#r-ghstack">GitHub Docs</a> <a class="cite" href="#r-prcap">PR caps '26</a></p></article>
+    </div>
+  </div>
+</section>
+
+<!-- ================= MILE 6 ================= -->
+<section class="mile" id="mile-6">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 6 of 8 · Works with your helper</p>
+    <h2>One set of skill cards, six different helpers</h2>
+    <p>People use different AI coding tools. The toolkit's know-how is written once, as <dfn>skill cards</dfn> in an open format that all six tools can read. A thin adapter teaches each tool its own buttons and locks. Progress lives in a notebook of plain files, so you can start a trip in one tool and finish it in another. <a class="cite" href="#r-agentskills">Agent Skills spec</a></p>
+    <p>Trust comes from checking, not from promises. So every helper carries a three-step meter: what its makers document, what was checked on the build machine by reading the tool's own help, source code or program, and what has been tested end to end.</p>
+  </div>
+  <figure class="static-fig">
+    <svg viewBox="0 0 720 420" role="img" aria-label="Six AI coding tools connect through small adapters to one shared stack of skill cards and one shared progress notebook. Each tool shows a three-step evidence meter; all six are at the second step, checked on the build machine.">
+      <rect class="card" x="306" y="140" width="116" height="80" rx="8"/>
+      <rect class="card" x="300" y="146" width="116" height="80" rx="8"/>
+      <rect class="card" x="294" y="152" width="116" height="80" rx="8"/>
+      <line class="cardline" x1="310" y1="172" x2="380" y2="172"/><line class="cardline" x1="310" y1="186" x2="394" y2="186"/><line class="cardline" x1="310" y1="200" x2="362" y2="200"/>
+      <text class="lbl" x="352" y="256" text-anchor="middle">Skill cards</text>
+      <text class="it sm" x="352" y="272" text-anchor="middle">written once, as SKILL.md files</text>
+      <rect class="card" x="306" y="296" width="92" height="58" rx="6"/>
+      <path d="M318,306 v38 M330,306 v38" stroke="currentColor" stroke-width="1.5" stroke-dasharray="2 4"/>
+      <text class="lbl" x="352" y="376" text-anchor="middle">Saved progress</text>
+      <text class="it sm" x="352" y="392" text-anchor="middle">plain files · switch tools midway</text>
+      <path class="link" d="M220,74 C260,74 270,160 292,170"/>
+      <path class="link" d="M220,190 L292,190"/>
+      <path class="link" d="M220,306 C260,306 270,220 292,210"/>
+      <path class="link" d="M500,74 C460,74 440,160 424,170"/>
+      <path class="link" d="M500,190 L424,190"/>
+      <path class="link" d="M500,306 C460,306 440,220 424,210"/>
+      <text class="it sm" x="256" y="182" text-anchor="middle">adapter</text>
+      <text class="it sm" x="462" y="182" text-anchor="middle">adapter</text>
+      <rect class="box" x="24" y="46" width="196" height="56" rx="10"/><text class="lbl" x="40" y="70">Claude Code</text><text class="it sm" x="40" y="89">2.1.284 · plugin, helpers, hooks</text>
+      <g class="pips" data-host="claude-code" data-level="2" transform="translate(176 64)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <rect class="box" x="24" y="162" width="196" height="56" rx="10"/><text class="lbl" x="40" y="186">Codex</text><text class="it sm" x="40" y="205">0.158.0 · plugin, skills, hooks</text>
+      <g class="pips" data-host="codex" data-level="2" transform="translate(176 180)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <rect class="box" x="24" y="278" width="196" height="56" rx="10"/><text class="lbl" x="40" y="302">Gemini CLI</text><text class="it sm" x="40" y="321">0.61.0 · extension, hooks</text>
+      <g class="pips" data-host="gemini-cli" data-level="2" transform="translate(176 296)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <rect class="box" x="500" y="46" width="196" height="56" rx="10"/><text class="lbl" x="516" y="70">Cursor</text><text class="it sm" x="516" y="89">3.22.12 · plugin, rules, hooks</text>
+      <g class="pips" data-host="cursor" data-level="2" transform="translate(652 64)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <rect class="box" x="500" y="162" width="196" height="56" rx="10"/><text class="lbl" x="516" y="186">Grok Build</text><text class="it sm" x="516" y="205">1.0.44 · plugin, skills, hooks</text>
+      <g class="pips" data-host="grok-build" data-level="2" transform="translate(652 180)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <rect class="box" x="500" y="278" width="196" height="56" rx="10"/><text class="lbl" x="516" y="302">Hermes Agent</text><text class="it sm" x="516" y="321">0.21.5 · Python plugin, hooks</text>
+      <g class="pips" data-host="hermes-agent" data-level="2" transform="translate(652 296)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g>
+      <g class="pips" data-level="1" transform="translate(478 368)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g><text class="it sm" x="512" y="372">documented by its makers</text>
+      <g class="pips" data-level="2" transform="translate(478 388)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g><text class="it sm" x="512" y="392">checked on the build machine</text>
+      <g class="pips" data-level="3" transform="translate(478 408)"><circle cx="0" r="4.5"/><circle cx="12" r="4.5"/><circle cx="24" r="4.5"/></g><text class="it sm" x="512" y="412">tested end to end here</text>
+    </svg>
+    <figcaption>Same skill cards, same notebook. Every helper is at step two: checked, not yet tested end to end.</figcaption>
+  </figure>
+  <div class="tbl-wrap">
+    <table>
+      <thead><tr><th>Helper</th><th>How it was checked</th><th>Safety hook, and how the adapter makes it fail safe</th><th>Your "yes" when it runs without a screen</th></tr></thead>
+      <tbody>
+        <tr><td>Claude Code</td><td>Installed; official docs</td><td>Can block a command outright</td><td>Claude asks you</td></tr>
+        <tr><td>Codex</td><td>Installed; its help text</td><td>Same as Claude, once you trust the hook</td><td>Codex asks you</td></tr>
+        <tr><td>Gemini CLI</td><td>Installed; its help text</td><td>A hook plus a rules engine; the adapter uses both</td><td>Gemini asks you</td></tr>
+        <tr><td>Cursor</td><td>Cursor's own built-in hook guide</td><td><span class="warn">A broken hook lets things through</span> unless it is set to fail closed. The adapter always sets it.</td><td>Cursor asks you</td></tr>
+        <tr><td>Grok Build</td><td>Read inside the program itself</td><td>Understands Claude-style "deny". <span class="warn">A crashing hook lets things through</span>, so our hook turns every error into a deny.</td><td>Grok asks you</td></tr>
+        <tr><td>Hermes Agent</td><td>Read in its source code</td><td><span class="warn">Lets things through unless fail-closed is on</span>, and hooks wait for your consent. The adapter turns it on; the checkup confirms consent.</td><td class="warn">Its no-screen mode skips approvals, so you type yes in a terminal</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <p style="max-width:66ch;margin-top:18px;color:var(--ink-soft)">The orange notes are why the main lock in Mile 4 lives in git. Checking also caught a wrong claim: a blog said Grok ignores Claude-style verdicts, but the Grok program on the build machine documents that it honors them.</p>
+
+  <div class="getting">
+    <p class="eyebrow">Getting it</p>
+    <ol>
+      <li><b>Install it through your helper's own plugin menu.</b> One project serves all six. Each helper installs it with its own command, so nothing edits your settings behind your back. <a class="cite" href="#r-ccplugins">Claude Code plugin docs</a></li>
+      <li><b>Run the checkup.</b> <code>riverwright doctor</code> looks for git, GitHub access, Docker and each helper, then prints the exact command for anything missing. It changes nothing. <a class="cite" href="#r-clig">clig.dev</a></li>
+      <li><b>Walk the setup wizard.</b> <code>/upstream-setup</code> goes through that list with you, asks before each change, and finishes with a practice run on a test project.</li>
+    </ol>
+  </div>
+</section>
+
+<!-- ================= MILE 7 ================= -->
+<section class="mile" id="mile-7">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 7 of 8 · A real river</p>
+    <h2>agentic-kit and its three mills</h2>
+    <p>Everything so far is a design. This chapter uses a real project and real upstream issues, as of 29 September 2026. Each card says what it is: <span class="tag retro">done by hand</span> <span class="tag retro">analysis</span> <span class="tag plan">planned</span> <span class="tag seen">seen in a real run</span>. As the toolkit is built and tested, these cards update from its own records.</p>
+  </div>
+  <div class="scrolly" data-kind="real">
+    <div class="stage">
+      <figure>
+        <svg id="fig-real" data-step="0" viewBox="0 0 720 540" role="img" aria-label="Three upstream projects, ruflo, ruvnet-brain and agentic-qe, feed one downstream village, agentic-kit. Overlays show real issues: a one-hour fix, a batch of seven, an issue-only gatehouse, four issues with one root, and the planned first run.">
+          <text class="it" x="360" y="20" text-anchor="middle">upstream · the three projects agentic-kit depends on</text>
+          <path class="riv" stroke-width="14" d="M150,166 C150,300 330,330 350,430"/>
+          <path class="riv" stroke-width="14" d="M360,166 L360,430"/>
+          <path class="riv" stroke-width="14" d="M570,166 C570,300 390,330 370,430"/>
+          <path class="core" d="M150,166 C150,300 330,330 350,430"/>
+          <path class="core" d="M360,166 L360,430"/>
+          <path class="core" d="M570,166 C570,300 390,330 370,430"/>
+          <circle class="halo mh-ruflo" cx="158" cy="64" r="46"/>
+          <circle class="halo mh-brain" cx="368" cy="64" r="46"/>
+          <circle class="halo mh-aqe" cx="578" cy="64" r="46"/>
+          <rect class="house" x="128" y="48" width="44" height="32"/><polygon class="roof" points="123,50 150,30 177,50"/>
+          <g transform="translate(182 76)"><g class="spin"><circle r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M0,-13 V13 M-13,0 H13" stroke="currentColor" stroke-width="1.6"/></g></g>
+          <rect class="house" x="338" y="48" width="44" height="32"/><polygon class="roof" points="333,50 360,30 387,50"/>
+          <g transform="translate(392 76)"><g class="spin"><circle r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M0,-13 V13 M-13,0 H13" stroke="currentColor" stroke-width="1.6"/></g></g>
+          <rect class="house" x="548" y="48" width="44" height="32"/><polygon class="roof" points="543,50 570,30 597,50"/>
+          <g transform="translate(602 76)"><g class="spin"><circle r="13" fill="none" stroke="currentColor" stroke-width="2"/><path d="M0,-13 V13 M-13,0 H13" stroke="currentColor" stroke-width="1.6"/></g></g>
+          <text class="lbl" x="150" y="124" text-anchor="middle">ruflo</text>
+          <text class="it sm" x="150" y="141" text-anchor="middle">issue first · lots of CI</text>
+          <text class="mono" x="150" y="158" text-anchor="middle">29 issues · 1 PR</text>
+          <text class="lbl" x="360" y="124" text-anchor="middle">ruvnet-brain</text>
+          <text class="it sm" x="360" y="141" text-anchor="middle">release branches only</text>
+          <text class="mono" x="360" y="158" text-anchor="middle">4 issues</text>
+          <text class="lbl" x="570" y="124" text-anchor="middle">agentic-qe</text>
+          <text class="it sm" x="570" y="141" text-anchor="middle">a test for every failure</text>
+          <text class="mono" x="570" y="158" text-anchor="middle">20 issues</text>
+          <rect class="house" x="334" y="446" width="20" height="16"/><polygon class="roof" points="331,448 344,436 357,448"/>
+          <rect class="house" x="360" y="442" width="24" height="20"/><polygon class="roof" points="357,444 372,430 387,444"/>
+          <text class="lbl t-water" x="360" y="492" text-anchor="middle">agentic-kit</text>
+          <text class="it sm" x="360" y="510" text-anchor="middle">pacphi's toolkit · the ak command</text>
+          <g class="ov o1">
+            <rect class="pill" x="190" y="200" width="140" height="24" rx="12"/><text class="mono" x="260" y="216" text-anchor="middle">#2986 merged 15:33</text>
+            <rect class="pill" x="190" y="262" width="140" height="24" rx="12"/><text class="mono" x="260" y="278" text-anchor="middle">#2985 filed 14:32</text>
+            <line x1="260" y1="258" x2="260" y2="232" stroke="currentColor" stroke-width="2"/><polygon points="260,226 255,235 265,235" style="fill:var(--ink)"/>
+            <text class="it sm t-water" x="260" y="306" text-anchor="middle">about one hour</text>
+          </g>
+          <g class="ov o2">
+            <rect class="pill" x="388" y="220" width="150" height="24" rx="12"/><text class="mono" x="463" y="236" text-anchor="middle">#753 · 369 forks</text>
+            <rect class="pill" x="388" y="276" width="150" height="24" rx="12"/><text class="mono" x="463" y="292" text-anchor="middle">fixed &lt; 24 h · #764</text>
+            <g style="fill:var(--card);stroke:var(--ink);stroke-width:1.4"><circle cx="604" cy="182" r="5"/><circle cx="618" cy="182" r="5"/><circle cx="632" cy="182" r="5"/><circle cx="646" cy="182" r="5"/><circle cx="660" cy="182" r="5"/><circle cx="674" cy="182" r="5"/><circle cx="688" cy="182" r="5"/></g>
+            <text class="it sm" x="646" y="204" text-anchor="middle">#753–#759, filed together</text>
+          </g>
+          <g class="ov o3">
+            <rect class="pill" x="376" y="220" width="170" height="24" rx="12"/><text class="mono" x="461" y="236" text-anchor="middle">#335 · auto-reply only</text>
+            <rect class="pill" x="376" y="276" width="170" height="24" rx="12"/><text class="mono" x="461" y="292" text-anchor="middle">rule: release branches</text>
+            <text class="it sm t-water" x="461" y="322" text-anchor="middle">toolkit: a clear issue, draft at most</text>
+          </g>
+          <g class="ov o4">
+            <rect class="pill" x="190" y="186" width="140" height="20" rx="10"/><text class="mono" x="260" y="200" text-anchor="middle">#3444 cleanup</text>
+            <rect class="pill" x="190" y="210" width="140" height="20" rx="10"/><text class="mono" x="260" y="224" text-anchor="middle">#3446 backup</text>
+            <rect class="pill" x="190" y="234" width="140" height="20" rx="10"/><text class="mono" x="260" y="248" text-anchor="middle">#3447 retention</text>
+            <rect class="pill" x="190" y="258" width="140" height="20" rx="10"/><text class="mono" x="260" y="272" text-anchor="middle">#3450 purge</text>
+            <path d="M336,188 h6 v88 h-6" fill="none" stroke="currentColor" stroke-width="1.8"/>
+            <text class="it sm t-water" x="260" y="300" text-anchor="middle">one root: two memory files</text>
+          </g>
+          <g class="ov o5">
+            <path d="M342,432 C300,360 210,300 162,178" fill="none" stroke-width="2.6" stroke-dasharray="7 6" style="stroke:var(--lantern)"/>
+            <rect class="pill" x="200" y="250" width="160" height="24" rx="12"/><text class="mono" x="280" y="266" text-anchor="middle">planned: ruflo #3509</text>
+            <text class="it sm t-lantern" x="280" y="296" text-anchor="middle">codex 0.158 has no mcp-server</text>
+          </g>
+        </svg>
+        <figcaption>One village, three mills, and the real notes that have floated between them.</figcaption>
+      </figure>
+    </div>
+    <div class="steps">
+      <article class="step is-active"><span class="tag retro">done by hand</span><h3>Three mills, one village</h3><p>agentic-kit is a real toolkit, run with the <code>ak</code> command, that sets up AI coding helpers. It depends on three upstream projects: <b>ruflo</b>, which runs teams of AI agents and their memory; <b>ruvnet-brain</b>, a local library of knowledge about those tools; and <b>agentic-qe</b>, a crew of testing helpers. Its maintainer, pacphi, has already paddled upstream by hand many times: 29 issues and one pull request on ruflo, 4 issues on ruvnet-brain, and 20 on agentic-qe. <a class="cite" href="https://github.com/ruvnet/ruflo/issues?q=author%3Apacphi">ruflo</a> <a class="cite" href="https://github.com/stuinfla/ruvnet-brain/issues?q=author%3Apacphi">ruvnet-brain</a> <a class="cite" href="https://github.com/proffesor-for-testing/agentic-qe/issues?q=author%3Apacphi">agentic-qe</a></p></article>
+      <article class="step"><span class="tag retro">done by hand</span><h3>One hour from note to fix</h3><p>ruflo's <code>migrate status</code> told people to run a command that fails. pacphi filed #2985 at 14:32, opened pull request #2986 with two test files at 14:50, and the maintainer merged it at 15:33. The toolkit follows the same stations: prove it, fix it small, explain it, then wait for a yes. <a class="cite" href="https://github.com/ruvnet/ruflo/issues/2985">#2985</a> <a class="cite" href="https://github.com/ruvnet/ruflo/pull/2986">#2986</a></p></article>
+      <article class="step"><span class="tag retro">done by hand</span><h3>A batch of seven, fixed in a day</h3><p>In agentic-qe, two programs writing at the same moment could fork an audit chain; one real store had 103,650 rows and 369 forks. pacphi filed seven related issues (#753 to #759) over two days, and another contributor's pull request #764 fixed #753 in under a day. Batch mode is built for exactly this: spot twins, give each fix a lane, send a few at a time. <a class="cite" href="https://github.com/proffesor-for-testing/agentic-qe/issues/753">#753</a> <a class="cite" href="https://github.com/proffesor-for-testing/agentic-qe/pull/764">#764</a></p></article>
+      <article class="step"><span class="tag retro">done by hand</span><h3>Some gatehouses want a note, not a boat</h3><p>ruvnet-brain only takes changes through release branches, and the recent pull requests we sampled all came from its maintainer. Its issues get an automatic reply; #335, about backup folders growing to 14 to 21 GB, is still waiting for a person. Here the recon station would suggest a clear issue and, at most, a draft for the maintainer to adopt. <a class="cite" href="https://github.com/stuinfla/ruvnet-brain/issues/335">#335</a></p></article>
+      <article class="step"><span class="tag retro">analysis</span><h3>Four notes, one root</h3><p>Four ruflo issues about cleanup, backup, retention and purge (#3444, #3446, #3447, #3450) trace back to one design choice: ruflo keeps two memory files side by side, <code>memory.db</code> and <code>agentdb-memory.db</code>. Batch mode would give them one lane with an order, instead of four pull requests that collide. <a class="cite" href="https://github.com/ruvnet/ruflo/blob/main/CHANGELOG.md">ruflo changelog</a> <a class="cite" href="https://github.com/ruvnet/ruflo/issues/3446">#3446</a></p></article>
+      <article class="step gate"><span class="tag plan" data-run="ruvnet/ruflo#3509">planned</span><h3>The first real trip</h3><p>ruflo's Codex connection starts <code>codex mcp-server</code>, but the Codex on the build machine (0.158) has no such command; it treats the word as a prompt. That is ruflo #3509. It is the planned first real run: reproduce it with a test, make the smallest fix, write the letter, and send nothing until pacphi says yes. This card will change to show what actually happened. <a class="cite" href="https://github.com/ruvnet/ruflo/issues/3509">#3509</a></p></article>
+    </div>
+  </div>
+</section>
+
+
+<!-- ================= MILE 8 ================= -->
+<section class="mile" id="mile-8">
+  <div class="mile-head">
+    <p class="eyebrow">Mile 8 of 8 · The source</p>
+    <h2>Three things to remember</h2>
+  </div>
+  <div class="remember">
+    <div><b>Fix it at the source</b>Big apps are built from shared pieces. Fixing a crack upstream fixes it for every village downstream, not only yours.</div>
+    <div><b>Bring proof</b>A good fix comes with a test that fails before and passes after, plus a clear letter about what happened and how it was checked.</div>
+    <div><b>You stay captain</b>The helpers do the paddling. Nothing public happens, not even making a fork, until you say yes to the exact version you saw.</div>
+  </div>
+  <div class="next">
+    <p class="eyebrow" style="margin-top:0">What happens next</p>
+    <p>This page describes a design. The toolkit isn't built yet. The plan is to build it in three parts, each with its own written spec:</p>
+    <ol>
+      <li><b>The single-issue journey</b>: the stations, the notebook, the lock, and the letter.</li>
+      <li><b>Six adapters</b>: one source generates the files each AI tool needs.</li>
+      <li><b>Batch mode</b>: sorting, pairing, lanes, practice runs, and pacing.</li>
+    </ol>
+    <p>Each part gets tested on a practice project with bugs planted on purpose, including twins and fixes that touch the same gear. Then comes the first real trip: ruflo #3509 from Mile 7, with every public step approved one at a time. Its records feed this page, so the badges in Mile 3, the meters in Mile 6 and the cards in Mile 7 change from designed to tested to seen.</p>
+  </div>
+
+  <section class="refs" aria-labelledby="refs-h">
+    <h2 id="refs-h">Where the ideas come from</h2>
+    <p style="margin:0;color:var(--ink-soft);font-size:15px">Research gathered on 29 September 2026. Papers not yet peer reviewed are marked <span class="pre">preprint</span>.</p>
+    <ol>
+      <li id="r-agentskills">Agent Skills. "Specification." agentskills.io, 2026. <a href="https://agentskills.io/specification">agentskills.io/specification</a></li>
+      <li id="r-ananth">Ananthanarayanan, S. et al. "Keeping Master Green at Scale." EuroSys 2019. <a href="https://dl.acm.org/doi/10.1145/3302424.3303970">doi:10.1145/3302424.3303970</a></li>
+      <li id="r-bettenburg">Bettenburg, N., Just, S., Schröter, A., Weiss, C., Premraj, R., Zimmermann, T. "What Makes a Good Bug Report?" FSE 2008. <a href="https://doi.org/10.1145/1453101.1453146">doi:10.1145/1453101.1453146</a></li>
+      <li id="r-ccplugins">Anthropic. "Claude Code plugins" and "Plugin marketplaces." code.claude.com documentation, 2026. <a href="https://code.claude.com/docs/en/plugin-marketplaces">code.claude.com</a></li>
+      <li id="r-bouzenia">Bouzenia, I., Pradel, M. "You Name It, I Run It: An LLM Agent to Execute Tests of Arbitrary Projects." ISSTA 2025. <a href="https://arxiv.org/abs/2412.10133">arXiv:2412.10133</a></li>
+      <li id="r-brun">Brun, Y., Holmes, R., Ernst, M. D., Notkin, D. "Proactive Detection of Collaboration Conflicts." ESEC/FSE 2011. <a href="https://www.cs.ubc.ca/~rtholmes/papers/fse_2011_brun.pdf">PDF</a></li>
+      <li id="r-clig">Prasad, A., Firshman, B., Tashian, C., Parish, E. "Command Line Interface Guidelines." <a href="https://clig.dev">clig.dev</a></li>
+      <li id="r-dang">Dang, Y., Wu, R., Zhang, H. et al. "ReBucket: A Method for Clustering Duplicate Crash Reports Based on Call Stack Similarity." ICSE 2012. <a href="https://www.microsoft.com/en-us/research/wp-content/uploads/2016/07/rebucket-icse2012.pdf">PDF</a></li>
+      <li id="r-ehsani">Ehsani, R. et al. "Where Do AI Coding Agents Fail? An Empirical Study of Failed Agentic Pull Requests in GitHub." MSR 2026. <a href="https://arxiv.org/abs/2601.15195">arXiv:2601.15195</a></li>
+      <li id="r-eliseeva">Eliseeva, A. et al. "EnvBench: A Benchmark for Automated Environment Setup." DL4C Workshop at ICLR 2025. <a href="https://arxiv.org/abs/2503.14443">arXiv:2503.14443</a></li>
+      <li id="r-ghstack">GitHub Docs. "About stacked pull requests." 2026. <a href="https://docs.github.com/en/pull-requests/get-started/about-stacked-prs">docs.github.com</a></li>
+      <li id="r-greshake">Greshake, K. et al. "Not What You've Signed Up For: Compromising Real-World LLM-Integrated Applications with Indirect Prompt Injection." ACM AISec 2023. <a href="https://arxiv.org/abs/2302.12173">arXiv:2302.12173</a></li>
+      <li id="r-hora">Hora, A., Robbes, R., Zacchiroli, S. "'We Permit the Use of AI, but […]': The Landscape of AI Policies in Popular Open Source Projects." 2026. <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2609.07542">arXiv:2609.07542</a></li>
+      <li id="r-johnson">Johnson, J. et al. "An Empirical Investigation into the Reproduction of Bug Reports for Android Apps." SANER 2022. <a href="https://arxiv.org/abs/2301.01235">arXiv:2301.01235</a></li>
+      <li id="r-khatib">Khatib, R. et al. "AssertFlip: Reproducing Bugs via Inversion of LLM-Generated Passing Tests." 2025. <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2507.17542">arXiv:2507.17542</a></li>
+      <li id="r-kernel">The Linux Kernel documentation. "AI Coding Assistants." <a href="https://docs.kernel.org/process/coding-assistants.html">docs.kernel.org</a></li>
+      <li id="r-li">Li, H., Zhang, H., Hassan, A. E. "The Rise of AI Teammates in Software Engineering (SE) 3.0." 2025. <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2507.15003">arXiv:2507.15003</a></li>
+      <li id="r-mundler">Mündler, N. et al. "SWT-Bench: Testing and Validating Real-World Bug-Fixes with Code Agents." NeurIPS 2024. <a href="https://arxiv.org/abs/2406.12952">arXiv:2406.12952</a></li>
+      <li id="r-panickssery">Panickssery, A., Bowman, S. R., Feng, S. "LLM Evaluators Recognize and Favor Their Own Generations." NeurIPS 2024. <a href="https://proceedings.neurips.cc/paper_files/paper/2024/hash/7f1f0218e45f5414c79c0679633e47bc-Abstract-Conference.html">proceedings.neurips.cc</a></li>
+      <li id="r-prcap">CodeRabbit. "GitHub gives maintainers a throttle for the AI pull request." June 2026, reporting GitHub's per-contributor pull request cap. <a href="https://www.coderabbit.ai/blog/github-gives-maintainers-a-throttle-for-the-ai-pull-request">coderabbit.ai</a></li>
+      <li id="r-rahman">Rahman, M. M., Khomh, F., Castelluccio, M. "Why are Some Bugs Non-Reproducible? An Empirical Investigation using Data Fusion." ICSME 2020. <a href="https://arxiv.org/abs/2108.05316">arXiv:2108.05316</a></li>
+      <li id="r-singh">Singh et al. "IssueTrojanBench: Benchmarking AI Coding Agents Against Malicious Issue Requests." 2026. <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2607.20759">arXiv:2607.20759</a></li>
+      <li id="r-smith">Smith, E. K., Barr, E. T., Le Goues, C., Brun, Y. "Is the Cure Worse Than the Disease? Overfitting in Automated Program Repair." ESEC/FSE 2015. <a href="https://doi.org/10.1145/2786805.2786825">doi:10.1145/2786805.2786825</a></li>
+      <li id="r-steinmacher">Steinmacher, I. et al. "Social Barriers Faced by Newcomers Placing Their First Contribution in Open Source Software Projects." CSCW 2015. <a href="https://doi.org/10.1145/2675133.2675215">doi:10.1145/2675133.2675215</a></li>
+      <li id="r-stenberg">Stenberg, D. "The end of the curl bug-bounty." Blog post, 26 January 2026. <a href="https://daniel.haxx.se/blog/2026/01/26/the-end-of-the-curl-bug-bounty/">daniel.haxx.se</a></li>
+      <li id="r-wang">Wang et al. "Are 'Solved Issues' in SWE-bench Really Solved Correctly? An Empirical Study." ICSE 2026. <a href="https://arxiv.org/abs/2503.15223">arXiv:2503.15223</a></li>
+      <li id="r-xia">Xia et al. "Passes Alone, Fails Together: Benchmarking Semantic Coordination in Parallel LLM-Agent Development." 2026. <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2609.25396">arXiv:2609.25396</a></li>
+      <li id="r-zhang">Zhang, T. et al. "Cupid: Leveraging ChatGPT for More Accurate Duplicate Bug Report Detection." <span class="pre">preprint</span> <a href="https://arxiv.org/abs/2308.10022">arXiv:2308.10022</a></li>
+    </ol>
+  </section>
+</section>
+</main>
+
+<footer class="wrap">
+  <p>Paddling Upstream explains the design of Riverwright, a planned toolkit for Claude Code, Codex, Gemini CLI, Cursor, Grok Build and Hermes Agent. Tool names are used only to describe compatibility. <a href="#top">Back to the top of the river</a></p>
+</footer>
+
+<script>
+(function(){
+  var reduce = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+  var narrowMQ = window.matchMedia('(max-width: 860px)');
+
+  /* ---------- hero parallax + boat ---------- */
+  var hero = document.querySelector('.hero');
+  var layers = Array.prototype.slice.call(hero.querySelectorAll('.layer'));
+  var heroBoat = document.getElementById('heroBoat');
+  var heroPath = document.getElementById('heroRiverLine');
+  var heroLen = heroPath.getTotalLength();
+  function heroFrame(){
+    var r = hero.getBoundingClientRect();
+    if (r.bottom < 0) return;
+    var p = Math.min(1, Math.max(0, -r.top / r.height));
+    if (!reduce) layers.forEach(function(l){
+      var s = parseFloat(l.getAttribute('data-speed')) || 0;
+      l.style.transform = 'translate3d(0,' + (Math.max(0,-r.top) * s).toFixed(1) + 'px,0)';
+    });
+    var t = reduce ? 0.12 : 0.08 + p * 0.8;
+    var pt = heroPath.getPointAtLength(t * heroLen);
+    heroBoat.setAttribute('transform', 'translate(' + pt.x.toFixed(1) + ' ' + pt.y.toFixed(1) + ') scale(' + (1 - t * 0.55).toFixed(3) + ')');
+  }
+
+  /* ---------- journey boat ---------- */
+  var jPath = document.getElementById('journeyPath');
+  var jLen = jPath.getTotalLength();
+  var jBoat = document.getElementById('journeyBoat');
+  var stations = Array.prototype.slice.call(document.querySelectorAll('#fig-journey .st'));
+  var stationL = stations.map(function(st){
+    var x = +st.getAttribute('data-x'), y = +st.getAttribute('data-y'), best = 0, bd = 1e12;
+    for (var i = 0; i <= 800; i++){
+      var l = jLen * i / 800, q = jPath.getPointAtLength(l), d = (q.x-x)*(q.x-x) + (q.y-y)*(q.y-y);
+      if (d < bd){ bd = d; best = l; }
+    }
+    return best;
+  });
+  var boatL = 0, boatAnim = 0;
+  function placeBoat(l){
+    var q = jPath.getPointAtLength(l);
+    jBoat.setAttribute('transform', 'translate(' + q.x.toFixed(1) + ' ' + q.y.toFixed(1) + ')');
+  }
+  function moveBoat(n){
+    var target = stationL[n], from = boatL, start = performance.now();
+    var dur = reduce ? 0 : Math.min(1500, 380 + Math.abs(target - from) * 1.6);
+    cancelAnimationFrame(boatAnim);
+    function tick(now){
+      var k = dur ? Math.min(1, (now - start) / dur) : 1;
+      var e = k < .5 ? 2*k*k : 1 - Math.pow(-2*k + 2, 2) / 2;
+      boatL = from + (target - from) * e; placeBoat(boatL);
+      if (k < 1) boatAnim = requestAnimationFrame(tick);
+    }
+    boatAnim = requestAnimationFrame(tick);
+    stations.forEach(function(st, i){ st.classList.toggle('done', i < n); st.classList.toggle('current', i === n); });
+  }
+
+  /* ---------- batch bottles ---------- */
+  var SVGNS = 'http://www.w3.org/2000/svg';
+  var bottleHost = document.getElementById('bottles');
+  var B = {};
+  for (var i = 1; i <= 10; i++){
+    var g = document.createElementNS(SVGNS, 'g'); g.setAttribute('class', 'btl');
+    var neck = document.createElementNS(SVGNS, 'rect'); neck.setAttribute('class','neck'); neck.setAttribute('x','-4'); neck.setAttribute('y','-22'); neck.setAttribute('width','8'); neck.setAttribute('height','7'); neck.setAttribute('rx','2');
+    var body = document.createElementNS(SVGNS, 'rect'); body.setAttribute('class','body'); body.setAttribute('x','-11'); body.setAttribute('y','-16'); body.setAttribute('width','22'); body.setAttribute('height','30'); body.setAttribute('rx','6');
+    var tx = document.createElementNS(SVGNS, 'text'); tx.setAttribute('x','0'); tx.setAttribute('y','4'); tx.textContent = '#' + i;
+    g.appendChild(neck); g.appendChild(body); g.appendChild(tx); bottleHost.appendChild(g); B[i] = g;
+  }
+  var inbox = {1:[80,92],3:[210,92],5:[340,92],7:[470,92],9:[600,92],2:[145,142],4:[275,142],6:[405,142],8:[535,142],10:[665,142]};
+  var POS = [inbox];
+  POS[1] = Object.assign({}, inbox, {4:[266,516],9:[296,516]});
+  POS[2] = Object.assign({}, POS[1], {3:[447,92]});
+  POS[3] = Object.assign({}, POS[2], {1:[250,214],2:[290,254],5:[250,254],3:[250,294],7:[274,294],6:[250,334],8:[250,374],10:[250,414]});
+  POS[4] = Object.assign({}, POS[3], {1:[455,214],2:[468,254],5:[442,254],3:[443,294],7:[467,294],6:[455,334],8:[455,374],10:[455,414]});
+  POS[5] = Object.assign({}, POS[4], {1:[616,262],2:[640,262],3:[664,262],7:[688,262],5:[616,398],6:[640,398],8:[664,398],10:[688,398]});
+  function placeBottles(n){
+    var pos = POS[Math.min(n, POS.length - 1)];
+    for (var k = 1; k <= 10; k++){
+      B[k].style.transform = 'translate(' + pos[k][0] + 'px,' + pos[k][1] + 'px)';
+      B[k].classList.toggle('twin', (k === 3 || k === 7) && n >= 2);
+      B[k].classList.toggle('aside', (k === 4 || k === 9) && n >= 1);
+    }
+  }
+  placeBottles(0);
+
+  /* ---------- scrolly engine ---------- */
+  var hardObs = Array.prototype.slice.call(document.querySelectorAll('#fig-hard .ob'));
+  var handlers = {
+    journey: function(svg, n){ moveBoat(n); },
+    batch: function(svg, n){ placeBottles(n); },
+    hard: function(svg, n){ hardObs.forEach(function(o, i){ o.classList.toggle('is-on', i === n || (n === 5 && i === 4)); }); }
+  };
+  var sections = Array.prototype.slice.call(document.querySelectorAll('.scrolly')).map(function(sec){
+    return { kind: sec.getAttribute('data-kind'), steps: Array.prototype.slice.call(sec.querySelectorAll('.step')), svg: sec.querySelector('.stage svg'), cur: -1 };
+  });
+  function setStep(s, n){
+    s.cur = n;
+    s.steps.forEach(function(st, i){ st.classList.toggle('is-active', i === n); });
+    s.svg.setAttribute('data-step', String(n));
+    for (var k = 1; k <= s.steps.length; k++) s.svg.classList.toggle('on-' + k, k <= n);
+    if (handlers[s.kind]) handlers[s.kind](s.svg, n);
+  }
+  function updateSteps(){
+    var line = window.innerHeight * (narrowMQ.matches ? 0.74 : 0.58);
+    sections.forEach(function(s){
+      var n = 0;
+      s.steps.forEach(function(st, i){ if (st.getBoundingClientRect().top < line) n = i; });
+      if (n !== s.cur) setStep(s, n);
+    });
+  }
+
+  /* ---------- river-mile gauge ---------- */
+  var miles = Array.prototype.slice.call(document.querySelectorAll('.mile'));
+  var gaugeLinks = Array.prototype.slice.call(document.querySelectorAll('.gauge a'));
+  function updateGauge(){
+    var idx = -1, line = window.innerHeight * 0.4;
+    miles.forEach(function(m, i){ if (m.getBoundingClientRect().top < line) idx = i; });
+    gaugeLinks.forEach(function(a, i){ a.classList.toggle('on', i === idx); if (i === idx) a.setAttribute('aria-current', 'step'); else a.removeAttribute('aria-current'); });
+  }
+
+  /* ---------- evidence sidecar, written by `riverwright evidence export` ---------- */
+  var RANK = { fixture: 1, real: 2 };
+  function applyEvidence(ev){
+    if (!ev || typeof ev !== 'object') return;
+    var hosts = ev.hosts || {};
+    Array.prototype.forEach.call(document.querySelectorAll('.pips[data-host]'), function(g){
+      var h = hosts[g.getAttribute('data-host')];
+      if (h && h.level >= 1 && h.level <= 3) g.setAttribute('data-level', String(h.level));
+    });
+    var best = {};
+    (ev.runs || []).forEach(function(run){
+      var kind = run.kind === 'real' ? 'real' : 'fixture';
+      var st = run.stations || {};
+      Object.keys(st).forEach(function(name){
+        if (!st[name] || st[name].status !== 'passed') return;
+        if (!best[name] || RANK[kind] > RANK[best[name]]) best[name] = kind;
+      });
+      if (kind === 'real'){
+        Array.prototype.forEach.call(document.querySelectorAll('[data-run]'), function(tag){
+          if (tag.getAttribute('data-run') === run.id){ tag.textContent = 'seen in a real run'; tag.className = 'tag seen'; }
+        });
+      }
+    });
+    Array.prototype.forEach.call(document.querySelectorAll('.ev[data-station]'), function(b){
+      var k = best[b.getAttribute('data-station')];
+      if (k){ b.setAttribute('data-level', k); b.textContent = k === 'real' ? 'seen in a real run' : 'tested on practice project'; }
+    });
+  }
+  try {
+    fetch('evidence.json', { cache: 'no-store' })
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .then(applyEvidence)
+      .catch(function(){});
+  } catch (e) {}
+
+  var ticking = false;
+  function frame(){ ticking = false; heroFrame(); updateSteps(); updateGauge(); }
+  function onScroll(){ if (!ticking){ ticking = true; requestAnimationFrame(frame); } }
+  window.addEventListener('scroll', onScroll, { passive: true });
+  window.addEventListener('resize', onScroll);
+  placeBoat(0);
+  frame();
+})();
+</script>
