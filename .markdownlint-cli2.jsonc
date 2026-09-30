@@ -1,0 +1,14 @@
+{
+  // Markdown linting for the documentation. Run with: npm run lint:md
+  // The same shape as agentic-kit's config: prose and tables wrap naturally.
+  "globs": ["**/*.md"],
+  "ignores": ["node_modules/**", "docs/archive/**"],
+  "config": {
+    "default": true,
+    "MD013": false, // line length: prose and tables wrap naturally
+    "MD024": { "siblings_only": true }, // repeated headings under different sections are fine
+    "MD033": false, // inline HTML is used deliberately
+    "MD041": false, // an ADR starts with frontmatter, not a heading
+    "MD060": false // table pipe alignment: cosmetic, fights hand-maintained wide tables
+  }
+}

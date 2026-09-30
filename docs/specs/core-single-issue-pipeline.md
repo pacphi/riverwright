@@ -7,7 +7,7 @@
 | Scope | Spec 1 of 3: the single-issue pipeline, state, guardrails, roles, write-up, evidence export, and the Claude Code reference adapter |
 | Follows | Spec 2 (the other five host adapters), Spec 3 (batch mode) |
 | Research | [`docs/research/evidence-base.md`](../research/evidence-base.md) |
-| Story | "Paddling Upstream" artifact, https://claude.ai/artifact/RtwXsztmgYHXu2smHgvcqU |
+| Story | "Paddling Upstream" artifact, <https://claude.ai/artifact/RtwXsztmgYHXu2smHgvcqU> |
 
 ## 1. Intent
 
@@ -70,7 +70,7 @@ These are load-bearing. An edit that weakens one is a bug.
 
 ### 3.1 Repository layout
 
-```
+```text
 riverwright/                          # the repo is its own marketplace (see §12)
   skills/                             # host-neutral Agent Skills (agentskills.io); shared by all hosts
     upstream-contribute/SKILL.md      #   orchestrator: phase table, gates, invariants (kept short)
@@ -111,7 +111,7 @@ agentic-kit, autopilot's tooling, Codex, Gemini CLI and the generator run.
 
 **Rules for `scripts/`:**
 
-- **No npm dependencies.** Only Node built-ins (`node:fs`, `node:path`, `node:child_process`,
+- **No npm runtime dependencies** (development tools such as the Markdown linter are `devDependencies`, never installed for users). Only Node built-ins (`node:fs`, `node:path`, `node:child_process`,
   `node:crypto`, `node:test`, `node:readline`, `node:util` `parseArgs`). Installing the plugin is a
   file copy; there is never an `npm install` step.
 - **Launchers.** `bin/riverwright` (POSIX sh) and `bin/riverwright.cmd` (Windows) find `node` and run
@@ -157,7 +157,7 @@ agentic-kit, autopilot's tooling, Codex, Gemini CLI and the generator run.
 
 Everything lives outside any repository, under `${RIVERWRIGHT_HOME:-~/.riverwright}/<owner>/<repo>/`:
 
-```
+```text
 profile.json                 # recon output, shared across issues; refreshed when upstream HEAD moves
 clone/                       # plain clone of upstream (no fork yet)
 worktrees/issue-<n>/         # one worktree per run, branch riverwright/<n>-<slug>

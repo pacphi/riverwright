@@ -5,7 +5,19 @@
   "type": "module",
   "private": true,
   "license": "MIT",
-  "engines": { "node": ">=24" },
-  "bin": { "riverwright": "scripts/riverwright.mjs", "rw": "scripts/riverwright.mjs" },
-  "scripts": { "test": "node --test" }
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "riverwright": "scripts/riverwright.mjs",
+    "rw": "scripts/riverwright.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint:md": "markdownlint-cli2",
+    "lint:md:fix": "markdownlint-cli2 --fix"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.3"
+  }
 }

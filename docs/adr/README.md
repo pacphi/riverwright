@@ -5,7 +5,7 @@ format follows the convention used across ruflo: numbered files, a frontmatter b
 Decision, Consequences, Verification, Related and Implementation status. Start from
 [0000-template.md](0000-template.md).
 
-**Rules**
+## Rules
 
 - File name `NNNN-kebab-title.md`; numbers are never reused.
 - Status is `Proposed`, `Accepted`, `Deprecated` or `Superseded by ADR-NNNN`.

@@ -37,7 +37,7 @@ These inputs are implied by the spec but easy to miss; each has a test in the ta
 
 ## File Structure
 
-```
+```text
 package.json                     # name, version, "type": "module", engines, test script; no dependencies
 .gitattributes                   # LF for sh files, CRLF for .cmd
 .github/workflows/ci.yml         # node --test on three operating systems
@@ -85,10 +85,12 @@ docs/story/                      # the published story and its evidence.json see
 ### Task 1: Scaffold, launchers and CLI dispatcher
 
 **Files:**
+
 - Create: `package.json`, `.gitattributes`, `.github/workflows/ci.yml`, `bin/riverwright`, `bin/riverwright.cmd`, `bin/rw`, `bin/rw.cmd`, `scripts/riverwright.mjs`, `scripts/lib/cli.mjs`, `scripts/lib/errors.mjs`, `scripts/lib/io.mjs`, `scripts/lib/version.mjs`, `scripts/lib/commands/version.mjs`
 - Test: `tests/helpers.mjs`, `tests/cli.test.mjs`, `tests/launcher.test.mjs`
 
 **Interfaces:**
+
 - Consumes: nothing.
 - Produces:
   - `main(argv: string[], io: Io): Promise<number>` in `scripts/lib/cli.mjs`, where `Io = { stdin: Readable, stdout: {write(s)}, stderr: {write(s)}, env: Record<string,string>, cwd: string, platform: string, openTerminal?: () => Terminal }`.
@@ -571,10 +573,12 @@ git commit -m "feat(runtime): add riverwright launchers, CLI dispatcher and CI m
 ### Task 2: Paths and atomic, line-ending-preserving writes
 
 **Files:**
+
 - Create: `scripts/lib/paths.mjs`, `scripts/lib/fsx.mjs`
 - Test: `tests/paths.test.mjs`, `tests/fsx.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `RiverwrightError` (Task 1).
 - Produces (`paths.mjs`):
   - `riverwrightHome(env): string` — `env.RIVERWRIGHT_HOME` resolved, else `os.homedir()/.riverwright`.
@@ -842,10 +846,12 @@ git commit -m "feat(runtime): add workspace paths and atomic line-ending-preserv
 ### Task 3: Process spawning and safe quoting (including Windows `.cmd`)
 
 **Files:**
+
 - Create: `scripts/lib/hosts.mjs`, `scripts/lib/exec.mjs`
 - Test: `tests/exec.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `RiverwrightError`.
 - Produces:
   - `HOSTS: string[]` = `['claude-code','codex','gemini-cli','cursor','grok-build','hermes-agent']` (story contract).
@@ -1051,11 +1057,13 @@ git commit -m "feat(runtime): add shell-free process runner and safe Windows cmd
 ### Task 4: Sanitize untrusted text
 
 **Files:**
+
 - Create: `scripts/lib/sanitize.mjs`, `scripts/lib/commands/sanitize.mjs`
 - Modify: `scripts/lib/cli.mjs` (add `sanitize: () => import('./commands/sanitize.mjs'),` to `COMMANDS`)
 - Test: `tests/sanitize.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `toLf` (Task 2), `readAll` (Task 1).
 - Produces:
   - `sanitize(text): {clean: string, findings: Array<{codepoint: 'U+XXXX', kind: 'zero-width'|'bidi-control'|'tag-character', count: number, firstIndex: number}>}`.
@@ -1211,13 +1219,16 @@ git commit -m "feat(runtime): sanitize and quote untrusted upstream text"
 ```
 
 ---
+
 ### Task 5: Approvals bound to a SHA or content, and terminal confirmation
 
 **Files:**
+
 - Create: `scripts/lib/approvals.mjs`, `scripts/lib/tty.mjs`
 - Test: `tests/approvals.test.mjs`, `tests/tty.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `RiverwrightError`, `toLf`.
 - Produces (`approvals.mjs`):
   - `GATES = ['checkpoint-1','submit-gate','post-issue','post-comment']`; `APPROVAL_MODES = ['host-ask','tty']`.
@@ -1432,11 +1443,13 @@ git commit -m "feat(runtime): bind approvals to exact commits or content, add te
 ### Task 6: Run state machine, presets, ledger, `riverwright state` and `riverwright approve`
 
 **Files:**
+
 - Create: `scripts/lib/presets.mjs`, `scripts/lib/state.mjs`, `scripts/lib/ledger.mjs`, `scripts/lib/commands/state.mjs`, `scripts/lib/commands/approve.mjs`, `templates/state.schema.json`
 - Modify: `scripts/lib/cli.mjs` (add `state` and `approve` to `COMMANDS`)
 - Test: `tests/state.test.mjs`, `tests/ledger.test.mjs`, `tests/state-cli.test.mjs`
 
 **Interfaces:**
+
 - Consumes: approvals (Task 5), `writeFileAtomic`/`readTextIfExists` (Task 2), `openTerminal`/`confirmTyped` (Task 5), `readAll`.
 - Produces (`presets.mjs`): `PRESETS` (spec §5.2) and `preset(name)`.
 - Produces (`state.mjs`):
@@ -2081,11 +2094,13 @@ git commit -m "feat(runtime): add the gated run state machine, ledger, and river
 ### Task 7: The git pre-push guard (lock 1)
 
 **Files:**
+
 - Create: `scripts/lib/giturl.mjs`, `scripts/lib/guard.mjs`, `scripts/lib/commands/guard.mjs`, `templates/pre-push.sh`
 - Modify: `scripts/lib/state.mjs` (add `setFork`), `scripts/lib/cli.mjs` (add `guard`), `.gitattributes` (keep `templates/pre-push.sh` LF)
 - Test: `tests/guard.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `loadState`, `saveState`, `approvedSha`, `appendEvent`, `runFile`, `readAll`, `RiverwrightError`.
 - Produces:
   - `normalizeRemoteUrl(url): string|null` → `"github.com/owner/repo"` (lowercase, no `.git`, credentials stripped) for https, ssh, scp-style and git URLs; `null` for local paths.
@@ -2362,11 +2377,13 @@ git commit -m "feat(runtime): add the git pre-push guard bound to the approved c
 ### Task 8: Host hook entry, command classifier and deny dialects (lock 2)
 
 **Files:**
+
 - Create: `scripts/lib/hooks/classify.mjs`, `scripts/lib/hooks/dialects.mjs`, `scripts/lib/commands/hook.mjs`, `tests/fixtures/hooks/{claude-code,codex,gemini-cli,cursor,grok-build,hermes-agent}.json`
 - Modify: `scripts/lib/cli.mjs` (add `hook`)
 - Test: `tests/classify.test.mjs`, `tests/hook.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `HOSTS`, `riverwrightHome`, `isInside`, `realish`, `runDirForPath`, `appendEvent`, `readAll`, `RiverwrightError`.
 - Produces:
   - `classifyCommand(command): {outward: boolean, rule?: string, detail?: string, riverwrightPublish?: boolean}`.
@@ -2804,13 +2821,16 @@ git commit -m "feat(runtime): add the host hook entry with a conservative outwar
 ```
 
 ---
+
 ### Task 9: Managed blocks in instruction files
 
 **Files:**
+
 - Create: `scripts/lib/blocks.mjs`
 - Test: `tests/blocks.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `RiverwrightError`, `detectEol`, `toLf`.
 - Produces:
   - `begin(slug)` → `<!-- BEGIN slug -->`; `end(slug)` → `<!-- END slug -->` (the convention agentic-kit, ruflo and agentic-qe already use).
@@ -3037,10 +3057,12 @@ git commit -m "feat(runtime): add line-exact managed blocks that preserve every 
 ### Task 10: Additive JSON merge and unified diffs
 
 **Files:**
+
 - Create: `scripts/lib/jsonmerge.mjs`, `scripts/lib/diff.mjs`
 - Test: `tests/jsonmerge.test.mjs`, `tests/diff.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `RiverwrightError`, `detectEol`, `fromLf`, `toLf`.
 - Produces (`jsonmerge.mjs`):
   - `parseJsonStrict(text): any` — throws `JSON_UNPARSEABLE` (comments count as unparseable).
@@ -3273,7 +3295,7 @@ export function unifiedDiff(a, b, { fromFile = 'a', toFile = 'b', context = 3 } 
 - [ ] **Step 4: Run the tests to verify they pass**
 
 Run: `node --test tests/jsonmerge.test.mjs tests/diff.test.mjs`
-Expected: PASS. (The hunk header counts lines per side: ` one`, `-two`, `+TWO`, ` three` is 3 old lines and 3 new lines, so `@@ -1,3 +1,3 @@`.)
+Expected: PASS. (The hunk header counts lines per side: the context line `one`, the removed line `-two`, the added line `+TWO` and the context line `three` make 3 old lines and 3 new lines, so `@@ -1,3 +1,3 @@`.)
 
 - [ ] **Step 5: Commit**
 
@@ -3287,10 +3309,12 @@ git commit -m "feat(runtime): add additive JSON merge with exact removal, and un
 ### Task 11: Project integration — inspect, plan, apply (spec §12.6)
 
 **Files:**
+
 - Create: `scripts/lib/project.mjs`
 - Test: `tests/project.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `isInside`, `realish` (Task 2); `readTextIfExists`, `writeFileAtomic`, `resolveWriteTarget` (Task 2); `upsertBlock`, `begin`, `end` (Task 9); `parseJsonStrict`, `addAbsentKeys`, `formatJsonLike` (Task 10); `unifiedDiff` (Task 10); `runFile` (Task 3).
 - Produces:
   - Constants: `SLUG = 'riverwright'`, `REGISTRY = 'src/lib/hook-audit/agentic-dependency-constraints.json'`, `INSTRUCTION_FILES = ['AGENTS.md','CLAUDE.md','GEMINI.md']`, `TEAM_SETTINGS`, `CURSOR_RULE`.
@@ -3679,12 +3703,14 @@ git commit -m "feat(runtime): plan and apply project integration without overwri
 ### Task 12: Exact removal and the `riverwright setup --project` command
 
 **Files:**
+
 - Modify: `scripts/lib/project.mjs` (add `planRemoval`)
 - Create: `scripts/lib/commands/setup.mjs`
 - Modify: `scripts/lib/cli.mjs` (add `setup`)
 - Test: `tests/project-remove.test.mjs`, `tests/setup-cli.test.mjs`
 
 **Interfaces:**
+
 - Consumes: everything in Task 11; `stripBlock` (Task 9); `removeAddedKeys` (Task 10); `openTerminal`, `confirmTyped` (Task 5); `riverwrightHome` (Task 2); `version()` (Task 1).
 - Produces:
   - `planRemoval(info, {home}): Plan` (mode `'remove'`). Uses every install manifest under `backupRoot`: strips our block from non-symlinked instruction files (deleting a file we created that is now empty); deletes files we created if unchanged, keeps them with a reason if changed; restores a JSON file we merged into byte-for-byte from the backup when it is unchanged since, and otherwise removes only our keys.
@@ -4027,14 +4053,17 @@ git commit -m "feat(runtime): add exact removal and riverwright setup --project 
 ```
 
 ---
+
 ### Task 13: Environment fingerprint
 
 **Files:**
+
 - Create: `scripts/lib/fingerprint.mjs`, `scripts/lib/commands/fingerprint.mjs`
 - Modify: `scripts/lib/cli.mjs` (add `fingerprint`)
 - Test: `tests/fingerprint.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `runFile` (Task 3), `writeFileAtomic` (Task 2).
 - Produces:
   - `LOCKFILES: string[]`.
@@ -4214,11 +4243,13 @@ git commit -m "feat(runtime): record the environment fingerprint for the dossier
 ### Task 14: Evidence export and the story contract
 
 **Files:**
+
 - Create: `scripts/lib/evidence.mjs`, `scripts/lib/commands/evidence.mjs`
 - Modify: `scripts/lib/cli.mjs` (add `evidence`)
 - Test: `tests/evidence.test.mjs`, `tests/evidence-contract.test.mjs`
 
 **Interfaces:**
+
 - Consumes: `STATIONS`, `loadState` (Task 6); `HOSTS` (Task 3); `riverwrightHome` (Task 2); `writeFileAtomic`; `parseIssueRef` (Task 2).
 - Produces:
   - `buildEvidence({states, hosts?, now}): Evidence` with `{schema: 'riverwright-evidence/1', generatedAt, generatedBy: 'riverwright evidence export', hosts: {[hostId]: {level: 1|2|3, version?, checkedBy?}}, runs: Array<{id, kind, status, stop, stations: {[name]: {status, at, host, model}}, pr: {url, state}}>}`.

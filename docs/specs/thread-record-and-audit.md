@@ -245,7 +245,7 @@ The import is **read-only** on the source, **idempotent** (records are matched b
 Running it again picks up new entries and reports what changed. Whether agentic-kit later consumes
 Riverwright's checker instead of its own is a separate decision that this design leaves open.
 
-**Field mapping**
+### Field mapping
 
 | agentic-kit | Riverwright |
 |---|---|

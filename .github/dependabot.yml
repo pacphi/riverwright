@@ -1,6 +1,6 @@
 # Keeps CI actions and any future npm dependencies current.
-# Riverwright itself has no runtime dependencies (Node built-ins only), so the npm entry
-# stays quiet until a development dependency is added.
+# Riverwright itself has no runtime dependencies (Node built-ins only); the npm entry keeps
+# the development tools (the Markdown linter) current.
 version: 2
 updates:
   - package-ecosystem: github-actions
