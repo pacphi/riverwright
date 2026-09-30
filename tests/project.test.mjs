@@ -115,7 +115,7 @@ test('the upstream clone inside the workspace is refused', () => {
   const h = home();
   const clone = path.join(h, 'o', 'r', 'clone');
   fs.mkdirSync(clone, { recursive: true });
-  assert.throws(() => inspectRepo(clone, { home: h }), /inside the upstream-pr-filer workspace/);
+  assert.throws(() => inspectRepo(clone, { home: h }), /inside the Riverwright workspace/);
 });
 
 test('backups and the manifest live outside the repository', async () => {

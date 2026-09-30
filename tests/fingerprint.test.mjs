@@ -42,7 +42,7 @@ test('java reports its version on stderr and is still captured', async () => {
   assert.equal(fp.tools.java, 'openjdk version "25" 2025-09-16');
 });
 
-test('upf fingerprint --out writes the file', async () => {
+test('riverwright fingerprint --out writes the file', async () => {
   const repo = tmpDir();
   const out = path.join(tmpDir(), 'fingerprint.json');
   const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { env: { UPF_TEST: '1', UPF_NOW: 't' } });

@@ -81,7 +81,7 @@ test('a fake riverwright inside the workspace does not get the publish exemption
   assert.equal(r.code, 2, r.stdout);
 });
 
-test('the installed launcher itself may run upf submit inside the workspace', async () => {
+test('the installed launcher itself may run riverwright submit inside the workspace', async () => {
   const r = await callMain(['hook', 'claude-code'], { stdin: payload('claude-code', `"${path.join(ROOT, 'bin', 'riverwright')}" submit o/r#1`, worktree), env, cwd: outside });
   assert.equal(r.code, 0, r.stdout);
 });

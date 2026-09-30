@@ -6,7 +6,7 @@ import { appendEvent } from '../ledger.mjs';
 import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
 
-const USAGE = 'usage: upf state <create|get|begin|complete|stop|reopen> --run <dir> [options]';
+const USAGE = 'usage: riverwright state <create|get|begin|complete|stop|reopen> --run <dir> [options]';
 
 export async function run(args, io) {
   const [sub, ...rest] = args;
@@ -26,7 +26,7 @@ export async function run(args, io) {
   let state;
   switch (sub) {
     case 'create': {
-      if (!values.id) throw new UpfError('USAGE', 'upf state create needs --id owner/repo#number');
+      if (!values.id) throw new UpfError('USAGE', 'riverwright state create needs --id owner/repo#number');
       if (fs.existsSync(stateFile(dir))) throw new UpfError('RUN_EXISTS', `a run record already exists at ${dir}`);
       state = saveState(dir, createState({ runId: values.id, kind: values.kind, presetName: values.preset, now }));
       appendEvent(dir, { type: 'run-created', at: now, runId: state.runId, kind: state.kind, preset: state.preset });

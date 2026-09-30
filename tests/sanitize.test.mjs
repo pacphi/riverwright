@@ -30,13 +30,13 @@ test('quoteAsData quotes every line and warns about hidden characters', () => {
   assert.match(md, /Removed hidden characters: U\+200B zero-width ×1/);
 });
 
-test('upf sanitize prints JSON by default', async () => {
+test('riverwright sanitize prints JSON by default', async () => {
   const r = await callMain(['sanitize'], { stdin: 'a\u200Bb' });
   assert.equal(r.code, 0);
   assert.deepEqual(JSON.parse(r.stdout).clean, 'ab');
 });
 
-test('upf sanitize --quote prints Markdown', async () => {
+test('riverwright sanitize --quote prints Markdown', async () => {
   const r = await callMain(['sanitize', '--quote', '--source', 'comment', '--fetched-at', '2026-09-29T00:00:00Z'], { stdin: 'hello' });
   assert.equal(r.code, 0);
   assert.match(r.stdout, /^> \*\*Untrusted content/);

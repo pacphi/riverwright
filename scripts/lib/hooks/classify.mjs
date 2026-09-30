@@ -60,7 +60,7 @@ function programName(w) {
 function checkEnvName(name) {
   if (!DANGEROUS_ENV.test(name)) return null;
   return /^UPF_/i.test(name)
-    ? outward('upf-env', `setting ${name} changes how upstream-pr-filer finds or checks a run`)
+    ? outward('upf-env', `setting ${name} changes how Riverwright finds or checks a run`)
     : outward('git-env', `setting ${name} changes what git runs, reads or pushes`);
 }
 
@@ -96,7 +96,7 @@ function classifyGitConfig(rest, ctx) {
   if (edit) return outward('git-config-edit', 'editing git config in an editor');
   if (ctx.strict && positionals.some(isDynamic)) return unresolvable('a git config key or value is a variable or substitution');
   const watched = positionals.find((w) => GIT_WATCHED_KEY.test(nameOf(w)));
-  if (watched) return outward('git-config-remote', `git config ${nameOf(watched)} (remotes, credentials, aliases, hooks or upf settings)`);
+  if (watched) return outward('git-config-remote', `git config ${nameOf(watched)} (remotes, credentials, aliases, hooks or riverwright settings)`);
   if (positionals.length >= 2) write = true;
   if (write && wide) return outward('git-config-global', 'writing global or system git config');
   return null;

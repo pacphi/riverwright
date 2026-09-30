@@ -2,16 +2,16 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { callMain, runUpf } from './helpers.mjs';
 
-test('upf --version prints the package version', async () => {
+test('riverwright --version prints the package version', async () => {
   const r = await callMain(['--version']);
   assert.equal(r.code, 0);
   assert.match(r.stdout, /^\d+\.\d+\.\d+\n$/);
 });
 
-test('upf help lists commands', async () => {
+test('riverwright help lists commands', async () => {
   const r = await callMain(['help']);
   assert.equal(r.code, 0);
-  assert.match(r.stdout, /Usage: upf <command>/);
+  assert.match(r.stdout, /Usage: riverwright <command>/);
   assert.match(r.stdout, /\bversion\b/);
 });
 

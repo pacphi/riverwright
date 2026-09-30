@@ -11,7 +11,7 @@ export function openTerminal({ platform = process.platform, paths } = {}) {
     outFd = fs.openSync(outPath, 'w');
   } catch {
     if (inFd !== undefined) fs.closeSync(inFd);
-    throw new UpfError('NO_TTY', 'Terminal approval needs a real terminal. Run this upf command yourself in a terminal window.');
+    throw new UpfError('NO_TTY', 'Terminal approval needs a real terminal. Run this riverwright command yourself in a terminal window.');
   }
   const input = fs.createReadStream('', { fd: inFd, autoClose: true });
   const output = fs.createWriteStream('', { fd: outFd, autoClose: true });

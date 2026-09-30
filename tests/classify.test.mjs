@@ -52,7 +52,7 @@ const trustedLauncher = [path.join(ROOT, 'bin', 'riverwright'), path.join(ROOT, 
 const launcher = path.join(ROOT, 'bin', 'riverwright');
 const script = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
-test('upf submit and upf post are the sanctioned publish commands', () => {
+test('riverwright submit and riverwright post are the sanctioned publish commands', () => {
   assert.deepEqual(classifyCommand(`"${launcher}" submit ruvnet/ruflo#3509`, { trustedLauncher }), { outward: false, upfPublish: true });
   assert.deepEqual(classifyCommand(`node "${script}" post o/r#1 comment`, { trustedLauncher }), { outward: false, upfPublish: true });
   assert.equal(classifyCommand(`"${launcher}" submit o/r#1 && git push`, { trustedLauncher }).outward, true);

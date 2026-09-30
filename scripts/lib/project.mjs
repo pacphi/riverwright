@@ -22,12 +22,12 @@ export const CURSOR_RULE = [
   'description: How this repository sends fixes to upstream dependencies',
   'alwaysApply: false',
   '---',
-  'Fixes to upstream dependencies go through upstream-pr-filer (`/upstream-contribute`).',
+  'Fixes to upstream dependencies go through Riverwright (`/upstream-contribute`).',
   'Never push to an upstream remote directly. Project settings: `.upstream-pr.json`.',
   '',
 ].join('\n');
 
-// Every file upstream-pr-filer may ever create, update or delete in a repository (§12.6).
+// Every file Riverwright may ever create, update or delete in a repository (§12.6).
 export const OWNED_TARGETS = Object.freeze([...INSTRUCTION_FILES, '.cursor/rules/upstream-pr-filer.mdc', '.upstream-pr.json', '.claude/settings.json']);
 const SETTINGS_FILE = '.claude/settings.json';
 
@@ -71,9 +71,9 @@ export const sha256 = (text) => crypto.createHash('sha256').update(String(text),
 
 export function blockBody(version) {
   return [
-    `<!-- Managed by upstream-pr-filer ${version}. Update: upf setup --project · Remove: upf setup --project --remove -->`,
+    `<!-- Managed by Riverwright ${version}. Update: riverwright setup --project · Remove: riverwright setup --project --remove -->`,
     '## Upstream contributions',
-    'Fixes to upstream dependencies go through upstream-pr-filer (`/upstream-contribute`).',
+    'Fixes to upstream dependencies go through Riverwright (`/upstream-contribute`).',
     'Never push to an upstream remote directly. Project settings: `.upstream-pr.json`.',
   ].join('\n');
 }
@@ -96,7 +96,7 @@ export function inspectRepo(repoRoot, { home }) {
   const root = realish(repoRoot);
   if (!fs.existsSync(root) || !fs.statSync(root).isDirectory()) throw new UpfError('NO_REPO', `${repoRoot} is not a folder`);
   if (isInside(root, home)) {
-    throw new UpfError('UPSTREAM_CLONE', 'This folder is inside the upstream-pr-filer workspace; project integration only applies to your own repositories.');
+    throw new UpfError('UPSTREAM_CLONE', 'This folder is inside the Riverwright workspace; project integration only applies to your own repositories.');
   }
   const at = (rel) => path.join(root, rel);
   const claudeText = readTextIfExists(at('CLAUDE.md'));
@@ -228,7 +228,7 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
     }
     // Re-checked here, right before touching the disk: the plan may be old or may not be ours.
     if (!isSafeTarget(plan.root, step.file)) {
-      results.push({ file: step.file, result: 'refused', reason: 'it is not a file upstream-pr-filer manages inside this repository' });
+      results.push({ file: step.file, result: 'refused', reason: 'it is not a file Riverwright manages inside this repository' });
       continue;
     }
     const hazard = writeHazard(plan.root, step.file);
@@ -360,7 +360,7 @@ export function planRemoval(info, { home }) {
     } else if (s.kind === 'json' && file === SETTINGS_FILE && isAddedPaths(s.addedPaths)) {
       merged.set(file, { ...s, backupCopy: null });
     } else {
-      steps.push({ file, kind: s.kind, action: 'keep', reason: 'changed since upstream-pr-filer created it, so it was left in place', before, after: null });
+      steps.push({ file, kind: s.kind, action: 'keep', reason: 'changed since Riverwright created it, so it was left in place', before, after: null });
     }
   }
 
@@ -371,7 +371,7 @@ export function planRemoval(info, { home }) {
     try {
       parsed = parseJsonStrict(before);
     } catch {
-      steps.push({ file, kind: 'json', action: 'keep', reason: 'no longer strict JSON; remove the upstream-pr-filer entries by hand', before, after: null });
+      steps.push({ file, kind: 'json', action: 'keep', reason: 'no longer strict JSON; remove the Riverwright entries by hand', before, after: null });
       continue;
     }
     // The content written back is always what removeAddedKeys leaves. The backup copy only supplies the

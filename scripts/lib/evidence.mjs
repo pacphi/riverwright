@@ -12,7 +12,7 @@ export function buildEvidence({ states, hosts = {}, now }) {
   return {
     schema: 'upf-evidence/1',
     generatedAt: now,
-    generatedBy: 'upf evidence export',
+    generatedBy: 'riverwright evidence export',
     hosts,
     runs: states.map((s) => ({
       id: s.runId,

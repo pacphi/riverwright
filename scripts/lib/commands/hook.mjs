@@ -11,7 +11,7 @@ import { touchesHome } from '../hooks/scope.mjs';
 import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
 import { nowIso } from '../clock.mjs';
 
-// The installed launcher's own files: only these may run "upf submit" / "upf post" unblocked.
+// The installed launcher's own files: only these may run "riverwright submit" / "riverwright post" unblocked.
 export const TRUSTED_LAUNCHER = ['../../../bin/riverwright', '../../../bin/riverwright.cmd', '../../riverwright.mjs']
   .map((rel) => realish(fileURLToPath(new URL(rel, import.meta.url))));
 
@@ -38,14 +38,14 @@ export async function run([host], io) {
   let reason = null;
   if (!readable) {
     if (inScope || hasActiveRun(home)) {
-      reason = 'upstream-pr-filer could not read this command, so it is blocked while an upstream-pr-filer run is active or inside its workspace.';
+      reason = 'Riverwright could not read this command, so it is blocked while a Riverwright run is active or inside its workspace.';
     }
   } else {
     const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform });
     if (verdict.outward && inScope) {
-      reason = `Blocked by upstream-pr-filer (${verdict.rule}): ${verdict.detail}. Public actions go through "upf submit" or "upf post" after your approval.`;
+      reason = `Blocked by Riverwright (${verdict.rule}): ${verdict.detail}. Public actions go through "riverwright submit" or "riverwright post" after your approval.`;
     } else if (verdict.outward && hasUnresolved(command) && hasActiveRun(home)) {
-      reason = `Blocked by upstream-pr-filer (unresolvable-with-active-run): ${verdict.detail}, and the command depends on a variable or substitution that could point into the workspace while a run is active. Write the path out in full.`;
+      reason = `Blocked by Riverwright (unresolvable-with-active-run): ${verdict.detail}, and the command depends on a variable or substitution that could point into the workspace while a run is active. Write the path out in full.`;
     }
   }
   if (!reason) return emit(io, renderAllow(host));

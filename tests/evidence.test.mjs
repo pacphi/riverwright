@@ -41,7 +41,7 @@ test('collectRunStates finds runs and skips broken ones with a reason', () => {
   assert.match(skipped[0].reason, /not valid JSON/);
 });
 
-test('upf evidence export writes evidence.json with host levels', async () => {
+test('riverwright evidence export writes evidence.json with host levels', async () => {
   const home = tmpDir('upf-home-');
   saveState(path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509'), passedIntake());
   const hostsFile = path.join(tmpDir(), 'hosts.json');

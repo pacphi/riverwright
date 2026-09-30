@@ -50,5 +50,5 @@ test('--remove --yes undoes a setup', async () => {
 test('without --project, setup explains how to use it', async () => {
   const r = await callMain(['setup'], { env: {} });
   assert.equal(r.code, 2);
-  assert.match(r.stderr, /upf setup --project/);
+  assert.match(r.stderr, /riverwright setup --project/);
 });

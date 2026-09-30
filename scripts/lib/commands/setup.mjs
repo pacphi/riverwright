@@ -5,11 +5,11 @@ import { openTerminal, confirmTyped } from '../tty.mjs';
 import { inspectRepo, planIntegration, planRemoval, applyPlan, changedFiles } from '../project.mjs';
 import { nowIso } from '../clock.mjs';
 
-const USAGE = 'usage: upf setup --project [--repo PATH] [--dry-run | --yes | --no-input] [--team] [--remove]\n';
+const USAGE = 'usage: riverwright setup --project [--repo PATH] [--dry-run | --yes | --no-input] [--team] [--remove]\n';
 
 function printPlan(io, plan) {
   if (!plan.steps.length) {
-    io.stdout.write(plan.mode === 'remove' ? 'Nothing from upstream-pr-filer was found in this repository.\n' : 'This repository is already set up. Nothing to change.\n');
+    io.stdout.write(plan.mode === 'remove' ? 'Nothing from Riverwright was found in this repository.\n' : 'This repository is already set up. Nothing to change.\n');
     return;
   }
   for (const s of plan.steps) {
@@ -53,7 +53,7 @@ export async function run(args, io) {
     ? async () => true
     : async (step) => {
       const terminal = io.openTerminal ? io.openTerminal() : openTerminal({ platform: io.platform });
-      const verb = plan.mode === 'remove' ? 'Remove upstream-pr-filer changes from' : 'Apply this change to';
+      const verb = plan.mode === 'remove' ? 'Remove Riverwright changes from' : 'Apply this change to';
       return confirmTyped({ terminal, question: `${verb} ${step.file}? Type y to confirm: `, expected: 'y' });
     };
   const { results, backup } = await applyPlan(plan, { home, now, confirm });

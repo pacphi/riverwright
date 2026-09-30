@@ -8,7 +8,7 @@ import { nowIso } from '../clock.mjs';
 
 export async function run(args, io) {
   const [sub, ...rest] = args;
-  if (sub !== 'export') throw new UpfError('USAGE', 'usage: upf evidence export [--home DIR] [--hosts FILE] [--out FILE]');
+  if (sub !== 'export') throw new UpfError('USAGE', 'usage: riverwright evidence export [--home DIR] [--hosts FILE] [--out FILE]');
   const { values } = parseArgs({ args: rest, options: { home: { type: 'string' }, hosts: { type: 'string' }, out: { type: 'string' } } });
   const home = values.home ?? upfHome(io.env);
   const hosts = values.hosts ? JSON.parse(fs.readFileSync(values.hosts, 'utf8')) : {};

@@ -69,20 +69,20 @@ async function runWithApproval(sha) {
   return { r, dir };
 }
 
-test('upf guard pre-push allows the approved push and records it', async () => {
+test('riverwright guard pre-push allows the approved push and records it', async () => {
   const { r, dir } = await runWithApproval(A);
   assert.equal(r.code, 0, r.stderr);
   assert.equal(readLedger(dir).at(-1).decision, 'allow');
 });
 
-test('upf guard pre-push blocks an unapproved commit and records why', async () => {
+test('riverwright guard pre-push blocks an unapproved commit and records why', async () => {
   const { r, dir } = await runWithApproval(B);
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /blocked this push/);
   assert.equal(readLedger(dir).at(-1).decision, 'deny');
 });
 
-test('upf guard finds the run through git config upf.run', async () => {
+test('riverwright guard finds the run through git config upf.run', async () => {
   const repo = tmpDir();
   const dir = tmpDir();
   let s = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
@@ -93,7 +93,7 @@ test('upf guard finds the run through git config upf.run', async () => {
   assert.equal(r.code, 0, r.stderr);
 });
 
-test('upf guard blocks when the run record is missing', async () => {
+test('riverwright guard blocks when the run record is missing', async () => {
   const repo = tmpDir();
   await runFile('git', ['init', '-q'], { cwd: repo });
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: {} });
@@ -237,7 +237,7 @@ test('the approval is bound to one branch: another upf/ branch is refused', () =
   assert.match(none.reason, /does not name a branch/);
 });
 
-test('upf guard refuses the approved commit on a branch other than the approved one', async () => {
+test('riverwright guard refuses the approved commit on a branch other than the approved one', async () => {
   const w = await workspace();
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A, 'refs/heads/upf/3509-other'), cwd: w.worktree, env: { UPF_HOME: w.home } });
   assert.notEqual(r.code, 0);

@@ -32,7 +32,7 @@ test('install then remove leaves an existing repo byte-identical (CRLF, no final
   assert.deepEqual(snapshot(root), before);
 });
 
-test('files upstream-pr-filer created are deleted on removal', async () => {
+test('files Riverwright created are deleted on removal', async () => {
   const root = repo();
   const h = tmpDir('upf-home-');
   await install(root, h);

@@ -1,5 +1,5 @@
 {
-  "name": "upstream-pr-filer",
+  "name": "riverwright",
   "version": "0.1.0",
   "description": "Reproduce, fix and propose upstream bug fixes, with your approval at every public step.",
   "type": "module",

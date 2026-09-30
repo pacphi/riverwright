@@ -1,7 +1,7 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "$id": "upf-state/1",
-  "title": "upstream-pr-filer run state (runs/issue-<n>/state.json)",
+  "title": "Riverwright run state (runs/issue-<n>/state.json)",
   "type": "object",
   "required": ["schema", "runId", "kind", "preset", "createdAt", "status", "current", "stations", "approvals", "budgets", "counters", "fork", "pr", "stop"],
   "properties": {

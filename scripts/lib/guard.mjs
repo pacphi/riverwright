@@ -15,10 +15,10 @@ export function parsePrePushLines(text) {
 }
 
 export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approvedBranch = null }) {
-  if (!forkUrl) return deny('This clone has no fork yet. Pushes happen only through "upf submit" after you approve the submit gate.');
+  if (!forkUrl) return deny('This clone has no fork yet. Pushes happen only through "riverwright submit" after you approve the submit gate.');
   const dest = normalizeRemoteUrl(remoteUrl);
   if (!dest || dest !== normalizeRemoteUrl(forkUrl)) {
-    return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). upstream-pr-filer never pushes anywhere else.`);
+    return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). Riverwright never pushes anywhere else.`);
   }
   if (!approvedSha) return deny('Nothing has been approved at the submit gate yet.');
   if (!approvedBranch) return deny('The submit-gate approval does not name a branch. Approve again with --branch upf/<number>-<slug>.');

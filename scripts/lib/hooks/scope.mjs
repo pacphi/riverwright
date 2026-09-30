@@ -1,4 +1,4 @@
-// Decides whether a command reaches into the upstream-pr-filer workspace. Paths are resolved the way the
+// Decides whether a command reaches into the Riverwright workspace. Paths are resolved the way the
 // shell would see them: ~, $HOME, ${HOME}, $UPF_HOME, %USERPROFILE% and $env:USERPROFILE are expanded,
 // relative paths are resolved against the payload cwd (following cd/pushd), and symlinks are resolved.
 import os from 'node:os';

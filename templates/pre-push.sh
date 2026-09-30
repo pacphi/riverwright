@@ -1,4 +1,4 @@
 #!/bin/sh
-# Installed by upstream-pr-filer. Every push from this clone is checked by "upf guard pre-push".
+# Installed by Riverwright. Every push from this clone is checked by "riverwright guard pre-push".
 # If Node is missing, exec fails and git aborts the push.
 exec node "__UPF_SCRIPT__" guard pre-push "$@"

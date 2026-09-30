@@ -9,7 +9,7 @@ const posix = process.platform !== 'win32';
 const launcher = path.join(ROOT, 'bin', 'riverwright');
 const cmdLauncher = path.join(ROOT, 'bin', 'riverwright.cmd');
 
-test('POSIX launcher runs upf through node', { skip: !posix }, () => {
+test('POSIX launcher runs riverwright through node', { skip: !posix }, () => {
   const r = spawnSync('/bin/sh', [launcher, '--version'], { encoding: 'utf8' });
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /^\d+\.\d+\.\d+/);
@@ -34,7 +34,7 @@ test('POSIX launcher exits 1 for ordinary commands when node is missing', { skip
   assert.equal(r.status, 1);
 });
 
-test('Windows launcher runs upf through node', { skip: posix }, () => {
+test('Windows launcher runs riverwright through node', { skip: posix }, () => {
   const r = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `""${cmdLauncher}" --version"`], { encoding: 'utf8', windowsVerbatimArguments: true });
   assert.equal(r.status, 0, r.stderr);
 });

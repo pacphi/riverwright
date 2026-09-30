@@ -32,7 +32,7 @@ async function runFromRepository(io, home) {
 
 export async function run(args, io) {
   const [sub, remoteName, remoteUrl] = args;
-  if (sub !== 'pre-push') throw new UpfError('USAGE', 'usage: upf guard pre-push <remote-name> <remote-url>');
+  if (sub !== 'pre-push') throw new UpfError('USAGE', 'usage: riverwright guard pre-push <remote-name> <remote-url>');
   const updates = parsePrePushLines(await readAll(io.stdin));
   const home = upfHome(io.env);
   let located = null;
@@ -42,7 +42,7 @@ export async function run(args, io) {
   }
   located ??= await runFromRepository(io, home);
   if (!located) {
-    io.stderr.write('upstream-pr-filer: this clone is managed by upstream-pr-filer but its run record is missing, so the push is blocked.\n');
+    io.stderr.write('Riverwright: this clone is managed by Riverwright but its run record is missing, so the push is blocked.\n');
     return 1;
   }
   const { dir } = located;
@@ -52,13 +52,13 @@ export async function run(args, io) {
   if (located.runId && state.runId !== located.runId) {
     const reason = `The run record at ${dir} belongs to ${state.runId}, not ${located.runId}.`;
     appendEvent(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });
-    io.stderr.write(`upstream-pr-filer blocked this push: ${reason}\n`);
+    io.stderr.write(`Riverwright blocked this push: ${reason}\n`);
     return 1;
   }
   const decision = decidePrePush({ remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null, approvedSha: approvedSha(state, 'submit-gate'), approvedBranch: approvedBranch(state, 'submit-gate') });
   appendEvent(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
   if (!decision.allow) {
-    io.stderr.write(`upstream-pr-filer blocked this push: ${decision.reason}\n`);
+    io.stderr.write(`Riverwright blocked this push: ${decision.reason}\n`);
     return 1;
   }
   return 0;

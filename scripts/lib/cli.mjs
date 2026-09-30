@@ -17,9 +17,9 @@ const COMMANDS = {
 
 export function usage() {
   return [
-    `upf ${version()}: reproduce, fix and propose upstream bug fixes, with your approval at every public step.`,
+    `riverwright ${version()}: reproduce, fix and propose upstream bug fixes, with your approval at every public step.`,
     '',
-    'Usage: upf <command> [options]',
+    'Usage: riverwright <command> [options]',
     '',
     'Commands:',
     ...Object.keys(COMMANDS).sort().map((name) => `  ${name}`),
@@ -36,7 +36,7 @@ export async function main(argv, io) {
   }
   const load = COMMANDS[name];
   if (!load) {
-    io.stderr.write(`upf: unknown command "${name}". Run "upf help" to see the commands.\n`);
+    io.stderr.write(`riverwright: unknown command "${name}". Run "riverwright help" to see the commands.\n`);
     return 2;
   }
   try {
@@ -44,7 +44,7 @@ export async function main(argv, io) {
     return await mod.run(rest, io);
   } catch (err) {
     const message = err instanceof UpfError ? err.message : `unexpected error: ${err?.stack ?? err}`;
-    io.stderr.write(`upf ${name}: ${message}\n`);
+    io.stderr.write(`riverwright ${name}: ${message}\n`);
     return HOOK_LIKE.has(name) ? 2 : 1;
   }
 }
