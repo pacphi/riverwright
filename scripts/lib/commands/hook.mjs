@@ -1,3 +1,4 @@
+import { fileURLToPath } from 'node:url';
 import { UpfError } from '../errors.mjs';
 import { HOSTS } from '../hosts.mjs';
 import { readAll } from '../io.mjs';
@@ -5,6 +6,10 @@ import { upfHome, isInside, realish, runDirForPath } from '../paths.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { classifyCommand } from '../hooks/classify.mjs';
 import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
+
+// The installed launcher's own files: only these may run "upf submit" / "upf post" unblocked.
+export const TRUSTED_LAUNCHER = ['../../../bin/upf', '../../../bin/upf.cmd', '../../upf.mjs']
+  .map((rel) => realish(fileURLToPath(new URL(rel, import.meta.url))));
 
 function mentionsHome(command, home, platform) {
   const fold = (s) => {
@@ -39,7 +44,7 @@ export async function run([host], io) {
   if (typeof command !== 'string' || command.trim() === '') {
     reason = 'upstream-pr-filer could not read this command, so it is blocked inside the upstream-pr-filer workspace.';
   } else {
-    const verdict = classifyCommand(command);
+    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER });
     if (verdict.outward) {
       reason = `Blocked by upstream-pr-filer (${verdict.rule}): ${verdict.detail}. Public actions go through "upf submit" or "upf post" after your approval.`;
     }

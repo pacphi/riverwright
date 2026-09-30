@@ -1,3 +1,6 @@
+import path from 'node:path';
+import { realish } from '../paths.mjs';
+
 // Conservative: anything that could publish, rewrite remotes, or bypass git hooks counts as outward.
 // A false alarm blocks one command inside the workspace; a miss could publish without approval.
 const SEPARATORS = /\|\||&&|[;&|\n]|\$\(|`|\)/;
@@ -67,22 +70,36 @@ function classifyGh(rest) {
   return null;
 }
 
-function isUpfPublish(toks) {
-  if (base(toks[0]) === 'upf') return ['submit', 'post'].includes(toks[1]);
-  if (base(toks[0]) === 'node' && /upf\.mjs$/i.test(toks[1] ?? '')) return ['submit', 'post'].includes(toks[2]);
-  return false;
+// Anything that could chain, substitute, redirect, glob or escape disqualifies the publish exemption.
+const PUBLISH_META = /[;&|<>`$(){}\r\n*?!\[\]~\\\0]|(?:^|\s)#/;
+
+// The publish exemption belongs to the installed launcher only: the program (or the script node runs)
+// must resolve to one of the trusted real paths, and the command must be one plain invocation.
+function isTrustedPublish(text, trustedLauncher) {
+  if (!trustedLauncher.length || PUBLISH_META.test(text)) return false;
+  if ((text.match(/"/g) ?? []).length % 2 || (text.match(/'/g) ?? []).length % 2) return false;
+  const trusted = new Set(trustedLauncher.map((p) => realish(p)));
+  const isTrusted = (p) => typeof p === 'string' && (path.posix.isAbsolute(p) || path.win32.isAbsolute(p)) && trusted.has(realish(p));
+  const toks = tokens(text);
+  let i = 0;
+  if (toks[0] === 'node' || (path.isAbsolute(toks[0] ?? '') && realish(toks[0]) === realish(process.execPath))) i = 1;
+  return isTrusted(toks[i]) && ['submit', 'post'].includes(toks[i + 1]);
 }
 
-export function classifyCommand(command, depth = 0) {
+export function classifyCommand(command, { trustedLauncher = [] } = {}) {
   const text = String(command ?? '').replace(/\\\r?\n/g, ' ');
+  if (isTrustedPublish(text.trim(), trustedLauncher)) return { outward: false, upfPublish: true };
+  return classifyText(text, 0);
+}
+
+function classifyText(text, depth) {
   const segments = text.split(SEPARATORS).map((s) => s.trim()).filter(Boolean);
-  if (depth === 0 && segments.length === 1 && isUpfPublish(tokens(segments[0]))) return { outward: false, upfPublish: true };
   for (const seg of segments) {
     const toks = tokens(seg);
     if (depth < 3) {
       for (const t of toks) {
         if (/\s/.test(t)) {
-          const inner = classifyCommand(t, depth + 1);
+          const inner = classifyText(t, depth + 1);
           if (inner.outward) return inner;
         }
       }
