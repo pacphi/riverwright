@@ -26,3 +26,4 @@ Decision, Consequences, Verification, Related and Implementation status. Start f
 | [0009](0009-pnpm-for-development-tools.md) | pnpm, pinned by `packageManager`, installs the development tools | Accepted |
 | [0010](0010-sealed-credential-released-by-human-unlock.md) | The publishing credential is sealed and released only by a human unlock inside submit and post | Accepted |
 | [0011](0011-generated-plugin-folder-marketplace-at-root.md) | The plugin is a generated plugin/ folder; the repository root is only the marketplace | Accepted |
+| [0012](0012-leased-force-push-for-resubmits.md) | A re-submit after an amend may replace the branch tip only through a leased push bound to the receipt | Accepted |
