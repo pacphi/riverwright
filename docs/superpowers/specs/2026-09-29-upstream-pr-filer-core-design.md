@@ -140,7 +140,7 @@ agentic-kit, autopilot's tooling, Codex, Gemini CLI and the generator run.
 | `upf doctor` | Detect hosts, versions, auth, Docker, hook trust/consent state; print what is missing and how to fix it; change nothing |
 | `upf init <issue-url \| --symptom …> [--downstream PATH]` | Create the workspace and run record |
 | `upf state get\|advance\|stop` | The only writer of `state.json`; rejects illegal transitions |
-| `upf sanitize` | Strip and report zero-width, bidi-control and tag characters; quote text as data |
+| `upf sanitize` | Strip and report invisible, bidi and tag characters (§7.4); quote text as data |
 | `upf fingerprint` | Record OS, arch, runtime/toolchain versions, lockfile hashes |
 | `upf dispatch <role> <run>` | Run a role via the dispatch ladder (§8) |
 | `upf approve <gate> <run>` | Record a human approval bound to a SHA or content hash |
@@ -262,9 +262,11 @@ human action in front of every public step.
 
 ### 7.4 Untrusted input
 
-- `upf sanitize` strips zero-width (U+200B–U+200D, U+2060, U+FEFF), bidi controls (U+202A–U+202E,
-  U+2066–U+2069) and tag characters (U+E0000–U+E007F), records what it found, and quotes the text into
-  the dossier with provenance.
+- `upf sanitize` strips zero-width (U+200B–U+200D, U+2060, U+FEFF, U+180E), bidi controls (U+202A–U+202E,
+  U+2066–U+2069), bidi marks (U+200E, U+200F, U+061C), soft hyphens (U+00AD), invisible operators
+  (U+2061–U+2064), variation selectors (U+FE00–U+FE0F, U+E0100–U+E01EF) and tag characters
+  (U+E0000–U+E007F), records what it found, and quotes the text into the dossier with provenance.
+  Stripping U+FE0F can turn a colour emoji into its text form; the finding is reported.
 - Upstream instruction files: subagents start without them where the host allows (Claude
   `omitClaudeMd`; Hermes `--ignore-rules`; headless runs from a neutral directory that reads the
   worktree by path). Anything suspicious in them is listed at Checkpoint 1.
