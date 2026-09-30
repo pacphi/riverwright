@@ -10,6 +10,7 @@ const COMMANDS = {
   approve: () => import('./commands/approve.mjs'),
   guard: () => import('./commands/guard.mjs'),
   hook: () => import('./commands/hook.mjs'),
+  setup: () => import('./commands/setup.mjs'),
 };
 
 export function usage() {

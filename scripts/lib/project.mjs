@@ -4,8 +4,8 @@ import path from 'node:path';
 import { UpfError } from './errors.mjs';
 import { isInside, realish } from './paths.mjs';
 import { readTextIfExists, writeFileAtomic, resolveWriteTarget } from './fsx.mjs';
-import { upsertBlock, begin, end } from './blocks.mjs';
-import { parseJsonStrict, addAbsentKeys, formatJsonLike } from './jsonmerge.mjs';
+import { upsertBlock, stripBlock, begin, end } from './blocks.mjs';
+import { parseJsonStrict, addAbsentKeys, removeAddedKeys, formatJsonLike } from './jsonmerge.mjs';
 import { unifiedDiff } from './diff.mjs';
 import { runFile } from './exec.mjs';
 
@@ -203,4 +203,91 @@ export async function applyPlan(plan, { home, now, confirm = async () => true })
   }
   if (manifest.steps.length) writeFileAtomic(path.join(dir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);
   return { results, backup: manifest.steps.length ? dir : null };
+}
+
+function installManifests(home, root) {
+  const dir = backupRoot(home, root);
+  let names = [];
+  try {
+    names = fs.readdirSync(dir).sort();
+  } catch {
+    return [];
+  }
+  return names
+    .map((name) => ({ dir: path.join(dir, name), text: readTextIfExists(path.join(dir, name, 'manifest.json')) }))
+    .filter((m) => m.text !== null)
+    .map((m) => ({ ...JSON.parse(m.text), dir: m.dir }))
+    .filter((m) => m.mode === 'install');
+}
+
+function withDiff(step) {
+  const diff = step.after === null
+    ? unifiedDiff(step.before, '', { fromFile: `a/${step.file}`, toFile: '/dev/null' })
+    : unifiedDiff(step.before, step.after, { fromFile: `a/${step.file}`, toFile: `b/${step.file}` });
+  return { ...step, diff };
+}
+
+export function planRemoval(info, { home }) {
+  const created = new Map();
+  const merged = new Map();
+  for (const m of installManifests(home, info.root)) {
+    for (const s of m.steps) {
+      // Latest create wins (a file can be created, removed and created again).
+      if (s.action === 'create') created.set(s.file, s);
+      if (s.kind === 'json' && s.action === 'update') {
+        // Earliest backup holds the true original; the latest afterHash says whether it is still ours.
+        const prev = merged.get(s.file);
+        merged.set(s.file, { ...s, backupCopy: prev?.backupCopy ?? path.join(m.dir, 'files', s.file), addedPaths: [...(prev?.addedPaths ?? []), ...s.addedPaths] });
+      }
+    }
+  }
+  const steps = [];
+
+  for (const file of INSTRUCTION_FILES) {
+    const abs = path.join(info.root, file);
+    let st = null;
+    try {
+      st = fs.lstatSync(abs);
+    } catch {
+      st = null;
+    }
+    if (!st || st.isSymbolicLink()) continue;
+    const before = fs.readFileSync(abs, 'utf8');
+    const { text, removed } = stripBlock(before, SLUG);
+    if (!removed) continue;
+    if (created.has(file) && text === '') steps.push(withDiff({ file, kind: 'block', action: 'delete', before, after: null }));
+    else steps.push(withDiff({ file, kind: 'block', action: 'update', before, after: text }));
+  }
+
+  for (const [file, s] of created) {
+    if (INSTRUCTION_FILES.includes(file)) continue;
+    const before = readTextIfExists(path.join(info.root, file));
+    if (before === null) continue;
+    if (sha256(before) === s.createdHash) {
+      steps.push(withDiff({ file, kind: s.kind, action: 'delete', before, after: null }));
+    } else if (s.kind === 'json') {
+      merged.set(file, { ...s, backupCopy: null });
+    } else {
+      steps.push({ file, kind: s.kind, action: 'keep', reason: 'changed since upstream-pr-filer created it, so it was left in place', before, after: null });
+    }
+  }
+
+  for (const [file, s] of merged) {
+    const before = readTextIfExists(path.join(info.root, file));
+    if (before === null) continue;
+    if (s.backupCopy && sha256(before) === s.afterHash && fs.existsSync(s.backupCopy)) {
+      steps.push(withDiff({ file, kind: 'json', action: 'update', before, after: fs.readFileSync(s.backupCopy, 'utf8') }));
+      continue;
+    }
+    let parsed;
+    try {
+      parsed = parseJsonStrict(before);
+    } catch {
+      steps.push({ file, kind: 'json', action: 'keep', reason: 'no longer strict JSON; remove the upstream-pr-filer entries by hand', before, after: null });
+      continue;
+    }
+    const { result, removed } = removeAddedKeys(parsed, s.addedPaths, TEAM_SETTINGS);
+    if (removed.length) steps.push(withDiff({ file, kind: 'json', action: 'update', before, after: formatJsonLike(before, result) }));
+  }
+  return { root: info.root, mode: 'remove', steps };
 }
