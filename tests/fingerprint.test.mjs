@@ -45,7 +45,7 @@ test('java reports its version on stderr and is still captured', async () => {
 test('upf fingerprint --out writes the file', async () => {
   const repo = tmpDir();
   const out = path.join(tmpDir(), 'fingerprint.json');
-  const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { env: { UPF_NOW: 't' } });
+  const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { env: { UPF_TEST: '1', UPF_NOW: 't' } });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).schema, 'upf-fingerprint/1');
 });

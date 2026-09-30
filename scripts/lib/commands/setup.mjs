@@ -3,6 +3,7 @@ import { upfHome } from '../paths.mjs';
 import { version } from '../version.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
 import { inspectRepo, planIntegration, planRemoval, applyPlan, changedFiles } from '../project.mjs';
+import { nowIso } from '../clock.mjs';
 
 const USAGE = 'usage: upf setup --project [--repo PATH] [--dry-run | --yes | --no-input] [--team] [--remove]\n';
 
@@ -36,7 +37,7 @@ export async function run(args, io) {
     return 2;
   }
   const home = upfHome(io.env);
-  const now = io.env.UPF_NOW ?? new Date().toISOString();
+  const now = nowIso(io.env);
   const info = inspectRepo(values.repo ?? io.cwd, { home });
   const plan = values.remove
     ? planRemoval(info, { home })

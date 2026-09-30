@@ -5,7 +5,7 @@ import { loadState } from '../scripts/lib/state.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 
 const A = 'a'.repeat(40);
-const env = (dir) => ({ UPF_RUN_DIR: dir, UPF_NOW: '2026-09-29T00:00:00Z' });
+const env = (dir) => ({ UPF_RUN_DIR: dir, UPF_TEST: '1', UPF_NOW: '2026-09-29T00:00:00Z' });
 
 test('upf state create, begin and complete write state and ledger', async () => {
   const dir = tmpDir();

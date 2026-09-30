@@ -31,7 +31,7 @@ const DENY_SHAPE = {
   'hermes-agent': (o) => o.decision === 'block',
 };
 
-const env = { UPF_HOME: home, UPF_NOW: 't' };
+const env = { UPF_HOME: home, UPF_TEST: '1', UPF_NOW: 't' };
 
 for (const host of HOSTS) {
   test(`${host}: an outward command inside the workspace is denied in the host's dialect`, async () => {

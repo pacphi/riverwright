@@ -7,6 +7,7 @@ import { loadState } from '../state.mjs';
 import { approvedSha } from '../approvals.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
+import { nowIso } from '../clock.mjs';
 
 // Test seam only. UPF_RUN_DIR and `git config upf.run` are inputs the agent controls, so outside the
 // test suite the run is located from the repository being pushed.
@@ -47,7 +48,7 @@ export async function run(args, io) {
   const { dir } = located;
   const state = loadState(dir);
   const destination = remoteUrl ?? remoteName;
-  const at = io.env.UPF_NOW ?? new Date().toISOString();
+  const at = nowIso(io.env);
   if (located.runId && state.runId !== located.runId) {
     const reason = `The run record at ${dir} belongs to ${state.runId}, not ${located.runId}.`;
     appendEvent(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });

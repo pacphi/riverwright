@@ -5,6 +5,7 @@ import { makeBinding, recordApproval } from '../approvals.mjs';
 import { loadState, saveState } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
+import { nowIso } from '../clock.mjs';
 
 // The submit gate publishes, so it is confirmed in the terminal by default. The host's own permission
 // prompt (host-ask) remains the default for checkpoint-1 and the post gates.
@@ -22,7 +23,7 @@ export async function run(args, io) {
   if (gate === 'submit-gate' && mode === 'host-ask' && io.env.UPF_ALLOW_HOST_ASK_SUBMIT !== '1') {
     throw new UpfError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "upf approve submit-gate ... --mode tty" yourself (host-ask for this gate needs UPF_ALLOW_HOST_ASK_SUBMIT=1)');
   }
-  const now = io.env.UPF_NOW ?? new Date().toISOString();
+  const now = nowIso(io.env);
   const content = values['content-file'] !== undefined ? fs.readFileSync(values['content-file'], 'utf8') : undefined;
   const binding = makeBinding({ sha: values.sha, content });
   const state = loadState(dir);

@@ -9,6 +9,7 @@ import { hasActiveRun } from '../state.mjs';
 import { classifyCommand, hasUnresolved } from '../hooks/classify.mjs';
 import { touchesHome } from '../hooks/scope.mjs';
 import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
+import { nowIso } from '../clock.mjs';
 
 // The installed launcher's own files: only these may run "upf submit" / "upf post" unblocked.
 export const TRUSTED_LAUNCHER = ['../../../bin/upf', '../../../bin/upf.cmd', '../../upf.mjs']
@@ -52,7 +53,7 @@ export async function run([host], io) {
   const dir = runDirForPath(home, where);
   if (dir) {
     try {
-      appendEvent(dir, { type: 'guard', at: io.env.UPF_NOW ?? new Date().toISOString(), decision: 'deny', reason, host, command: String(command ?? '') });
+      appendEvent(dir, { type: 'guard', at: nowIso(io.env), decision: 'deny', reason, host, command: String(command ?? '') });
     } catch {
       // Recording is best effort; the denial itself must not depend on it.
     }

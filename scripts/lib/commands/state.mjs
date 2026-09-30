@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { UpfError } from '../errors.mjs';
 import { createState, beginStation, completeStation, stopRun, reopenForChanges, nextStation, loadState, saveState, stateFile } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
+import { nowIso } from '../clock.mjs';
 
 const USAGE = 'usage: upf state <create|get|begin|complete|stop|reopen> --run <dir> [options]';
 
@@ -18,7 +19,7 @@ export async function run(args, io) {
   });
   const dir = values.run ?? io.env.UPF_RUN_DIR;
   if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set UPF_RUN_DIR');
-  const now = io.env.UPF_NOW ?? new Date().toISOString();
+  const now = nowIso(io.env);
   const host = values.host ?? null;
   const model = values.model ?? null;
   let state;

@@ -47,7 +47,7 @@ test('upf evidence export writes evidence.json with host levels', async () => {
   const hostsFile = path.join(tmpDir(), 'hosts.json');
   fs.writeFileSync(hostsFile, JSON.stringify({ 'claude-code': { level: 2, version: '2.1.284' } }));
   const out = path.join(tmpDir(), 'evidence.json');
-  const r = await callMain(['evidence', 'export', '--home', home, '--hosts', hostsFile, '--out', out], { env: { UPF_NOW: 'now' } });
+  const r = await callMain(['evidence', 'export', '--home', home, '--hosts', hostsFile, '--out', out], { env: { UPF_TEST: '1', UPF_NOW: 'now' } });
   assert.equal(r.code, 0, r.stderr);
   const ev = JSON.parse(fs.readFileSync(out, 'utf8'));
   assert.equal(ev.hosts['claude-code'].level, 2);
