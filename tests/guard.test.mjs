@@ -243,3 +243,24 @@ test('upf guard refuses the approved commit on a branch other than the approved 
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /approved branch/);
 });
+
+test('the guard finds the run with the environment git gives a pre-push hook in a linked worktree', async () => {
+  const home = tmpDir('upf-home-');
+  const clone = path.join(home, 'ruvnet', 'ruflo', 'clone');
+  fs.mkdirSync(clone, { recursive: true });
+  const git = (cwd, ...a) => runFile('git', ['-c', 'user.email=t@example.invalid', '-c', 'user.name=t', ...a], { cwd });
+  await git(clone, 'init', '-q');
+  await git(clone, 'commit', '-q', '--allow-empty', '-m', 'init');
+  const worktree = path.join(home, 'ruvnet', 'ruflo', 'worktrees', 'issue-3509');
+  await git(clone, 'worktree', 'add', '-q', '-b', 'upf/3509-codex', worktree);
+  const gitDir = (await git(worktree, 'rev-parse', '--absolute-git-dir')).stdout.trim();
+  const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
+  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'upf/3509-codex' }));
+  // Git runs hooks from the worktree root with GIT_DIR (and GIT_INDEX_FILE) exported, and no GIT_WORK_TREE.
+  const hookEnv = { UPF_HOME: home, UPF_TEST: '', UPF_RUN_DIR: '', GIT_DIR: gitDir, GIT_INDEX_FILE: path.join(gitDir, 'index'), GIT_PREFIX: '' };
+  const r = runUpf(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: worktree, env: hookEnv });
+  assert.equal(r.code, 0, r.stderr);
+  const other = runUpf(['guard', 'pre-push', 'fork', FORK], { stdin: line(B), cwd: worktree, env: hookEnv });
+  assert.notEqual(other.code, 0);
+  assert.match(other.stderr, /not the approved commit/);
+});
