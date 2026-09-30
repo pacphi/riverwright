@@ -9,10 +9,11 @@ import { appendEvent } from '../ledger.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
 
-// Test seam only. RIVERWRIGHT_RUN_DIR and `git config riverwright.run` are inputs the agent controls, so outside the
-// test suite the run is located from the repository being pushed.
+// In-process test seam only: io.testing is supplied by the test helper and never by scripts/riverwright.mjs,
+// so no environment variable, git config or flag can reach it. In production the run is always located
+// from the repository being pushed.
 async function testRunDir(io) {
-  if (io.env.RIVERWRIGHT_RUN_DIR) return io.env.RIVERWRIGHT_RUN_DIR;
+  if (io.testing.runDir) return io.testing.runDir;
   const r = await runFile('git', ['config', '--get', 'riverwright.run'], { cwd: io.cwd });
   return r.code === 0 ? r.stdout.trim() || null : null;
 }
@@ -36,7 +37,7 @@ export async function run(args, io) {
   const updates = parsePrePushLines(await readAll(io.stdin));
   const home = riverwrightHome(io.env);
   let located = null;
-  if (io.env.RIVERWRIGHT_TEST === '1') {
+  if (io.testing?.allowRunDirOverride) {
     const dir = await testRunDir(io);
     if (dir) located = { dir, runId: null };
   }
@@ -48,7 +49,7 @@ export async function run(args, io) {
   const { dir } = located;
   const state = loadState(dir);
   const destination = remoteUrl ?? remoteName;
-  const at = nowIso(io.env);
+  const at = nowIso(io);
   if (located.runId && state.runId !== located.runId) {
     const reason = `The run record at ${dir} belongs to ${state.runId}, not ${located.runId}.`;
     appendEvent(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });

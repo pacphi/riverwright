@@ -11,9 +11,9 @@ const recent = (iso) => Math.abs(Date.parse(iso) - Date.now()) < 60_000;
 
 test('RIVERWRIGHT_NOW is ignored outside the test suite: state, approvals and the ledger use the real clock', async () => {
   const dir = tmpDir();
-  const env = { RIVERWRIGHT_RUN_DIR: dir, RIVERWRIGHT_NOW: PAST };
-  assert.equal((await callMain(['state', 'create', '--id', 'o/r#1'], { env })).code, 0);
-  const r = await callMain(['approve', 'checkpoint-1', '--sha', 'a'.repeat(40)], { env });
+  const env = { RIVERWRIGHT_NOW: PAST };
+  assert.equal((await callMain(['state', 'create', '--run', dir, '--id', 'o/r#1'], { env })).code, 0);
+  const r = await callMain(['approve', 'checkpoint-1', '--run', dir, '--sha', 'a'.repeat(40)], { env });
   assert.equal(r.code, 0, r.stderr);
   const s = loadState(dir);
   assert.ok(recent(s.createdAt), s.createdAt);
@@ -36,11 +36,11 @@ test('RIVERWRIGHT_NOW is ignored by evidence, fingerprint and setup outside the 
   assert.doesNotMatch(backup, /^1999/);
 });
 
-test('RIVERWRIGHT_NOW pins the clock when RIVERWRIGHT_TEST=1', async () => {
+test('io.testing.now (in-process test seam only) pins the clock', async () => {
   const dir = tmpDir();
-  const env = { RIVERWRIGHT_RUN_DIR: dir, RIVERWRIGHT_NOW: PAST, RIVERWRIGHT_TEST: '1' };
-  await callMain(['state', 'create', '--id', 'o/r#1'], { env });
-  const r = await callMain(['approve', 'checkpoint-1', '--sha', 'a'.repeat(40)], { env });
+  const testing = { now: PAST };
+  await callMain(['state', 'create', '--run', dir, '--id', 'o/r#1'], { testing });
+  const r = await callMain(['approve', 'checkpoint-1', '--run', dir, '--sha', 'a'.repeat(40)], { testing });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(loadState(dir).createdAt, PAST);
   assert.equal(loadState(dir).approvals[0].approvedAt, PAST);

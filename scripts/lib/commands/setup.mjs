@@ -37,7 +37,7 @@ export async function run(args, io) {
     return 2;
   }
   const home = riverwrightHome(io.env);
-  const now = nowIso(io.env);
+  const now = nowIso(io);
   const info = inspectRepo(values.repo ?? io.cwd, { home });
   const plan = values.remove
     ? planRemoval(info, { home })

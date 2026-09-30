@@ -53,7 +53,7 @@ export async function run([host], io) {
   const dir = runDirForPath(home, where);
   if (dir) {
     try {
-      appendEvent(dir, { type: 'guard', at: nowIso(io.env), decision: 'deny', reason, host, command: String(command ?? '') });
+      appendEvent(dir, { type: 'guard', at: nowIso(io), decision: 'deny', reason, host, command: String(command ?? '') });
     } catch {
       // Recording is best effort; the denial itself must not depend on it.
     }

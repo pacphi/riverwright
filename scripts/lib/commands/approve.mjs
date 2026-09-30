@@ -18,8 +18,9 @@ export async function run(args, io) {
     args: rest,
     options: { run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' }, branch: { type: 'string' } },
   });
-  const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
-  if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
+  // The run is named on the command line, where the human sees it; no environment variable chooses it.
+  const dir = values.run;
+  if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory>');
   const host = assertHost(values.host ?? null);
   if (gate === 'submit-gate' && values.branch === undefined) throw new RiverwrightError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch riverwright/<number>-<slug>');
   if (gate !== 'submit-gate' && values.branch !== undefined) throw new RiverwrightError('USAGE', '--branch applies only to the submit gate');
@@ -28,7 +29,7 @@ export async function run(args, io) {
   if (gate === 'submit-gate' && mode === 'host-ask' && io.env.RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT !== '1') {
     throw new RiverwrightError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT=1)');
   }
-  const now = nowIso(io.env);
+  const now = nowIso(io);
   const content = values['content-file'] !== undefined ? fs.readFileSync(values['content-file'], 'utf8') : undefined;
   const binding = makeBinding({ sha: values.sha, content });
   const state = loadState(dir);

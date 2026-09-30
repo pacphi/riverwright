@@ -45,7 +45,7 @@ test('java reports its version on stderr and is still captured', async () => {
 test('riverwright fingerprint --out writes the file', async () => {
   const repo = tmpDir();
   const out = path.join(tmpDir(), 'fingerprint.json');
-  const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { env: { RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' } });
+  const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { testing: { now: 't' } });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).schema, 'riverwright-fingerprint/1');
 });

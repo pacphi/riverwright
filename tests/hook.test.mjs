@@ -31,7 +31,7 @@ const DENY_SHAPE = {
   'hermes-agent': (o) => o.decision === 'block',
 };
 
-const env = { RIVERWRIGHT_HOME: home, RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' };
+const env = { RIVERWRIGHT_HOME: home };
 
 for (const host of HOSTS) {
   test(`${host}: an outward command inside the workspace is denied in the host's dialect`, async () => {

@@ -18,9 +18,10 @@ export async function run(args, io) {
       host: { type: 'string' }, model: { type: 'string' }, head: { type: 'string' }, note: { type: 'string' },
     },
   });
-  const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
-  if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
-  const now = nowIso(io.env);
+  // The run is named on the command line, where the human sees it; no environment variable chooses it.
+  const dir = values.run;
+  if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory>');
+  const now = nowIso(io);
   const host = assertHost(values.host ?? null);
   const model = values.model ?? null;
   let state;

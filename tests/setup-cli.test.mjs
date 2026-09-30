@@ -22,7 +22,7 @@ test('--dry-run prints the diff and changes nothing', async () => {
 
 test('--yes applies and reminds the user nothing was committed', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
-  const r = await callMain(['setup', '--project', '--yes', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' } });
+  const r = await callMain(['setup', '--project', '--yes', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-') }, testing: { now: 't' } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /AGENTS\.md: updated/);
   assert.match(r.stdout, /Nothing was committed/);
@@ -31,7 +31,7 @@ test('--yes applies and reminds the user nothing was committed', async () => {
 test('interactive mode asks per file', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
   const answers = ['y', 'n'];
-  const r = await callMain(['setup', '--project', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' }, terminal: () => fakeTerminal(answers.shift()) });
+  const r = await callMain(['setup', '--project', '--repo', root], { env: { RIVERWRIGHT_HOME: tmpDir('riverwright-home-') }, testing: { now: 't' }, terminal: () => fakeTerminal(answers.shift()) });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /AGENTS\.md: updated/);
   assert.match(r.stdout, /riverwright\.json: declined/);
@@ -39,9 +39,9 @@ test('interactive mode asks per file', async () => {
 
 test('--remove --yes undoes a setup', async () => {
   const root = repo({ 'AGENTS.md': '# A\n' });
-  const env = { RIVERWRIGHT_HOME: tmpDir('riverwright-home-'), RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' };
-  await callMain(['setup', '--project', '--yes', '--repo', root], { env });
-  const r = await callMain(['setup', '--project', '--remove', '--yes', '--repo', root], { env: { ...env, RIVERWRIGHT_NOW: 't2' } });
+  const env = { RIVERWRIGHT_HOME: tmpDir('riverwright-home-') };
+  await callMain(['setup', '--project', '--yes', '--repo', root], { env, testing: { now: 't' } });
+  const r = await callMain(['setup', '--project', '--remove', '--yes', '--repo', root], { env, testing: { now: 't2' } });
   assert.equal(r.code, 0, r.stderr);
   assert.equal(fs.readFileSync(path.join(root, 'AGENTS.md'), 'utf8'), '# A\n');
   assert.equal(fs.existsSync(path.join(root, 'riverwright.json')), false);

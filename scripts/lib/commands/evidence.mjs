@@ -14,7 +14,7 @@ export async function run(args, io) {
   const hosts = values.hosts ? JSON.parse(fs.readFileSync(values.hosts, 'utf8')) : {};
   const { states, skipped } = collectRunStates(home);
   for (const s of skipped) io.stderr.write(`skipped ${s.path}: ${s.reason}\n`);
-  const text = `${JSON.stringify(buildEvidence({ states, hosts, now: nowIso(io.env) }), null, 2)}\n`;
+  const text = `${JSON.stringify(buildEvidence({ states, hosts, now: nowIso(io) }), null, 2)}\n`;
   if (values.out) writeFileAtomic(values.out, text);
   else io.stdout.write(text);
   return 0;

@@ -65,7 +65,7 @@ async function runWithApproval(sha) {
   let s = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
   s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't', branch: 'riverwright/3509-codex' });
   saveState(dir, s);
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(sha), env: { RIVERWRIGHT_TEST: '1', RIVERWRIGHT_RUN_DIR: dir, RIVERWRIGHT_NOW: 't' } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(sha), testing: { allowRunDirOverride: true, runDir: dir, now: 't' } });
   return { r, dir };
 }
 
@@ -89,7 +89,7 @@ test('riverwright guard finds the run through git config riverwright.run', async
   saveState(dir, recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't', branch: 'riverwright/3509-codex' }));
   await runFile('git', ['init', '-q'], { cwd: repo });
   await runFile('git', ['config', 'riverwright.run', dir], { cwd: repo });
-  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' } });
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, testing: { allowRunDirOverride: true, now: 't' } });
   assert.equal(r.code, 0, r.stderr);
 });
 

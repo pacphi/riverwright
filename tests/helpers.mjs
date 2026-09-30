@@ -18,7 +18,9 @@ export function fakeTerminal(answer) {
   return { input, output, written, close() {} };
 }
 
-export async function callMain(args, { stdin = '', env = {}, cwd = process.cwd(), terminal } = {}) {
+// `testing` is the only way to reach a test seam (io.testing: { now, runDir, allowRunDirOverride }).
+// scripts/riverwright.mjs never sets it, so no environment variable or flag can enable a seam.
+export async function callMain(args, { stdin = '', env = {}, cwd = process.cwd(), terminal, testing } = {}) {
   let stdout = '';
   let stderr = '';
   const io = {
@@ -31,6 +33,7 @@ export async function callMain(args, { stdin = '', env = {}, cwd = process.cwd()
     // `terminal` may be one fake terminal or a factory returning a fresh one per prompt.
     openTerminal: typeof terminal === 'function' ? terminal : terminal ? () => terminal : undefined,
   };
+  if (testing) io.testing = { ...testing };
   const code = await main(args, io);
   return { code, stdout, stderr };
 }
