@@ -18,12 +18,14 @@ const KEYWORDS = new Set(['!', '{', '}', 'if', 'then', 'else', 'elif', 'fi', 'do
 const SHELLS = new Set(['sh', 'bash', 'zsh', 'dash', 'ksh', 'mksh', 'ash', 'fish', 'tcsh', 'csh', 'pwsh', 'powershell', 'cmd']);
 const HTTP_CLIENTS = new Set(['curl', 'wget', 'http', 'https', 'httpie', 'xh', 'xhs']);
 const WRAPPERS = {
-  command: [], builtin: [], exec: ['-a'], nohup: [], nice: ['-n'], ionice: ['-c', '-n', '-p'], setsid: [], chronic: [], unbuffer: [],
+  command: [], builtin: [], exec: ['-a'], call: [], nohup: [], nice: ['-n'], ionice: ['-c', '-n', '-p'], setsid: [], chronic: [], unbuffer: [],
   stdbuf: ['-i', '-o', '-e'], sudo: ['-u', '-g', '-C', '-D', '-h', '-p', '-r', '-t', '-T', '-U'], doas: ['-u', '-C'], caffeinate: ['-t', '-w'],
   strace: ['-o', '-e', '-p', '-s'], ltrace: ['-o', '-e', '-p', '-s'], torsocks: [], proxychains: ['-f'], proxychains4: ['-f'], time: ['-f', '-o'],
   timeout: ['-s', '-k', '--signal', '--kill-after'], flock: ['-w', '-E', '-c'], watch: ['-n', '-d'], busybox: [],
 };
 const WRAPPER_POSITIONALS = { timeout: 1, flock: 1 };
+// eval, and its PowerShell equivalents (names are lowercased by base()).
+const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', 'icm', 'invoke-command']);
 const DANGEROUS_ENV = /^(GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|GIT_PROXY_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_EXEC_PATH|GIT_TEMPLATE_DIR|GIT_ALLOW_PROTOCOL|UPF_\w*|HOME|XDG_CONFIG_HOME)$/i;
 const GIT_WATCHED_KEY = /^(remote\.|credential|url\.|branch\.[^.]+\.(pushremote|remote)|push\.|alias\.|upf\.|include\.|includeif\.|core\.(hookspath|sshcommand|gitproxy|askpass)|http\.|protocol\.)/i;
 const GIT_PUSHERS = new Set(['push', 'send-pack', 'http-push', 'send-email', 'imap-send']);
@@ -251,7 +253,7 @@ function classifyXargs(args, ctx) {
   const rest = args.slice(i);
   if (!rest.length) return null;
   const p = programName(rest[0]);
-  if (p === null || ['git', 'gh', 'eval', 'env', 'sudo', 'xargs', 'hub', ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p))) {
+  if (p === null || ['git', 'gh', 'env', 'sudo', 'xargs', 'hub', ...EVALUATORS, ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p))) {
     return unresolvable(`xargs supplies the arguments to ${p ?? 'a variable program'}`);
   }
   return classifyInvocation(rest, { words: rest, stdin: null, heredocs: [], herestrings: [] }, ctx);
@@ -270,7 +272,7 @@ function classifyInvocation(words, cmd, ctx) {
   const prog = programName(words[0]);
   if (prog === null) return ctx.strict ? unresolvable('the program is a variable or substitution') : null;
   const args = words.slice(1);
-  if (prog === 'eval') return unresolvable('eval runs text the classifier cannot see');
+  if (EVALUATORS.has(prog)) return unresolvable(`${prog} runs text the classifier cannot see`);
   if (prog === 'env') {
     let i = 0;
     for (; i < args.length; i += 1) {
@@ -310,7 +312,7 @@ function classifyInvocation(words, cmd, ctx) {
       if (isDynamic(w) && ctx.strict) return unresolvable('an alias is defined from a variable or substitution');
       const inner = lex(m[2]).commands[0];
       const p = inner && programName(inner.words[0]);
-      if (p && (['git', 'gh', 'eval', 'env', 'sudo', 'xargs', 'hub', ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p)))) {
+      if (p && (['git', 'gh', 'env', 'sudo', 'xargs', 'hub', ...EVALUATORS, ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p)))) {
         return outward('shell-alias', `alias ${m[1]} runs ${p}`);
       }
     }

