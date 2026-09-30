@@ -1,0 +1,14 @@
+{
+  "schema": "upf-evidence/1",
+  "generatedAt": "2026-09-29T22:30:00Z",
+  "generatedBy": "hand-written seed; will be replaced by `upf evidence export`",
+  "hosts": {
+    "claude-code": { "level": 2, "version": "2.1.284", "checkedBy": "installed; official docs" },
+    "codex": { "level": 2, "version": "0.158.0", "checkedBy": "installed; --help" },
+    "gemini-cli": { "level": 2, "version": "0.61.0", "checkedBy": "installed; --help" },
+    "cursor": { "level": 2, "version": "IDE 3.22.12; cursor-agent 2026.09.28-64d2043", "checkedBy": "built-in create-hook skill; --help" },
+    "grok-build": { "level": 2, "version": "1.0.44", "checkedBy": "strings embedded in the binary; grok inspect" },
+    "hermes-agent": { "level": 2, "version": "0.21.5", "checkedBy": "source agent/shell_hooks.py; --help" }
+  },
+  "runs": []
+}
