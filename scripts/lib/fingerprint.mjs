@@ -53,7 +53,7 @@ export async function collectFingerprint({ repo, now, runner = runFile }) {
   const tools = {};
   for (const name of [...wanted].sort()) tools[name] = await probe(name, runner);
   return {
-    schema: 'upf-fingerprint/1',
+    schema: 'riverwright-fingerprint/1',
     collectedAt: now,
     os: { platform: process.platform, type: os.type(), release: os.release(), arch: os.arch() },
     node: process.versions.node,

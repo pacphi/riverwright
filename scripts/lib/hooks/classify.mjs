@@ -27,7 +27,7 @@ const WRAPPER_POSITIONALS = { timeout: 1, flock: 1 };
 // eval, and its PowerShell equivalents (names are lowercased by base()).
 const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', 'icm', 'invoke-command']);
 const DANGEROUS_ENV = /^(GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|GIT_PROXY_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_EXEC_PATH|GIT_TEMPLATE_DIR|GIT_ALLOW_PROTOCOL|RIVERWRIGHT_\w*|HOME|XDG_CONFIG_HOME)$/i;
-const GIT_WATCHED_KEY = /^(remote\.|credential|url\.|branch\.[^.]+\.(pushremote|remote)|push\.|alias\.|upf\.|include\.|includeif\.|core\.(hookspath|sshcommand|gitproxy|askpass)|http\.|protocol\.)/i;
+const GIT_WATCHED_KEY = /^(remote\.|credential|url\.|branch\.[^.]+\.(pushremote|remote)|push\.|alias\.|riverwright\.|include\.|includeif\.|core\.(hookspath|sshcommand|gitproxy|askpass)|http\.|protocol\.)/i;
 const GIT_PUSHERS = new Set(['push', 'send-pack', 'http-push', 'send-email', 'imap-send']);
 const GIT_VALUE_OPTS = new Set(['-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--attr-source', '--list-cmds']);
 const INTERPRETERS = [
@@ -60,7 +60,7 @@ function programName(w) {
 function checkEnvName(name) {
   if (!DANGEROUS_ENV.test(name)) return null;
   return /^RIVERWRIGHT_/i.test(name)
-    ? outward('upf-env', `setting ${name} changes how Riverwright finds or checks a run`)
+    ? outward('riverwright-env', `setting ${name} changes how Riverwright finds or checks a run`)
     : outward('git-env', `setting ${name} changes what git runs, reads or pushes`);
 }
 

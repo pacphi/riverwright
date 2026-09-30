@@ -26,7 +26,7 @@ export function createState({ runId, kind = 'real', presetName = 'balanced', now
   if (!RUN_KINDS.includes(kind)) throw new UpfError('BAD_KIND', `kind must be real or fixture, not "${kind}"`);
   const p = preset(presetName);
   return {
-    schema: 'upf-state/1', runId, kind, preset: presetName, createdAt: now, status: 'active', current: null,
+    schema: 'riverwright-state/1', runId, kind, preset: presetName, createdAt: now, status: 'active', current: null,
     stations: Object.fromEntries(STATIONS.map((s) => [s, pending()])),
     approvals: [],
     budgets: { fixAttempts: p.fixAttempts, reviewRounds: p.reviewRounds },
@@ -104,7 +104,7 @@ export function reopenForChanges(state, { now } = {}) {
 export function validateState(s) {
   const fail = (msg) => { throw new UpfError('BAD_STATE', `state.json is invalid: ${msg}`); };
   if (!s || typeof s !== 'object') fail('not an object');
-  if (s.schema !== 'upf-state/1') fail(`unknown schema ${s.schema}`);
+  if (s.schema !== 'riverwright-state/1') fail(`unknown schema ${s.schema}`);
   if (!RUN_ID.test(String(s.runId)) || String(s.runId).includes('..')) fail('runId');
   if (!RUN_KINDS.includes(s.kind)) fail('kind');
   if (!RUN_STATUSES.includes(s.status)) fail('status');

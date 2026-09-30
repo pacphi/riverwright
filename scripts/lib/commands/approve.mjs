@@ -21,7 +21,7 @@ export async function run(args, io) {
   const dir = values.run ?? io.env.RIVERWRIGHT_RUN_DIR;
   if (!dir) throw new UpfError('NO_RUN', 'pass --run <run directory> or set RIVERWRIGHT_RUN_DIR');
   const host = assertHost(values.host ?? null);
-  if (gate === 'submit-gate' && values.branch === undefined) throw new UpfError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch upf/<number>-<slug>');
+  if (gate === 'submit-gate' && values.branch === undefined) throw new UpfError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch riverwright/<number>-<slug>');
   if (gate !== 'submit-gate' && values.branch !== undefined) throw new UpfError('USAGE', '--branch applies only to the submit gate');
   const branch = values.branch === undefined ? undefined : normalizeBranch(values.branch);
   const mode = values.mode ?? io.env.RIVERWRIGHT_APPROVAL_MODE ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';

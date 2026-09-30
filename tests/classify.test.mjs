@@ -7,7 +7,7 @@ import { ROOT, tmpDir } from './helpers.mjs';
 
 const OUTWARD = [
   'git push',
-  'pytest -q && git push origin upf/1-x',
+  'pytest -q && git push origin riverwright/1-x',
   'bash -c "git push origin x"',
   'git -C ../w push',
   '/usr/bin/git push --force',

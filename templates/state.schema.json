@@ -1,11 +1,11 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "upf-state/1",
+  "$id": "riverwright-state/1",
   "title": "Riverwright run state (runs/issue-<n>/state.json)",
   "type": "object",
   "required": ["schema", "runId", "kind", "preset", "createdAt", "status", "current", "stations", "approvals", "budgets", "counters", "fork", "pr", "stop"],
   "properties": {
-    "schema": { "const": "upf-state/1" },
+    "schema": { "const": "riverwright-state/1" },
     "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#[1-9][0-9]*$" },
     "kind": { "enum": ["real", "fixture"] },
     "preset": { "enum": ["frugal", "balanced", "thorough"] },
@@ -55,7 +55,7 @@
         "binding": { "type": "object", "required": ["kind", "value"], "properties": { "kind": { "enum": ["sha", "content"] }, "value": { "type": "string" } } },
         "mode": { "enum": ["host-ask", "tty"] },
         "host": { "enum": [null, "claude-code", "codex", "gemini-cli", "cursor", "grok-build", "hermes-agent"] },
-        "branch": { "type": ["string", "null"], "pattern": "^upf/[A-Za-z0-9][A-Za-z0-9._-]*$" },
+        "branch": { "type": ["string", "null"], "pattern": "^riverwright/[A-Za-z0-9][A-Za-z0-9._-]*$" },
         "revoked": { "type": "boolean" }
       }
     },

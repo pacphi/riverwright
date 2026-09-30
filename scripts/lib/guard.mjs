@@ -21,10 +21,10 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
     return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). Riverwright never pushes anywhere else.`);
   }
   if (!approvedSha) return deny('Nothing has been approved at the submit gate yet.');
-  if (!approvedBranch) return deny('The submit-gate approval does not name a branch. Approve again with --branch upf/<number>-<slug>.');
+  if (!approvedBranch) return deny('The submit-gate approval does not name a branch. Approve again with --branch riverwright/<number>-<slug>.');
   for (const u of updates) {
     if (!u.localSha || ZERO.test(u.localSha)) return deny(`Deleting ${u.remoteRef} is not allowed.`);
-    if (!String(u.remoteRef).startsWith('refs/heads/upf/')) return deny(`Only branches named upf/… may be pushed (got ${u.remoteRef}).`);
+    if (!String(u.remoteRef).startsWith('refs/heads/riverwright/')) return deny(`Only branches named riverwright/… may be pushed (got ${u.remoteRef}).`);
     if (u.remoteRef !== `refs/heads/${approvedBranch}`) return deny(`Only the approved branch ${approvedBranch} may be pushed (got ${u.remoteRef}).`);
     if (u.localSha.toLowerCase() !== approvedSha) {
       return deny(`Commit ${u.localSha.slice(0, 12)} is not the approved commit ${approvedSha.slice(0, 12)}. Approve the new commit first.`);
@@ -38,5 +38,5 @@ export function renderPrePushHook(scriptPath) {
   if (!(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new UpfError('UNSAFE_PATH', 'script path must be absolute');
   if (/["$`%\r\n]/.test(p)) throw new UpfError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
   const template = fs.readFileSync(new URL('../../templates/pre-push.sh', import.meta.url), 'utf8');
-  return template.replace('__UPF_SCRIPT__', () => p.replace(/\\/g, '/'));
+  return template.replace('__RIVERWRIGHT_SCRIPT__', () => p.replace(/\\/g, '/'));
 }

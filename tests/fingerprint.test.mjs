@@ -20,7 +20,7 @@ test('records OS, node, tools and hashed lockfiles', async () => {
     now: '2026-09-29T00:00:00Z',
     runner: fakeRunner({ 'git --version': 'git version 2.54.0', 'rustc --version': 'rustc 1.95.0', 'cargo --version': 'cargo 1.95.0' }),
   });
-  assert.equal(fp.schema, 'upf-fingerprint/1');
+  assert.equal(fp.schema, 'riverwright-fingerprint/1');
   assert.equal(fp.os.platform, process.platform);
   assert.equal(fp.node, process.versions.node);
   assert.deepEqual(Object.keys(fp.tools).sort(), ['cargo', 'docker', 'gh', 'git', 'rustc']);
@@ -47,5 +47,5 @@ test('riverwright fingerprint --out writes the file', async () => {
   const out = path.join(tmpDir(), 'fingerprint.json');
   const r = await callMain(['fingerprint', '--repo', repo, '--out', out], { env: { RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't' } });
   assert.equal(r.code, 0, r.stderr);
-  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).schema, 'upf-fingerprint/1');
+  assert.equal(JSON.parse(fs.readFileSync(out, 'utf8')).schema, 'riverwright-fingerprint/1');
 });

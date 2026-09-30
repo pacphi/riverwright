@@ -23,13 +23,13 @@ export function makeBinding({ sha, content } = {}) {
   return { kind: 'content', value: contentHash(content) };
 }
 
-// Run branches are upf/<n>-<slug> (spec §3.4). A bare refs/heads/ prefix is accepted and dropped.
-export const BRANCH = /^upf\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+// Run branches are riverwright/<n>-<slug> (spec §3.4). A bare refs/heads/ prefix is accepted and dropped.
+export const BRANCH = /^riverwright\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
 
 export function normalizeBranch(branch) {
   const b = String(branch ?? '').replace(/^refs\/heads\//, '');
   if (!BRANCH.test(b) || b.includes('..') || b.endsWith('.lock') || b.endsWith('.')) {
-    throw new UpfError('BAD_BRANCH', `"${branch}" is not a run branch (upf/<number>-<slug>)`);
+    throw new UpfError('BAD_BRANCH', `"${branch}" is not a run branch (riverwright/<number>-<slug>)`);
   }
   return b;
 }

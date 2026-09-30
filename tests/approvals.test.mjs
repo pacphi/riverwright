@@ -53,11 +53,11 @@ test('unknown gates and modes are rejected', () => {
   assert.deepEqual(GATES, ['checkpoint-1', 'submit-gate', 'post-issue', 'post-comment']);
 });
 
-test('a submit-gate approval can name the run branch, and only an upf/ branch', () => {
-  const s = recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'upf/3509-codex' });
-  assert.equal(approvedBranch(s, 'submit-gate'), 'upf/3509-codex');
-  assert.equal(approvedBranch(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'refs/heads/upf/1-x' }), 'submit-gate'), 'upf/1-x');
-  for (const bad of ['main', 'upf/../main', 'upf/a b', 'upf/', 'upf/x.lock', 'refs/heads/main']) {
+test('a submit-gate approval can name the run branch, and only a riverwright/ branch', () => {
+  const s = recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'riverwright/3509-codex' });
+  assert.equal(approvedBranch(s, 'submit-gate'), 'riverwright/3509-codex');
+  assert.equal(approvedBranch(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'refs/heads/riverwright/1-x' }), 'submit-gate'), 'riverwright/1-x');
+  for (const bad of ['main', 'riverwright/../main', 'riverwright/a b', 'riverwright/', 'riverwright/x.lock', 'refs/heads/main']) {
     assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: bad }), /branch/, bad);
   }
 });

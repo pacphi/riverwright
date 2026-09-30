@@ -1,7 +1,7 @@
 {
-  "schema": "upf-evidence/1",
+  "schema": "riverwright-evidence/1",
   "generatedAt": "2026-09-29T22:30:00Z",
-  "generatedBy": "hand-written seed; will be replaced by `upf evidence export`",
+  "generatedBy": "hand-written seed; will be replaced by `riverwright evidence export`",
   "hosts": {
     "claude-code": { "level": 2, "version": "2.1.284", "checkedBy": "installed; official docs" },
     "codex": { "level": 2, "version": "0.158.0", "checkedBy": "installed; --help" },

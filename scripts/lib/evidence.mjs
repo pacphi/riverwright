@@ -10,7 +10,7 @@ export function buildEvidence({ states, hosts = {}, now }) {
     if (![1, 2, 3].includes(h?.level)) throw new UpfError('BAD_LEVEL', `host ${id} needs a level of 1, 2 or 3`);
   }
   return {
-    schema: 'upf-evidence/1',
+    schema: 'riverwright-evidence/1',
     generatedAt: now,
     generatedBy: 'riverwright evidence export',
     hosts,

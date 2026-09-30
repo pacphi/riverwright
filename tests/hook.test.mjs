@@ -35,7 +35,7 @@ const env = { RIVERWRIGHT_HOME: home, RIVERWRIGHT_TEST: '1', RIVERWRIGHT_NOW: 't
 
 for (const host of HOSTS) {
   test(`${host}: an outward command inside the workspace is denied in the host's dialect`, async () => {
-    const r = await callMain(['hook', host], { stdin: payload(host, 'pytest -q && git push origin upf/1-x', worktree), env, cwd: outside });
+    const r = await callMain(['hook', host], { stdin: payload(host, 'pytest -q && git push origin riverwright/1-x', worktree), env, cwd: outside });
     assert.equal(r.code, 2);
     assert.ok(DENY_SHAPE[host](JSON.parse(r.stdout)), r.stdout);
   });

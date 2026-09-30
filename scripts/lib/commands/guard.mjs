@@ -9,11 +9,11 @@ import { appendEvent } from '../ledger.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
 
-// Test seam only. RIVERWRIGHT_RUN_DIR and `git config upf.run` are inputs the agent controls, so outside the
+// Test seam only. RIVERWRIGHT_RUN_DIR and `git config riverwright.run` are inputs the agent controls, so outside the
 // test suite the run is located from the repository being pushed.
 async function testRunDir(io) {
   if (io.env.RIVERWRIGHT_RUN_DIR) return io.env.RIVERWRIGHT_RUN_DIR;
-  const r = await runFile('git', ['config', '--get', 'upf.run'], { cwd: io.cwd });
+  const r = await runFile('git', ['config', '--get', 'riverwright.run'], { cwd: io.cwd });
   return r.code === 0 ? r.stdout.trim() || null : null;
 }
 

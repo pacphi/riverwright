@@ -14,7 +14,7 @@ function passedIntake() {
 
 test('buildEvidence reports each station status per run', () => {
   const ev = buildEvidence({ states: [passedIntake()], hosts: { 'grok-build': { level: 2, version: '1.0.44' } }, now: 'now' });
-  assert.equal(ev.schema, 'upf-evidence/1');
+  assert.equal(ev.schema, 'riverwright-evidence/1');
   assert.equal(ev.runs[0].id, 'ruvnet/ruflo#3509');
   assert.equal(ev.runs[0].kind, 'fixture');
   assert.equal(ev.runs[0].stations.intake.status, 'passed');
