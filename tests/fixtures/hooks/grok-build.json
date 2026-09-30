@@ -1,0 +1,1 @@
+{ "_provenance": "unverified", "payload": { "hook_event_name": "PreToolUse", "tool_name": "bash", "tool_input": { "command": "{{command}}" }, "cwd": "{{cwd}}" } }

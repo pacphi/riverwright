@@ -9,6 +9,7 @@ const COMMANDS = {
   state: () => import('./commands/state.mjs'),
   approve: () => import('./commands/approve.mjs'),
   guard: () => import('./commands/guard.mjs'),
+  hook: () => import('./commands/hook.mjs'),
 };
 
 export function usage() {

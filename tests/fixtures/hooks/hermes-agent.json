@@ -1,0 +1,1 @@
+{ "_provenance": "source", "payload": { "hook_event_name": "pre_tool_call", "tool_name": "terminal", "tool_input": { "command": "{{command}}" }, "session_id": "s", "cwd": "{{cwd}}", "extra": {} } }

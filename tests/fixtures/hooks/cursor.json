@@ -1,0 +1,1 @@
+{ "_provenance": "docs", "payload": { "hook_event_name": "beforeShellExecution", "command": "{{command}}", "cwd": "{{cwd}}" } }
