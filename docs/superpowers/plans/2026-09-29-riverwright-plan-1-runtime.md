@@ -8,7 +8,7 @@
 
 **Tech Stack:** Node.js 24+ built-ins only (`node:fs`, `node:path`, `node:child_process`, `node:crypto`, `node:readline`, `node:util`, `node:test`, `node:assert`); git; GitHub Actions matrix on ubuntu-latest, macos-latest, windows-latest.
 
-**Spec:** [`docs/superpowers/specs/2026-09-29-upstream-pr-filer-core-design.md`](../specs/2026-09-29-upstream-pr-filer-core-design.md) (read §2, §3, §6, §7, §11, §12.6, §15). Roadmap: [`2026-09-29-upf-roadmap.md`](2026-09-29-upf-roadmap.md).
+**Spec:** [`docs/superpowers/specs/2026-09-29-riverwright-core-design.md`](../specs/2026-09-29-riverwright-core-design.md) (read §2, §3, §6, §7, §11, §12.6, §15). Roadmap: [`2026-09-29-riverwright-roadmap.md`](2026-09-29-riverwright-roadmap.md).
 
 ## Global Constraints
 
