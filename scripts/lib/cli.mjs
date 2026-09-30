@@ -12,6 +12,7 @@ const COMMANDS = {
   hook: () => import('./commands/hook.mjs'),
   setup: () => import('./commands/setup.mjs'),
   fingerprint: () => import('./commands/fingerprint.mjs'),
+  evidence: () => import('./commands/evidence.mjs'),
 };
 
 export function usage() {
