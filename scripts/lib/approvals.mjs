@@ -23,11 +23,24 @@ export function makeBinding({ sha, content } = {}) {
   return { kind: 'content', value: contentHash(content) };
 }
 
-export function recordApproval(state, { gate, sha, content, mode, host = null, now }) {
+// Run branches are upf/<n>-<slug> (spec §3.4). A bare refs/heads/ prefix is accepted and dropped.
+export const BRANCH = /^upf\/[A-Za-z0-9][A-Za-z0-9._-]*$/;
+
+export function normalizeBranch(branch) {
+  const b = String(branch ?? '').replace(/^refs\/heads\//, '');
+  if (!BRANCH.test(b) || b.includes('..') || b.endsWith('.lock') || b.endsWith('.')) {
+    throw new UpfError('BAD_BRANCH', `"${branch}" is not a run branch (upf/<number>-<slug>)`);
+  }
+  return b;
+}
+
+export function recordApproval(state, { gate, sha, content, mode, host = null, now, branch }) {
   if (!GATES.includes(gate)) throw new UpfError('UNKNOWN_GATE', `unknown gate "${gate}" (use ${GATES.join(', ')})`);
   if (!APPROVAL_MODES.includes(mode)) throw new UpfError('UNKNOWN_MODE', `unknown approval mode "${mode}" (use host-ask or tty)`);
   const binding = makeBinding({ sha, content });
-  return { ...state, approvals: [...state.approvals, { gate, binding, approvedAt: now, mode, host: assertHost(host), revoked: false }] };
+  const approval = { gate, binding, approvedAt: now, mode, host: assertHost(host), revoked: false };
+  if (branch !== undefined && branch !== null) approval.branch = normalizeBranch(branch);
+  return { ...state, approvals: [...state.approvals, approval] };
 }
 
 function latest(state, gate) {
@@ -44,6 +57,10 @@ export function isApprovalValid(state, gate, target) {
 export function approvedSha(state, gate) {
   const a = latest(state, gate);
   return a && a.binding.kind === 'sha' ? a.binding.value : null;
+}
+
+export function approvedBranch(state, gate) {
+  return latest(state, gate)?.branch ?? null;
 }
 
 export function revokeGate(state, gate, { now }) {

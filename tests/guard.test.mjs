@@ -27,7 +27,7 @@ test('remote URLs normalize across https, ssh, scp and credentials', () => {
 });
 
 test('the approved commit may go to the fork on an upf/ branch', () => {
-  const d = decidePrePush({ remoteUrl: 'git@github.com:pacphi/ruflo.git', updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A });
+  const d = decidePrePush({ remoteUrl: 'git@github.com:pacphi/ruflo.git', updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: 'upf/3509-codex' });
   assert.equal(d.allow, true, d.reason);
 });
 
@@ -47,7 +47,7 @@ test('everything else is refused with a reason', () => {
     [{ forkUrl: FORK, approvedSha: A, updates: `refs/heads/upf/x ${ZERO} refs/heads/upf/x ${A}\n` }, /Deleting/],
   ];
   for (const [input, reason] of cases) {
-    const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(input.updates), forkUrl: input.forkUrl, approvedSha: input.approvedSha });
+    const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(input.updates), forkUrl: input.forkUrl, approvedSha: input.approvedSha, approvedBranch: 'upf/3509-codex' });
     assert.equal(d.allow, false);
     assert.match(d.reason, reason);
   }
@@ -63,7 +63,7 @@ test('renderPrePushHook quotes install paths with spaces and refuses unsafe ones
 async function runWithApproval(sha) {
   const dir = tmpDir();
   let s = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
-  s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' });
+  s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't', branch: 'upf/3509-codex' });
   saveState(dir, s);
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(sha), env: { UPF_TEST: '1', UPF_RUN_DIR: dir, UPF_NOW: 't' } });
   return { r, dir };
@@ -86,7 +86,7 @@ test('upf guard finds the run through git config upf.run', async () => {
   const repo = tmpDir();
   const dir = tmpDir();
   let s = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
-  saveState(dir, recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' }));
+  saveState(dir, recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't', branch: 'upf/3509-codex' }));
   await runFile('git', ['init', '-q'], { cwd: repo });
   await runFile('git', ['config', 'upf.run', dir], { cwd: repo });
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: repo, env: { UPF_TEST: '1', UPF_NOW: 't' } });
@@ -113,14 +113,14 @@ async function workspace({ runId = 'ruvnet/ruflo#3509', approve = true } = {}) {
   await runFile('git', ['init', '-q'], { cwd: worktree });
   const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
   let s = setFork(createState({ runId, now: 't' }), FORK);
-  if (approve) s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't' });
+  if (approve) s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'upf/3509-codex' });
   saveState(dir, s);
   return { home, worktree, dir };
 }
 
 async function forgedRun() {
   const dir = tmpDir('forged-run-');
-  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' }));
+  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't', branch: 'upf/3509-codex' }));
   return dir;
 }
 
@@ -188,7 +188,7 @@ test('the guard finds the run from a linked worktree of the clone (git worktree 
   const added = await git(clone, 'worktree', 'add', '-q', '-b', 'upf/3509-codex', worktree);
   assert.equal(added.code, 0, added.stderr);
   const dir = path.join(home, 'ruvnet', 'ruflo', 'runs', 'issue-3509');
-  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't' }));
+  saveState(dir, recordApproval(setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK), { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'upf/3509-codex' }));
   const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A), cwd: path.join(worktree), env: { UPF_HOME: home } });
   assert.equal(r.code, 0, r.stderr);
 });
@@ -226,4 +226,20 @@ test('a push over plain http or a non-default port is not a push to the fork', (
     const d = decidePrePush({ remoteUrl, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A });
     assert.equal(d.allow, false, remoteUrl);
   }
+});
+
+test('the approval is bound to one branch: another upf/ branch is refused', () => {
+  const other = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A, 'refs/heads/upf/9999-elsewhere')), forkUrl: FORK, approvedSha: A, approvedBranch: 'upf/3509-codex' });
+  assert.equal(other.allow, false);
+  assert.match(other.reason, /approved branch upf\/3509-codex/);
+  const none = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: null });
+  assert.equal(none.allow, false);
+  assert.match(none.reason, /does not name a branch/);
+});
+
+test('upf guard refuses the approved commit on a branch other than the approved one', async () => {
+  const w = await workspace();
+  const r = await callMain(['guard', 'pre-push', 'fork', FORK], { stdin: line(A, 'refs/heads/upf/3509-other'), cwd: w.worktree, env: { UPF_HOME: w.home } });
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /approved branch/);
 });

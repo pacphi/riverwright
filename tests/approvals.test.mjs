@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GATES, contentHash, makeBinding, recordApproval, isApprovalValid, approvedSha, revokeGate } from '../scripts/lib/approvals.mjs';
+import { GATES, contentHash, makeBinding, recordApproval, isApprovalValid, approvedSha, approvedBranch, revokeGate } from '../scripts/lib/approvals.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -51,4 +51,13 @@ test('unknown gates and modes are rejected', () => {
   assert.throws(() => recordApproval(base, { gate: 'merge', sha: A, mode: 'host-ask', now: 't' }), /unknown gate/);
   assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'auto', now: 't' }), /unknown approval mode/);
   assert.deepEqual(GATES, ['checkpoint-1', 'submit-gate', 'post-issue', 'post-comment']);
+});
+
+test('a submit-gate approval can name the run branch, and only an upf/ branch', () => {
+  const s = recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'upf/3509-codex' });
+  assert.equal(approvedBranch(s, 'submit-gate'), 'upf/3509-codex');
+  assert.equal(approvedBranch(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'refs/heads/upf/1-x' }), 'submit-gate'), 'upf/1-x');
+  for (const bad of ['main', 'upf/../main', 'upf/a b', 'upf/', 'upf/x.lock', 'refs/heads/main']) {
+    assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: bad }), /branch/, bad);
+  }
 });

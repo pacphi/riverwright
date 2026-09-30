@@ -43,7 +43,7 @@
         "status": { "enum": ["pending", "in-progress", "passed", "skipped", "failed"] },
         "startedAt": { "type": ["string", "null"] },
         "completedAt": { "type": ["string", "null"] },
-        "host": { "type": ["string", "null"] },
+        "host": { "enum": [null, "claude-code", "codex", "gemini-cli", "cursor", "grok-build", "hermes-agent"] },
         "model": { "type": ["string", "null"] }
       }
     },
@@ -54,6 +54,8 @@
         "gate": { "enum": ["checkpoint-1", "submit-gate", "post-issue", "post-comment"] },
         "binding": { "type": "object", "required": ["kind", "value"], "properties": { "kind": { "enum": ["sha", "content"] }, "value": { "type": "string" } } },
         "mode": { "enum": ["host-ask", "tty"] },
+        "host": { "enum": [null, "claude-code", "codex", "gemini-cli", "cursor", "grok-build", "hermes-agent"] },
+        "branch": { "type": ["string", "null"], "pattern": "^upf/[A-Za-z0-9][A-Za-z0-9._-]*$" },
         "revoked": { "type": "boolean" }
       }
     },

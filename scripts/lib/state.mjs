@@ -1,7 +1,7 @@
 import fs from 'node:fs';
 import path from 'node:path';
 import { UpfError } from './errors.mjs';
-import { GATES, APPROVAL_MODES, isApprovalValid, revokeGate } from './approvals.mjs';
+import { GATES, APPROVAL_MODES, BRANCH, isApprovalValid, revokeGate } from './approvals.mjs';
 import { preset } from './presets.mjs';
 import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
@@ -118,6 +118,7 @@ export function validateState(s) {
   for (const a of s.approvals) {
     if (!GATES.includes(a.gate) || !APPROVAL_MODES.includes(a.mode) || !['sha', 'content'].includes(a.binding?.kind)) fail('approvals');
     if (!knownHost(a.host)) fail('approval host');
+    if (a.branch !== undefined && a.branch !== null && (!BRANCH.test(String(a.branch)) || String(a.branch).includes('..'))) fail('approval branch');
   }
   if (s.stop !== null && !STOP_REASONS.includes(s.stop?.reason)) fail('stop');
   return s;

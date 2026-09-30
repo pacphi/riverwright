@@ -6,7 +6,8 @@ import {
   STATIONS, STATION_STATUSES, RUN_STATUSES, RUN_KINDS, STOP_REASONS, GATE_BEFORE,
   createState, nextStation, beginStation, completeStation, stopRun, reopenForChanges, validateState, saveState, loadState,
 } from '../scripts/lib/state.mjs';
-import { recordApproval, isApprovalValid } from '../scripts/lib/approvals.mjs';
+import { recordApproval, isApprovalValid, BRANCH } from '../scripts/lib/approvals.mjs';
+import { HOSTS } from '../scripts/lib/hosts.mjs';
 import { ROOT, tmpDir } from './helpers.mjs';
 
 const A = 'a'.repeat(40);
@@ -131,4 +132,11 @@ test('hosts recorded in state are known host ids or null', () => {
   const s = beginStation(fresh(), 'start', { now: 't', host: 'gemini-cli' });
   assert.equal(s.stations.start.host, 'gemini-cli');
   assert.throws(() => validateState({ ...s, stations: { ...s.stations, start: { ...s.stations.start, host: 'vim' } } }), /host/);
+});
+
+test('templates/state.schema.json lists the same host ids and branch rule as the code', () => {
+  const schema = JSON.parse(fs.readFileSync(path.join(ROOT, 'templates', 'state.schema.json'), 'utf8'));
+  assert.deepEqual(schema.$defs.station.properties.host.enum, [null, ...HOSTS]);
+  assert.deepEqual(schema.$defs.approval.properties.host.enum, [null, ...HOSTS]);
+  assert.equal(schema.$defs.approval.properties.branch.pattern, BRANCH.source.replace(/\\\//g, '/'));
 });

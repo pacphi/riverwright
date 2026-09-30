@@ -4,7 +4,7 @@ import { readAll } from '../io.mjs';
 import { runFile } from '../exec.mjs';
 import { upfHome, isInside, realish, runDirForPath } from '../paths.mjs';
 import { loadState } from '../state.mjs';
-import { approvedSha } from '../approvals.mjs';
+import { approvedSha, approvedBranch } from '../approvals.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
@@ -55,7 +55,7 @@ export async function run(args, io) {
     io.stderr.write(`upstream-pr-filer blocked this push: ${reason}\n`);
     return 1;
   }
-  const decision = decidePrePush({ remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null, approvedSha: approvedSha(state, 'submit-gate') });
+  const decision = decidePrePush({ remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null, approvedSha: approvedSha(state, 'submit-gate'), approvedBranch: approvedBranch(state, 'submit-gate') });
   appendEvent(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
   if (!decision.allow) {
     io.stderr.write(`upstream-pr-filer blocked this push: ${decision.reason}\n`);
