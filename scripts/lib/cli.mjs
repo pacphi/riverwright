@@ -8,6 +8,7 @@ const COMMANDS = {
   sanitize: () => import('./commands/sanitize.mjs'),
   state: () => import('./commands/state.mjs'),
   approve: () => import('./commands/approve.mjs'),
+  guard: () => import('./commands/guard.mjs'),
 };
 
 export function usage() {

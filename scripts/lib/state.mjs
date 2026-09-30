@@ -3,6 +3,7 @@ import { UpfError } from './errors.mjs';
 import { GATES, APPROVAL_MODES, isApprovalValid, revokeGate } from './approvals.mjs';
 import { preset } from './presets.mjs';
 import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
+import { normalizeRemoteUrl } from './giturl.mjs';
 
 // Station names are the story contract (docs/story/paddling-upstream.html data-station values).
 export const STATIONS = ['start', 'intake', 'recon', 'environment', 'reproduce', 'root-cause', 'fix', 'review', 'writeup', 'submit'];
@@ -134,4 +135,9 @@ export function saveState(dir, state) {
   validateState(state);
   writeFileAtomic(stateFile(dir), `${JSON.stringify(state, null, 2)}\n`);
   return state;
+}
+
+export function setFork(state, url) {
+  if (!normalizeRemoteUrl(url)) throw new UpfError('BAD_FORK_URL', `"${url}" is not a fork URL`);
+  return { ...state, fork: { url: String(url) } };
 }
