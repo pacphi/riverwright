@@ -11,6 +11,7 @@ const COMMANDS = {
   guard: () => import('./commands/guard.mjs'),
   hook: () => import('./commands/hook.mjs'),
   setup: () => import('./commands/setup.mjs'),
+  fingerprint: () => import('./commands/fingerprint.mjs'),
 };
 
 export function usage() {
