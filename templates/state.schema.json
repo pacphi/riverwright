@@ -1,0 +1,64 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "upf-state/1",
+  "title": "upstream-pr-filer run state (runs/issue-<n>/state.json)",
+  "type": "object",
+  "required": ["schema", "runId", "kind", "preset", "createdAt", "status", "current", "stations", "approvals", "budgets", "counters", "fork", "pr", "stop"],
+  "properties": {
+    "schema": { "const": "upf-state/1" },
+    "runId": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]*/[A-Za-z0-9][A-Za-z0-9._-]*#[1-9][0-9]*$" },
+    "kind": { "enum": ["real", "fixture"] },
+    "preset": { "enum": ["frugal", "balanced", "thorough"] },
+    "createdAt": { "type": "string" },
+    "status": { "enum": ["active", "submitted", "stopped"] },
+    "current": { "enum": [null, "start", "intake", "recon", "environment", "reproduce", "root-cause", "fix", "review", "writeup", "submit"] },
+    "stations": {
+      "type": "object",
+      "additionalProperties": false,
+      "required": ["start", "intake", "recon", "environment", "reproduce", "root-cause", "fix", "review", "writeup", "submit"],
+      "properties": {
+        "start": { "$ref": "#/$defs/station" }, "intake": { "$ref": "#/$defs/station" }, "recon": { "$ref": "#/$defs/station" },
+        "environment": { "$ref": "#/$defs/station" }, "reproduce": { "$ref": "#/$defs/station" }, "root-cause": { "$ref": "#/$defs/station" },
+        "fix": { "$ref": "#/$defs/station" }, "review": { "$ref": "#/$defs/station" }, "writeup": { "$ref": "#/$defs/station" },
+        "submit": { "$ref": "#/$defs/station" }
+      }
+    },
+    "approvals": { "type": "array", "items": { "$ref": "#/$defs/approval" } },
+    "budgets": { "type": "object", "required": ["fixAttempts", "reviewRounds"] },
+    "counters": { "type": "object", "required": ["fixAttempts", "reviewRounds"] },
+    "fork": { "oneOf": [{ "type": "null" }, { "type": "object", "required": ["url"], "properties": { "url": { "type": "string" } } }] },
+    "pr": { "oneOf": [{ "type": "null" }, { "type": "object", "required": ["url", "state"] }] },
+    "stop": {
+      "oneOf": [
+        { "type": "null" },
+        { "type": "object", "required": ["reason", "at"], "properties": { "reason": { "$ref": "#/$defs/stopReason" }, "at": { "type": "string" }, "note": { "type": ["string", "null"] } } }
+      ]
+    }
+  },
+  "$defs": {
+    "station": {
+      "type": "object",
+      "required": ["status"],
+      "properties": {
+        "status": { "enum": ["pending", "in-progress", "passed", "skipped", "failed"] },
+        "startedAt": { "type": ["string", "null"] },
+        "completedAt": { "type": ["string", "null"] },
+        "host": { "type": ["string", "null"] },
+        "model": { "type": ["string", "null"] }
+      }
+    },
+    "approval": {
+      "type": "object",
+      "required": ["gate", "binding", "approvedAt", "mode", "revoked"],
+      "properties": {
+        "gate": { "enum": ["checkpoint-1", "submit-gate", "post-issue", "post-comment"] },
+        "binding": { "type": "object", "required": ["kind", "value"], "properties": { "kind": { "enum": ["sha", "content"] }, "value": { "type": "string" } } },
+        "mode": { "enum": ["host-ask", "tty"] },
+        "revoked": { "type": "boolean" }
+      }
+    },
+    "stopReason": {
+      "enum": ["issue-closed", "issue-assigned", "pr-exists", "duplicate-found", "ai-banned", "policy-unclear", "cannot-build", "fixed-upstream", "not-reproducible", "fix-budget-exhausted", "review-budget-exhausted", "user-stopped"]
+    }
+  }
+}
