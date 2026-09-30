@@ -6,7 +6,7 @@
 | Date | 2026-09-29 |
 | Scope | Spec 1 of 3: the single-issue pipeline, state, guardrails, roles, write-up, evidence export, and the Claude Code reference adapter |
 | Follows | Spec 2 (the other five host adapters), Spec 3 (batch mode) |
-| Research | [`docs/research.md`](../../research.md) |
+| Research | [`docs/research/evidence-base.md`](../research/evidence-base.md) |
 | Story | "Paddling Upstream" artifact, https://claude.ai/artifact/RtwXsztmgYHXu2smHgvcqU |
 
 ## 1. Intent
@@ -269,7 +269,7 @@ rule `unresolvable`. While any run is active, an outward command that contains a
 or substitution is denied even outside the workspace, and so is an unreadable payload.
 
 The hook entry (`riverwright.mjs hook <host>`) converts every exception to exit code 2 and prints a deny
-decision, and its launcher exits 2 when Node is missing, so a hook failure denies. Remaining per-host behavior, verified on this machine (evidence in `docs/research.md` §H):
+decision, and its launcher exits 2 when Node is missing, so a hook failure denies. Remaining per-host behavior, verified on this machine (evidence in `docs/research/evidence-base.md` §H):
 
 | Host | Deny dialect | On hook crash/timeout | Adapter setting |
 |---|---|---|---|
@@ -398,7 +398,7 @@ done until it ships.
 
 ## 12. Distribution and onboarding
 
-### 12.1 Principles (cited in `docs/research.md` §I)
+### 12.1 Principles (cited in `docs/research/evidence-base.md` §I)
 
 - **One repository, native install per host.** The repo carries every host's manifest (the pattern
   superpowers uses) and is its own marketplace. Each host installs it through its own plugin manager;
@@ -544,7 +544,7 @@ hook, never both; the fixture test asserts exactly one hook fires per command.
 ## 14. Integration seams
 
 - **Follow and adopt (Specs 4 and 5).** The thread record, the audit and tracking data model, and the rules for who may
-  change what are defined in [the thread-record design](2026-09-29-riverwright-thread-record-design.md), in Riverwright's
+  change what are defined in [the thread-record design](thread-record-and-audit.md), in Riverwright's
   own vocabulary. It includes a read-only import from agentic-kit's upstream-watch registry, so its existing threads carry
   over. `riverwright submit` registers the thread it opens; posting anything upstream stays behind the approval gates,
   with `explicit-user-approval-required` as the default for every upstream. Spec 3 (batch) may read the registry as
@@ -593,7 +593,7 @@ hook, never both; the fixture test asserts exactly one hook fires per command.
   and Linux (§3.2, §15); new invariant 10 and §12.6 on respecting existing repositories (managed
   blocks, additive JSON merges, consent, backups outside the repo); §11.1 story rewrite after
   end-to-end proof.
-- 2026-09-29: §12 distribution and onboarding added from the distribution research (`docs/research.md` §I).
+- 2026-09-29: §12 distribution and onboarding added from the distribution research (`docs/research/evidence-base.md` §I).
 - 2026-09-29: first draft. §7.2 table from binary/source
   inspection (Claude, Codex, Gemini rows from docs research; Cursor from its built-in `create-hook`
   skill; Grok from strings embedded in the 1.0.44 binary; Hermes from `agent/shell_hooks.py`).
