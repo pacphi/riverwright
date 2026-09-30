@@ -60,7 +60,7 @@ These are load-bearing. An edit that weakens one is a bug.
    never runs a host subcommand not listed as side-effect-free in `references/hosts/<host>.md`, and
    probes unverified hosts with `--version` only (see Appendix A for why).
 9. **Accelerators are optional.** ruflo, agentic-qe, beads and similar tools may speed a phase up;
-   their absence never blocks one. The floor is Node.js 24+, git, gh and one supported host.
+   their absence never blocks one. The floor is Node.js 24+, git and one supported host; `gh` is optional (ADR-0013).
 10. **The user's repositories are not ours.** The downstream repo is read-only input. `riverwright` never
     overwrites or rewrites a file it did not create. Optional project integration (§12.6) touches
     only a clearly marked block or adds absent keys, shows the diff first, asks, and can remove
@@ -101,7 +101,7 @@ describes it; contributor files are never copied ([ADR-0011](../adr/0011-generat
 
 ### 3.2 Runtime
 
-Required: **Node.js 24 or newer** (Node 24 is the LTS baseline; CI also runs Node 26, which becomes LTS on 2026-10-28), `git`, `gh` (authenticated), one
+Required: **Node.js 24 or newer** (Node 24 is the LTS baseline; CI also runs Node 26, which becomes LTS on 2026-10-28), `git`, one
 supported host. Optional: Docker Desktop, OrbStack or another Docker engine for the container tier
 (WSL2 on Windows).
 
@@ -360,7 +360,7 @@ operating-system user or a sandbox is the only route to full separation and is d
 
 | Role | Access | Tier | Hands off |
 |---|---|---|---|
-| scout | read + `gh` reads | small | `profile.json` |
+| scout | read + `riverwright read` | small | `profile.json` |
 | reproducer | edit + shell, worktree only | default | test + Reproduction section |
 | investigator | read + shell | default | Root cause section |
 | fixer | edit + shell, worktree only | default | diff + Fix section |
@@ -485,7 +485,7 @@ CLI and desktop app do. `${CLAUDE_PLUGIN_ROOT}` is not set inside Bash-tool call
 
 1. **`riverwright doctor`** (read-only; non-zero exit when something required is missing). Checks the OS,
    Node version, git,
-   `gh` and `gh auth status` scopes; Docker/OrbStack; each host's presence and version using only the
+   `gh` (optional: its presence is information, and a login is reported as an ambient credential route); Docker/OrbStack; each host's presence and version using only the
    side-effect-free probes in `references/hosts/<host>.md` (Appendix A); whether the Riverwright
    adapter is installed per host (Claude `claude plugin list`, Gemini `gemini extensions list`, Grok
    `grok plugin list`, Codex `codex plugin list`, Cursor and Hermes by reading their plugin directories —

@@ -2,6 +2,10 @@
 
 Spec: [`docs/specs/core-single-issue-pipeline.md`](../specs/core-single-issue-pipeline.md)
 
+**Approved by the owner on 2026-09-30:** Plans 2a, 2b and 2c, ADR-0012 and ADR-0013 (agents read GitHub through
+`riverwright read`; Plan 2b is being revised to match). Execution: subagent-driven, starting with Plan 2a; the method
+for 2b and 2c is decided after 2a. Nothing is built until the owner gives the go-ahead.
+
 Spec 1 is built through three plans. Each ends with working, tested software. Plans 2a to 2c were written
 against a verified scratch prototype of the plan before them, so they name real functions and types; Plan 3 is
 written once Plan 2 exists in code.
