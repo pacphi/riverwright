@@ -81,3 +81,16 @@ test('a symlink to the real launcher resolves to it', { skip: process.platform =
   fs.symlinkSync(launcher, link);
   assert.deepEqual(classifyCommand(`${link} submit o/r#1`, { trustedLauncher }), { outward: false, upfPublish: true });
 });
+
+test('on Windows, backslash paths are path separators for the exemption, never a way to hide metacharacters', () => {
+  // Forward-slash form of the real launcher is accepted on either platform.
+  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher, platform: 'win32' }), { outward: false, upfPublish: true });
+  for (const cmd of [`"${launcher}" submit o/r#1 \; git push`, `"${launcher}" submit o/r#1 ^& git push`, `"${launcher}" post o/r#1 %X%`]) {
+    assert.notEqual(classifyCommand(cmd, { trustedLauncher, platform: 'win32' }).upfPublish, true, cmd);
+  }
+});
+
+test('a native Windows launcher path gets the exemption on Windows', { skip: process.platform !== 'win32' }, () => {
+  assert.equal(launcher.includes('\\'), true);
+  assert.deepEqual(classifyCommand(`"${launcher}" submit o/r#1`, { trustedLauncher }), { outward: false, upfPublish: true });
+});

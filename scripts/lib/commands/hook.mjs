@@ -41,7 +41,7 @@ export async function run([host], io) {
       reason = 'upstream-pr-filer could not read this command, so it is blocked while an upstream-pr-filer run is active or inside its workspace.';
     }
   } else {
-    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER });
+    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform });
     if (verdict.outward && inScope) {
       reason = `Blocked by upstream-pr-filer (${verdict.rule}): ${verdict.detail}. Public actions go through "upf submit" or "upf post" after your approval.`;
     } else if (verdict.outward && hasUnresolved(command) && hasActiveRun(home)) {

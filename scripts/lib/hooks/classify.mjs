@@ -399,12 +399,15 @@ function classifyScript(text, ctx) {
   return null;
 }
 
-// Anything that could chain, substitute, redirect, glob or escape disqualifies the publish exemption.
-const PUBLISH_META = /[;&|<>`$(){}\r\n*?!\[\]~\\\0]|(?:^|\s)#/;
+// Anything that could chain, substitute, expand (%VAR% in cmd), redirect, glob or escape disqualifies
+// the publish exemption.
+const PUBLISH_META = /[;&|<>`$%^(){}\r\n*?!\[\]~\\\0]|(?:^|\s)#/;
 
 // The publish exemption belongs to the installed launcher only: the program (or the script node runs)
-// must resolve to one of the trusted real paths, and the command must be one plain invocation.
-function isTrustedPublish(text, trustedLauncher) {
+// must resolve to one of the trusted real paths, and the command must be one plain invocation. On
+// Windows a backslash is a path separator, so it is read as "/" (every other metacharacter still counts).
+function isTrustedPublish(raw, trustedLauncher, platform) {
+  const text = platform === 'win32' ? raw.replace(/\\/g, '/') : raw;
   if (!trustedLauncher.length || PUBLISH_META.test(text)) return false;
   const { commands, incomplete } = lex(text);
   if (incomplete || commands.length !== 1) return false;
@@ -416,9 +419,9 @@ function isTrustedPublish(text, trustedLauncher) {
   return isTrusted(toks[i]) && ['submit', 'post'].includes(toks[i + 1]);
 }
 
-export function classifyCommand(command, { trustedLauncher = [] } = {}) {
+export function classifyCommand(command, { trustedLauncher = [], platform = process.platform } = {}) {
   const text = String(command ?? '');
   if (text.length > MAX_INPUT) return unresolvable('the command is too long to check');
-  if (isTrustedPublish(text.trim(), trustedLauncher)) return { outward: false, upfPublish: true };
+  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, upfPublish: true };
   return classifyScript(text, makeCtx(0, true, { used: 0 })) ?? { outward: false };
 }
