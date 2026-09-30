@@ -9,14 +9,19 @@ import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
 
 // The submit gate publishes, so it is confirmed in the terminal by default. The host's own permission
-// prompt (host-ask) remains the default for checkpoint-1 and the post gates.
+// prompt (host-ask) remains the default for checkpoint-1 and the post gates. The mode and the host-ask
+// exception for the submit gate are command-line flags, so they appear in the command the human sees in
+// the host's permission prompt; no environment variable changes them.
 export const APPROVAL_MODE_DEFAULTS = Object.freeze({ 'submit-gate': 'tty' });
 
 export async function run(args, io) {
   const [gate, ...rest] = args;
   const { values } = parseArgs({
     args: rest,
-    options: { run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' }, branch: { type: 'string' } },
+    options: {
+      run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' }, branch: { type: 'string' },
+      'allow-host-ask-submit': { type: 'boolean', default: false },
+    },
   });
   // The run is named on the command line, where the human sees it; no environment variable chooses it.
   const dir = values.run;
@@ -24,10 +29,11 @@ export async function run(args, io) {
   const host = assertHost(values.host ?? null);
   if (gate === 'submit-gate' && values.branch === undefined) throw new RiverwrightError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch riverwright/<number>-<slug>');
   if (gate !== 'submit-gate' && values.branch !== undefined) throw new RiverwrightError('USAGE', '--branch applies only to the submit gate');
+  if (gate !== 'submit-gate' && values['allow-host-ask-submit']) throw new RiverwrightError('USAGE', '--allow-host-ask-submit applies only to the submit gate');
   const branch = values.branch === undefined ? undefined : normalizeBranch(values.branch);
-  const mode = values.mode ?? io.env.RIVERWRIGHT_APPROVAL_MODE ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
-  if (gate === 'submit-gate' && mode === 'host-ask' && io.env.RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT !== '1') {
-    throw new RiverwrightError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT=1)');
+  const mode = values.mode ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
+  if (gate === 'submit-gate' && mode === 'host-ask' && !values['allow-host-ask-submit']) {
+    throw new RiverwrightError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs --allow-host-ask-submit on the command line)');
   }
   const now = nowIso(io);
   const content = values['content-file'] !== undefined ? fs.readFileSync(values['content-file'], 'utf8') : undefined;

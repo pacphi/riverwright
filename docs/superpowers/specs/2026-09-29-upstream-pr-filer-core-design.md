@@ -225,7 +225,9 @@ Hermes `-z/--oneshot` auto-bypasses approvals, so Hermes never offers `host-ask`
 uses `tty` or hands back to an interactive session.
 
 On every host the submit gate defaults to `tty` (§7.3); `host-ask` there needs
-`RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT=1`. The submit-gate record also names the run branch (`riverwright/<n>-<slug>`).
+`--mode host-ask --allow-host-ask-submit` on the `riverwright approve` command line, so the exception is
+visible in the command the human sees in the host's permission prompt. No environment variable chooses the mode or allows the
+exception. The submit-gate record also names the run branch (`riverwright/<n>-<slug>`).
 
 ## 7. Guardrails
 
@@ -283,8 +285,9 @@ decision, and its launcher exits 2 when Node is missing, so a hook failure denie
 Host-native **ask** rules on `riverwright approve` and `riverwright submit` (Claude permission rules, Gemini Policy
 Engine `ask`, Codex approval policy, Cursor and Grok permission rules), or `tty` mode (§6). The
 submit gate defaults to `tty` on every host: the human types the short SHA in a real terminal, and
-`host-ask` for that gate needs `RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT=1`. checkpoint-1 and the post gates keep
-`host-ask` as their default.
+`host-ask` for that gate needs the `--allow-host-ask-submit` flag on the command line (with `--mode host-ask`),
+where the host's permission prompt shows it; environment variables do not change the mode. checkpoint-1
+and the post gates keep `host-ask` as their default.
 
 **Residual risk, stated in user docs:** an agent with shell access that deliberately circumvents all
 three layers can still push. The design makes accidental and injection-driven pushes fail and puts a

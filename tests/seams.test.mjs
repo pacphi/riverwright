@@ -111,7 +111,7 @@ test('io.testing is honored in process: now pins the clock and runDir is used on
 test('no production code reads the retired seam variables, and the entry point never supplies io.testing', () => {
   const dir = path.join(ROOT, 'scripts');
   for (const f of fs.readdirSync(dir, { recursive: true }).filter((n) => n.endsWith('.mjs'))) {
-    assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /RIVERWRIGHT_(TEST|NOW|RUN_DIR)\b/, f);
+    assert.doesNotMatch(fs.readFileSync(path.join(dir, f), 'utf8'), /RIVERWRIGHT_(TEST|NOW|RUN_DIR|APPROVAL_MODE|ALLOW_HOST_ASK_SUBMIT)\b/, f);
   }
   assert.doesNotMatch(fs.readFileSync(RIVERWRIGHT, 'utf8'), /\btesting\b/);
 });

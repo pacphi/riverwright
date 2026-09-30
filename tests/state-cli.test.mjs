@@ -52,13 +52,15 @@ test('the submit gate defaults to terminal approval', async () => {
 test('host-ask is refused for the submit gate unless explicitly allowed', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  for (const [args, extra] of [[['--mode', 'host-ask'], {}], [[], { RIVERWRIGHT_APPROVAL_MODE: 'host-ask' }]]) {
-    const r = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', ...args], { env: { ...extra } });
-    assert.equal(r.code, 1);
-    assert.match(r.stderr, /RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT/);
-  }
+  const refused = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask']);
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /--allow-host-ask-submit/);
+  // RIVERWRIGHT_APPROVAL_MODE no longer selects host-ask: the gate stays in the terminal, and a wrong answer records nothing.
+  const viaEnv = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], { env: { RIVERWRIGHT_APPROVAL_MODE: 'host-ask' }, terminal: fakeTerminal('no') });
+  assert.equal(viaEnv.code, 1);
+  assert.match(viaEnv.stderr, /Not approved/);
   assert.equal(loadState(dir).approvals.length, 0);
-  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask'], { env: { RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT: '1' } });
+  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask', '--allow-host-ask-submit']);
   assert.equal(ok.code, 0, ok.stderr);
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
 });
@@ -97,4 +99,38 @@ test('approving the submit gate needs the run branch, and records it', async () 
   assert.equal(ok.code, 0, ok.stderr);
   assert.match(terminal.written.join(''), /riverwright\/1-fix/);
   assert.equal(loadState(dir).approvals[0].branch, 'riverwright/1-fix');
+});
+
+// The switches that weaken the submit gate are command-line flags, so they appear in the command the
+// host shows in its permission prompt. Environment variables alone change nothing.
+test('RIVERWRIGHT_APPROVAL_MODE and RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT in the environment do not change approval', async () => {
+  const dir = tmpDir();
+  await rw(dir, ['state', 'create', '--id', 'o/r#1']);
+  const weak = { RIVERWRIGHT_APPROVAL_MODE: 'host-ask', RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT: '1' };
+  const terminal = fakeTerminal('aaaaaaa');
+  const r = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], { env: weak, terminal });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(terminal.written.join(''), /Approve submit-gate/);
+  assert.equal(loadState(dir).approvals[0].mode, 'tty');
+  const refused = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask'], { env: weak, terminal: fakeTerminal('aaaaaaa') });
+  assert.equal(refused.code, 1);
+  assert.match(refused.stderr, /--allow-host-ask-submit/);
+  assert.equal(loadState(dir).approvals.length, 1);
+  const cp = fakeTerminal('no');
+  const checkpoint = await rw(dir, ['approve', 'checkpoint-1', '--sha', A], { env: { RIVERWRIGHT_APPROVAL_MODE: 'tty' }, terminal: cp });
+  assert.equal(checkpoint.code, 0, checkpoint.stderr);
+  assert.equal(cp.written.join(''), '');
+  assert.equal(loadState(dir).approvals[1].mode, 'host-ask');
+});
+
+test('--allow-host-ask-submit on the command line permits host-ask for the submit gate, and only there', async () => {
+  const dir = tmpDir();
+  await rw(dir, ['state', 'create', '--id', 'o/r#1']);
+  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask', '--allow-host-ask-submit']);
+  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
+  const misplaced = await rw(dir, ['approve', 'checkpoint-1', '--sha', A, '--allow-host-ask-submit']);
+  assert.equal(misplaced.code, 1);
+  assert.match(misplaced.stderr, /applies only to the submit gate/);
+  assert.equal(loadState(dir).approvals.length, 1);
 });
