@@ -156,7 +156,7 @@ Each row says what is recorded, in which store, and why it is worth keeping.
 | **Actor and provenance** | for every event: actor type (`human`, `agent`, `watcher`, `import`), the account, the host id and version, the model, the Riverwright version and schema version | ledger | who did what, with which tool, so results can be explained and reproduced |
 | **Time** | `at` (when it happened, upstream time for observed facts) and `recordedAt` (when we wrote it), both UTC | ledger | separates observed from recorded; exposes clock lies |
 | **Evidence digests** | SHA-256 of the dossier, the diff, the reproduction test, the logs, the fingerprint, and the reviewer verdict; the base, head and approved commits; CI run URLs and results | run record, digests in ledger | the ledger proves what was approved without holding the content |
-| **Approvals** | gate, binding (commit or content hash), mode (`host-ask` or `tty`), who, when, revoked or not | run record, event in ledger | consent is a fact with a receipt |
+| **Approvals** | gate, binding (commit or content hash), mode (`host-ask` or `tty` for `checkpoint-1`; a signed receipt for public gates), who, when, revoked or not | run record, event in ledger | consent is a fact with a receipt |
 | **Policy snapshots** | the upstream's contribution and AI policy: URL, retrieval time, SHA-256 of the text, our verdict; DCO and CLA status; how the AI disclosure was worded (its hash) | run record, verdict on the upstream record | shows we complied with the rules as they stood on the day |
 | **Decisions and stops** | every early exit and its reason; budgets used and left; reviewer vendor and verdict; why a candidate was rejected | run record | explains why nothing was sent, or why this fix and not another |
 | **Reproduction quality** | how many runs, how many failed as expected, on the pinned version and on upstream HEAD; flakiness | run record | tells maintainers, and us, how solid the report is |
@@ -282,6 +282,11 @@ policy snapshot and approval receipts in the run record. `riverwright evidence e
 metric counts. Every ledger writer in Plan 1 (`appendEvent`) moves to the `riverwright-event/1` shape with
 `seq`, `actor` and `prev`. That change belongs to Plan 2's first task, so the runtime and the record agree
 from the start.
+
+The `approved` event for a public gate is written by `submit` or `post` itself and carries the signed receipt
+from the unlock ([core spec §7.5](core-single-issue-pipeline.md)): gate, binding, the ledger head and `seq` at
+signing time, a nonce and the signature. `ledger verify` checks the chain, the signatures and that no nonce was
+used twice. This anchors the chain in the human's signature, so a rewrite before a receipt breaks it.
 
 ## 14. Decided and deferred
 

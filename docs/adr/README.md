@@ -24,3 +24,5 @@ Decision, Consequences, Verification, Related and Implementation status. Start f
 | [0007](0007-follow-and-adopt-loop-own-vocabulary.md) | Riverwright follows threads to release and adopts fixes, in its own vocabulary | Accepted |
 | [0008](0008-never-overwrite-existing-repositories.md) | Existing repositories are never overwritten: managed blocks and additive merges only | Accepted |
 | [0009](0009-pnpm-for-development-tools.md) | pnpm, pinned by `packageManager`, installs the development tools | Accepted |
+| [0010](0010-sealed-credential-released-by-human-unlock.md) | The publishing credential is sealed and released only by a human unlock inside submit and post | Accepted |
+| [0011](0011-generated-plugin-folder-marketplace-at-root.md) | The plugin is a generated plugin/ folder; the repository root is only the marketplace | Accepted |

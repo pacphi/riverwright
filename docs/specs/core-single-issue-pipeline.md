@@ -87,15 +87,17 @@ riverwright/                          # the repo is its own marketplace (see §1
   references/hosts/<host>.md          # per-host action→tool map, safe subcommands, hook dialect
   adapter-src/                        # single source for commands, agents, hooks, permission rules
   tools/generate-adapters.mjs         # dev-time generator; CI fails when output is stale
-  .claude-plugin/ adapters/claude/    # generated (Spec 1 ships the Claude adapter)
+  .claude-plugin/marketplace.json     # the repo root is only the marketplace: source ./plugin (ADR-0011)
+  plugin/                             # GENERATED plugin folder: the only thing users receive (Spec 1 ships the Claude adapter)
   .codex-plugin/ gemini-extension.json commands/ agents/ .cursor-plugin/ .hermes-plugin/ …  # Spec 2
   docs/  tests/
   CLAUDE.md  AGENTS.md  GEMINI.md     # contributor instructions: the invariants above
 ```
 
 Gemini CLI requires fixed `commands/`, `agents/` and `hooks/` directories at the extension root, so
-those root directories belong to the Gemini adapter. The Claude adapter lives under
-`adapters/claude/` and is referenced by custom paths in `.claude-plugin/plugin.json`.
+those root directories belong to the Gemini adapter. The Claude adapter is generated into `plugin/`, together
+with a copy of `bin/`, `scripts/`, `templates/`, `skills/`, `roles/` and `references/`, and `plugin/.claude-plugin/plugin.json`
+describes it; contributor files are never copied ([ADR-0011](../adr/0011-generated-plugin-folder-marketplace-at-root.md)).
 
 ### 3.2 Runtime
 
@@ -145,7 +147,8 @@ agentic-kit, autopilot's tooling, Codex, Gemini CLI and the generator run.
 | `riverwright sanitize` | Strip and report invisible, bidi and tag characters (§7.4); quote text as data |
 | `riverwright fingerprint` | Record OS, arch, runtime/toolchain versions, lockfile hashes |
 | `riverwright dispatch <role> <run>` | Run a role via the dispatch ladder (§8) |
-| `riverwright approve <gate> <run>` | Record a human approval bound to a SHA or content hash |
+| `riverwright approve checkpoint-1 <run>` | Record a human approval for the one gate that publishes nothing (§6) |
+| `riverwright credential setup\|status\|remove` | Manage the sealed credential vault (§7.5) |
 | `riverwright guard pre-push` | The git pre-push check (§7.1) |
 | `riverwright hook <host>` | Host hook entry: reads the host's payload, answers in that host's deny dialect (§7.2) |
 | `riverwright setup [--project] [--remove] [--dry-run] [--yes\|--no-input]` | Onboarding wizard (§12.3) and optional project integration (§12.6) |
@@ -213,21 +216,23 @@ approval. Follow-up work after maintainer review re-enters at phase 5 and passes
 
 ## 6. Human checkpoints and approvals
 
-`riverwright approve` writes `{gate, run, sha|content_hash, approved_at, host, mode}` into `state.json`.
-Approval modes:
+`riverwright approve` writes `{gate, run, sha|content_hash, approved_at, host, mode}` into `state.json` for
+`checkpoint-1`. Approval modes for that gate:
 
 | Mode | How the human confirms | Default for |
 |---|---|---|
-| `host-ask` | The host's own permission prompt on `riverwright approve`/`riverwright submit` (generated rule) | Claude Code, Codex, Gemini CLI, Cursor, Grok Build (interactive) |
+| `host-ask` | The host's own permission prompt on `riverwright approve` (generated rule) | Claude Code, Codex, Gemini CLI, Cursor, Grok Build (interactive) |
 | `tty` | `riverwright approve` reads a typed confirmation from the terminal (`/dev/tty`, or `CONIN$` on Windows) | Hermes Agent (all modes); any host run headless; opt-in everywhere |
 
-Hermes `-z/--oneshot` auto-bypasses approvals, so Hermes never offers `host-ask`; its submit gate
-uses `tty` or hands back to an interactive session.
+Hermes `-z/--oneshot` auto-bypasses approvals, so Hermes never offers `host-ask`; a public action there needs
+a real terminal for the unlock (§7.5) or hands back to an interactive session.
 
-On every host the submit gate defaults to `tty` (§7.3); `host-ask` there needs
-`--mode host-ask --allow-host-ask-submit` on the `riverwright approve` command line, so the exception is
-visible in the command the human sees in the host's permission prompt. No environment variable chooses the mode or allows the
-exception. The submit-gate record also names the run branch (`riverwright/<n>-<slug>`).
+Public gates (`submit-gate`, `post-issue`, `post-comment`) have no separate `riverwright approve` step. The human
+step is the **unlock** inside `riverwright submit` or `riverwright post` (§7.5): it always uses the terminal, on every
+host, and it is what releases the credential. A host permission prompt cannot release the credential, so
+`host-ask` and `--allow-host-ask-submit` do not apply to public gates ([ADR-0010](../adr/0010-sealed-credential-released-by-human-unlock.md)).
+`checkpoint-1` publishes nothing and stays a plain `riverwright approve` record in either mode. No environment variable
+chooses the mode. The submit-gate binding still names the run branch (`riverwright/<n>-<slug>`).
 
 ## 7. Guardrails
 
@@ -246,11 +251,11 @@ exception. The submit-gate record also names the run branch (`riverwright/<n>-<s
   from the environment. Commands a person runs (`init`, `setup`, `evidence`) still honor `RIVERWRIGHT_HOME`.
 - The fork remote does not exist until the submit gate; `riverwright submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
-- Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live
-  under `RIVERWRIGHT_HOME`, which an agent with shell access can write, so Lock 1 stops accidental and
-  injection-driven pushes, not a deliberate forger. Plan 2 must add credential separation (push and
-  API credentials reach only `riverwright submit`/`riverwright post`, after a human step) and keep approval records
-  outside the agent-writable workspace.
+- Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live under
+  `RIVERWRIGHT_HOME`, which an agent with shell access can write, so Lock 1 stops accidental and
+  injection-driven pushes, not a deliberate forger. The credential is what stops the forger: it is sealed and
+  released only by the human's unlock (§7.5). The pre-push guard also checks for a signed, unconsumed receipt
+  for the exact SHA, as defense in depth.
 
 ### 7.2 Lock 2: host hooks (second layer)
 
@@ -282,12 +287,11 @@ decision, and its launcher exits 2 when Node is missing, so a hook failure denie
 
 ### 7.3 Lock 3: a human click
 
-Host-native **ask** rules on `riverwright approve` and `riverwright submit` (Claude permission rules, Gemini Policy
-Engine `ask`, Codex approval policy, Cursor and Grok permission rules), or `tty` mode (§6). The
-submit gate defaults to `tty` on every host: the human types the short SHA in a real terminal, and
-`host-ask` for that gate needs the `--allow-host-ask-submit` flag on the command line (with `--mode host-ask`),
-where the host's permission prompt shows it; environment variables do not change the mode. checkpoint-1
-and the post gates keep `host-ask` as their default.
+The **unlock** (§7.5): the human types the passphrase in a real terminal inside `riverwright submit` or
+`riverwright post`, after seeing the exact payload. Host-native **ask** rules still guard `riverwright approve`
+for `checkpoint-1` (Claude permission rules, Gemini Policy Engine `ask`, Codex approval policy, Cursor and Grok
+permission rules) and are a courtesy prompt on `submit` and `post`, not the lock. Environment variables do not
+change the mode.
 
 **Residual risk, stated in user docs:** an agent with shell access that deliberately circumvents all
 three layers can still push. The design makes accidental and injection-driven pushes fail and puts a
@@ -304,6 +308,53 @@ human action in front of every public step.
   `omitClaudeMd`; Hermes `--ignore-rules`; headless runs from a neutral directory that reads the
   worktree by path). Anything suspicious in them is listed at Checkpoint 1.
 - Container tier: non-root, worktree-only mount, no credentials in the container.
+
+### 7.5 Credential separation: the sealed credential and the unlock
+
+Decision and evidence: [ADR-0010](../adr/0010-sealed-credential-released-by-human-unlock.md),
+[research](../research/credential-separation.md).
+
+**Vault.** `riverwright credential setup|status|remove` manages one vault file per account under
+`RIVERWRIGHT_HOME/vault/`, schema `riverwright-vault/1`: the key-derivation name and parameters, salt, nonce,
+ciphertext and tag, and the public signing key. The ciphertext holds the GitHub token and the Ed25519 private
+key. The key comes from the passphrase with Argon2id at or above the OWASP minimum (46 MiB, t=1, p=1), or
+scrypt at N=2^17, r=8, p=1 with an explicit `maxmem` where `crypto.argon2` is missing; the cipher is
+AES-256-GCM with a random 12-byte nonce. The passphrase and token are read from the terminal, never from an
+argument, the environment or standard input. `status` prints the public-key fingerprint and never a secret.
+
+**Unlock.** `submit` and `post`:
+
+1. compute the binding from the live repository or the normalized text (never from a stored record);
+2. print a plain summary (repository, branch, SHA or content, what will be pushed or posted) and any ambient
+   credential warnings from `doctor`;
+3. read the passphrase from the terminal; with no terminal, refuse and change nothing;
+4. decrypt, sign a `riverwright-receipt/1` (gate, run, binding, ledger head, next `seq`, nonce, time) and
+   append it as the `approved` ledger event before acting;
+5. act with the token passed to one child process only, pushing the exact SHA by name;
+6. append `pr-opened` or `posted`, and mark the receipt's nonce consumed.
+
+**Retry without retyping.** A transient failure in step 5 (network error, 5xx, rate limit) is retried in the same
+process: at most 3 attempts within 2 minutes, with backoff, recomputing the payload before each attempt and
+stopping if it changed. The token is held in that process's memory only and is dropped when it exits. A definitive
+failure (authentication refused, a rejected push, a validation error) is not retried. The nonce is marked consumed
+when the action succeeds or fails definitively, and never survives a process exit, so a second run needs a new
+unlock. The limits (3 attempts, 2 minutes) are constants in code, not settings an agent could change.
+
+A changed payload, a missing terminal, a wrong passphrase, an existing consumed nonce or a failed signature each
+stop the action with nothing published.
+
+**Ambient credentials.** `riverwright doctor` reports token variable names (never values), `gh` login state
+(exit status only), configured git credential helpers, loaded SSH keys and private key file names, and says what
+each means. Riverwright cannot remove the user's own login.
+
+**Optional hardware push key.** A FIDO2 `sk-` SSH key with user verification may sign the push only. It needs
+no compiled helper. Pull requests and comments still use the sealed token.
+
+**Limits, stated plainly.** The result is tamper-evident and injection-resistant, not tamper-proof. An agent
+that reads the terminal or the unlock process's memory, or that uses an ambient `gh` login, can still publish.
+The public key that verifies receipts lives in a file the agent can replace, so `ledger verify` proves
+consistency with that key, and the human trusts the key because they saw its fingerprint at setup. A separate
+operating-system user or a sandbox is the only route to full separation and is documented, not built.
 
 ## 8. Roles and dispatch
 
@@ -414,12 +465,12 @@ done until it ships.
 
 | Host | Install | How `riverwright` is found |
 |---|---|---|
-| Claude Code | `claude plugin marketplace add agentic-incubator/riverwright` then `claude plugin install riverwright@riverwright` (in session: `/plugin install …`) | `bin/riverwright` and its short alias `bin/rw` (and the `.cmd` files on Windows) are on the Bash tool's PATH while the plugin is enabled |
-| Codex | `codex plugin marketplace add agentic-incubator/riverwright` then `codex plugin add riverwright@riverwright` | skill falls back to its own bundle path (below) |
-| Gemini CLI | `gemini extensions install https://github.com/agentic-incubator/riverwright --auto-update` | `${extensionPath}/bin/riverwright` in commands; skill fallback |
+| Claude Code | `claude plugin marketplace add pacphi/riverwright` then `claude plugin install riverwright@riverwright` (in session: `/plugin install …`) | `bin/riverwright` and its short alias `bin/rw` (and the `.cmd` files on Windows) are on the Bash tool's PATH while the plugin is enabled |
+| Codex | `codex plugin marketplace add pacphi/riverwright` then `codex plugin add riverwright@riverwright` | skill falls back to its own bundle path (below) |
+| Gemini CLI | `gemini extensions install https://github.com/pacphi/riverwright --auto-update` | `${extensionPath}/bin/riverwright` in commands; skill fallback |
 | Cursor | Once listed: `/add-plugin riverwright` (or Customize → Install; team import via dashboard). Until listed: `cursor-agent --plugin-dir <clone>` (`cursor-agent plugin` only exposes `marketplace`). **Unverified** | skill fallback |
-| Grok Build | `grok plugin install agentic-incubator/riverwright` (user adds `--trust` themselves) | `GROK_PLUGIN_ROOT` in hooks; skill fallback |
-| Hermes Agent | `hermes plugins install agentic-incubator/riverwright` (user chooses `--enable`). **Unverified**: read from `plugins_cmd_install.py`, not exercised | skill fallback |
+| Grok Build | `grok plugin install pacphi/riverwright` (user adds `--trust` themselves) | `GROK_PLUGIN_ROOT` in hooks; skill fallback |
+| Hermes Agent | `hermes plugins install pacphi/riverwright` (user chooses `--enable`). **Unverified**: read from `plugins_cmd_install.py`, not exercised | skill fallback |
 
 **Skill fallback:** every skill that calls `riverwright` tries `riverwright` on PATH first, then the `bin/riverwright` in its
 own bundle (resolved from the skill file's location, which each host reports), and otherwise tells the
@@ -460,7 +511,7 @@ A repository can prompt its contributors to install the plugin in Claude Code wi
 ```json
 {
   "extraKnownMarketplaces": {
-    "riverwright": { "source": { "source": "github", "repo": "agentic-incubator/riverwright" } }
+    "riverwright": { "source": { "source": "github", "repo": "pacphi/riverwright" } }
   },
   "enabledPlugins": { "riverwright@riverwright": true }
 }
@@ -471,7 +522,7 @@ and Grok marketplaces go in `docs/install.md`.
 
 ### 12.5 Secondary channels and listings
 
-- `npx skills add agentic-incubator/riverwright` installs the skills only (no `bin/riverwright`, hooks
+- `npx skills add pacphi/riverwright` installs the skills only (no `bin/riverwright`, hooks
   or agents); the skills detect the missing runtime and point to the full install.
 - Listings, after v1 passes its gate: Claude plugin directory (claude.ai/directory/manage), the Codex
   plugin directory, the Gemini extension gallery (GitHub topic `gemini-cli-extension`), the Cursor
@@ -564,7 +615,7 @@ hook, never both; the fixture test asserts exactly one hook fires per command.
   refused; a second run changes nothing (byte-identical).
 - Hook contract tests: recorded payloads per host → exact deny output and exit code; includes a
   crashing hook script (must deny) for every host.
-- Fixture repo `agentic-incubator/riverwright-fixture`: reproducible bug, flaky bug, bug fixed at HEAD,
+- Fixture repo `pacphi/riverwright-fixture`: reproducible bug, flaky bug, bug fixed at HEAD,
   AI-banned policy branch, a duplicate pair and a same-function pair (for Spec 3).
 - **Spec 1 done when:** the reproducible fixture bug reaches the submit gate in Claude Code, Codex and
   Gemini CLI; each early-exit fixture stops with the right reason; every guard and hook-contract test

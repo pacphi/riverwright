@@ -28,6 +28,9 @@ Terms marked *(planned)* are designed but not built.
 | **Classifier** | The conservative parser that decides whether a shell command could publish or weaken a lock. | Safety |
 | **Approval** | A recorded human decision for a gate. | Safety |
 | **Binding** | What an approval is tied to: a full commit SHA, or a SHA-256 of normalized content. A change voids the approval. | Safety |
+| **Vault** | The encrypted file holding the GitHub token and the signing key, opened only by the human's passphrase. | Safety |
+| **Unlock** | The human typing the passphrase at the terminal inside `submit` or `post`. It releases the credential and is the approval for a public action. | Safety |
+| **Receipt** | The signed ledger record of an unlock: gate, binding, ledger head, sequence number and nonce. | Safety |
 | **Sanitizer** | Removes and reports hidden characters from upstream text before it is stored or shown to a model. | Safety |
 | **Outward action** | Anything visible outside this machine: a push, a pull request, an issue, a comment, a fork. | Safety |
 
