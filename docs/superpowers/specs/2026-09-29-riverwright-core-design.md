@@ -543,13 +543,12 @@ hook, never both; the fixture test asserts exactly one hook fires per command.
 
 ## 14. Integration seams
 
-- **Watch and adopt (Specs 4 and 5).** The shared thread record, its events and the rules for who may change
-  what are defined in [the thread-record design](2026-09-29-riverwright-thread-record-design.md). It is a
-  superset of agentic-kit's upstream-watch entry (registry `src/lib/hook-audit/agentic-dependency-constraints.json`,
-  lifecycle `watching → fixed-unreleased → released → dispatched → adopted → retired`), so agentic-kit's file is valid
-  input. `riverwright submit` registers the thread it opens; posting anything upstream stays behind the approval
-  gates, with `explicit-user-approval-required` as the default for every dependency. Spec 3 (batch) may read the
-  registry as batch input.
+- **Follow and adopt (Specs 4 and 5).** The thread record, the audit and tracking data model, and the rules for who may
+  change what are defined in [the thread-record design](2026-09-29-riverwright-thread-record-design.md), in Riverwright's
+  own vocabulary. It includes a read-only import from agentic-kit's upstream-watch registry, so its existing threads carry
+  over. `riverwright submit` registers the thread it opens; posting anything upstream stays behind the approval gates,
+  with `explicit-user-approval-required` as the default for every upstream. Spec 3 (batch) may read the registry as
+  batch input.
 - **Batch mode.** Scan, triage, twin detection, touch-set lanes, trial merge, pacing, `Depends on #n`.
 
 ## 15. Testing and done criteria

@@ -14,7 +14,7 @@ names and types rather than guesses.
 
 After the core (Plans 1 to 3), the same product grows in three more specs that share one thread record
 ([design](../specs/2026-09-29-riverwright-thread-record-design.md)): **Spec 3 batch mode** (scan, twins, lanes, pacing),
-**Spec 4 watch and status** (follow threads until the fix ships) and **Spec 5 adopt and correspond** (remove the
+**Spec 4 follow and report** (follow threads until the fix ships) and **Spec 5 adopt and correspond** (remove the
 workaround, keep the conversation friendly). Each gets its own plan once the one before it exists in code.
 
 Plan 3 contains outward actions (creating the fixture repository, pushing to a real fork, opening a real
