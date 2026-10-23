@@ -1,0 +1,24 @@
+{
+  "name": "riverwright",
+  "version": "0.1.0",
+  "description": "Reproduce, fix and propose upstream bug fixes, with your approval at every public step.",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "packageManager": "pnpm@12.8.1",
+  "engines": {
+    "node": ">=24"
+  },
+  "bin": {
+    "riverwright": "scripts/riverwright.mjs",
+    "rw": "scripts/riverwright.mjs"
+  },
+  "scripts": {
+    "test": "node --test",
+    "lint:md": "markdownlint-cli2",
+    "lint:md:fix": "markdownlint-cli2 --fix"
+  },
+  "devDependencies": {
+    "markdownlint-cli2": "0.23.3"
+  }
+}

@@ -1,0 +1,15 @@
+#!/bin/sh
+# Riverwright short alias for macOS, Linux and Git Bash: runs bin/riverwright with the same arguments.
+self=$0
+while [ -h "$self" ]; do
+  link=$(readlink "$self") || break
+  case $link in
+    /*) self=$link ;;
+    *) self=${self%/*}/$link ;;
+  esac
+done
+case $self in
+  */*) dir=${self%/*} ;;
+  *) dir=. ;;
+esac
+exec "$dir/riverwright" "$@"

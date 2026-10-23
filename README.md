@@ -13,6 +13,10 @@ Approval-gated agent toolkit for the open-source projects you depend on. It repr
 
 It is designed to work with Claude Code, Codex CLI, Gemini CLI, Cursor, Grok Build and Hermes Agent.
 
+## Documentation
+
+Start with the [documentation map](docs/README.md) and the [roadmap](docs/ROADMAP.md), which lists every use case and feature with its status.
+
 ## Command
 
 `riverwright`, with the short alias `rw`.
