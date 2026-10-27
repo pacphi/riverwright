@@ -12,12 +12,22 @@ agentdb.rvf*
 *.rvf.lock
 *.rvf.manifest.json
 ruvector.db
+*.db
+*.db-shm
+*.db-wal
+# RuvNet Brain local state
+.ruvnet-brain/
 # Launchers onboarding points at this machine's installs (D6, D11): per machine, never shared
 .mcp.json
 .mcp.json.*
 .codex/
 # Claude Code: local settings and agent worktrees (D19)
+.claude/
 **/.claude/settings.local.json
 .claude/worktrees/
 # Leftover tool locks
 .beads.gate.lock
+
+# Node and OS noise
+node_modules/
+.DS_Store

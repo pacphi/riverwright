@@ -1,0 +1,1 @@
+{ "_provenance": "docs", "payload": { "hook_event_name": "BeforeTool", "tool_name": "run_shell_command", "tool_input": { "command": "{{command}}" }, "cwd": "{{cwd}}" } }
