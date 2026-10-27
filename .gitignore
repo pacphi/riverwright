@@ -1,13 +1,32 @@
-# Local tooling state (not part of the plugin)
+# AI tool output (Ruflo, Agentic QE, AgentDB, RuVector, Codex, Claude Code)
+# Private learned stores and one machine's launchers: never commit them. AGENTS.md and CLAUDE.md stay tracked.
+# Ruflo (claude-flow) runtime state and swarm stores
+.claude-flow/
+.swarm/
+.hive-mind/
+# Agentic QE runtime state and learned stores
+.agentic-qe/
+# AgentDB and RuVector stores
+agentdb.rvf*
+*.rvf
+*.rvf.lock
+*.rvf.manifest.json
+ruvector.db
 *.db
 *.db-shm
 *.db-wal
-.claude/
-.claude-flow/
-.swarm/
-.agentic-qe/
+# RuvNet Brain local state
 .ruvnet-brain/
+# Launchers onboarding points at this machine's installs (D6, D11): per machine, never shared
 .mcp.json
+.mcp.json.*
+.codex/
+# Claude Code: local settings and agent worktrees (D19)
+.claude/
+**/.claude/settings.local.json
+.claude/worktrees/
+# Leftover tool locks
+.beads.gate.lock
 
 # Node and OS noise
 node_modules/
