@@ -164,7 +164,7 @@ tested on the practice project, and seen in a real run.
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
 | Q-01 | CI matrix: Ubuntu, macOS and Windows on Node 24 and 26 | `verified` | M1 | [workflow](../.github/workflows/ci.yml), [CI](https://github.com/pacphi/riverwright/pull/1) |
-| Q-02 | Dependabot for GitHub Actions and npm | `implemented` | M0 | [config](../.github/dependabot.yml) |
+| Q-02 | Renovate for GitHub Actions and npm | `implemented` | M0 | [config](../.github/renovate.json) |
 | Q-03 | Fixture repository with planted bugs, including twins and a same-function pair | `designed` | M3 | [spec §15](specs/core-single-issue-pipeline.md) |
 | Q-04 | Real captured hook payloads replacing documented ones | `proposed` | M3 | [plans](plans/README.md) |
 | Q-05 | First real upstream run (candidate `ruvnet/ruflo#3509`), every public step approved | `designed` | M3 | [spec §15](specs/core-single-issue-pipeline.md) |
