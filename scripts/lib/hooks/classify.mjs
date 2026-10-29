@@ -25,17 +25,20 @@ export { hasUnresolved };
 // ahead of it. After a literal riverwright program only its own slot counts: its other arguments are riverwright's.
 //   - Known non-executing tools: the arguments of grep, egrep, fgrep, rg, echo, printf, cat, head, tail, wc, sort,
 //     uniq, diff, cmp, ls, stat, file, mount, umount, chmod, chown, cp, mv, ln, mkdir, rmdir, touch, cut, tr,
-//     curl, wget, jq, sed (no e/w/W command or flag, no -f script), awk (no system() or pipe, no -f), find (no
-//     -exec/-execdir/-ok/-okdir) and git (seen through env, sudo, nice, nohup, timeout, time, command, exec,
-//     builtin and the other pass-through wrappers) are not read as programs, and their quoted arguments are not
-//     read as commands. git's -c values and "!" aliases are read as commands.
+//     curl, wget, jq, rg (no --pre), sed (no e/w/W command or flag, no -f script), awk (no system() or pipe, no
+//     -f), find (no -exec/-execdir/-ok/-okdir) and git (not bisect, rebase, submodule, difftool, mergetool, config,
+//     hook and the other subcommands that run a command), seen through env, sudo, nice, nohup, timeout, time,
+//     command, exec, builtin and the other pass-through wrappers, are not read as programs, and their quoted
+//     arguments are not read as commands. git's -c values and "!" aliases are always read as commands.
 //   - Every other program fails closed: all of its words are checked, and its quoted arguments, here-documents
 //     and here-strings are lexed as commands. Nested payloads are lexed and checked the same way: sh/bash/zsh/
 //     dash/pwsh/cmd -c, eval, env -S, su -c, expect -c, script, tmux, screen, watch and ssh (their joined
 //     arguments), ssh -o ProxyCommand=..., git -c alias.*=!... and other -c values, command substitutions, code
-//     piped or fed to a shell, and assignments (EDITOR="...", x="..."; $x).
-//   - Structural checks kept from earlier rounds: xargs, parallel and find -exec feeding riverwright; alias
-//     definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, ...) that names
+//     piped or fed to a shell or to at, batch, crontab, ssh, su, script or expect (when the piped text cannot be
+//     read exactly, the words of the command that writes it are checked as if they ran), and assignments
+//     (EDITOR="...", x="..."; $x).
+//   - Structural checks kept from earlier rounds: xargs, parallel, find -exec and rg --pre feeding riverwright;
+//     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, ...) that names
 //     it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
 // Its honest limits: it reads one command line, so it cannot see
 //   - code inside a script file, Makefile or package.json that the command runs (sh ./x.sh, make, npm run),
@@ -234,7 +237,7 @@ function classifyStdinCode(prog, cmd, ctx, judge) {
   }
   if (cmd.stdin === 'pipe') {
     const text = pipedText(cmd.prev);
-    if (text === null) return unresolvable(`${prog} runs code piped in from another command`);
+    if (text === null) return pipedCredential(cmd.prev, ctx) ?? unresolvable(`${prog} runs code piped in from another command`);
     return judge(text);
   }
   return null;
@@ -631,7 +634,7 @@ function toolScripts(prog, args) {
       if (t.startsWith('--expression=')) { scripts.push(t.slice(13)); continue; }
       if (t === '-l' || t === '--line-length') { i += 1; continue; }
     }
-    if (t.startsWith('-') && t !== '-') continue;
+    if ((t.startsWith('-') && t !== '-') || t === '') continue;
     positional = t;
     break;
   }
@@ -639,8 +642,25 @@ function toolScripts(prog, args) {
   return scripts;
 }
 
+// git subcommands that run a command they are given (bisect run, rebase -x, submodule foreach, difftool
+// --extcmd, a configured editor or alias, hooks).
+const GIT_RUNNERS = new Set(['bisect', 'rebase', 'submodule', 'filter-branch', 'filter-repo', 'difftool', 'mergetool', 'config', 'hook', 'for-each-repo', 'daemon', 'instaweb', 'send-email']);
+
+function gitSubcommand(args) {
+  for (let i = 0; i < args.length; i += 1) {
+    const t = nameOf(args[i]);
+    if (t === '-c' || t === '--config-env' || GIT_VALUE_OPTS.has(t)) { i += 1; continue; }
+    if (t.startsWith('-')) continue;
+    return t.toLowerCase();
+  }
+  return null;
+}
+
 function nonExecuting(prog, args) {
   if (!NON_EXECUTING.has(prog)) return false;
+  if (prog === 'git') return !GIT_RUNNERS.has(gitSubcommand(args));
+  // ripgrep runs a --pre preprocessor with each file name as its argument.
+  if (prog === 'rg') return !args.some((w) => /^--pre(=|$)/.test(nameOf(w)));
   if (prog === 'find') return !args.some((w) => FIND_EXEC.includes(nameOf(w)));
   if (prog === 'sed') { const s = toolScripts(prog, args); return s !== null && !s.some((x) => /[ewW]/.test(x)); }
   if (/awk$/.test(prog)) { const s = toolScripts(prog, args); return s !== null && !s.some((x) => /system|\|/.test(x)); }
@@ -742,7 +762,8 @@ function gitPayloads(args, ctx) {
 
 // The slot rule over one command's words. Returns a credential verdict or null. parenNext: the command was cut
 // short by "(" (fish and PowerShell evaluate a parenthesised argument, so its output is the next word).
-function credentialSlots(ws, ctx, depth = 0, parenNext = false) {
+// force: check every word even when the program is a non-executing tool (its output is about to be run).
+function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
   if (!ws.length || depth > 8) return null;
   // Assignments before the program can hold a command the program runs (EDITOR, PAGER, GIT_SSH_COMMAND) or a
   // command run later from the variable (x="rw credential setup"; $x).
@@ -756,7 +777,8 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false) {
   const k = programIndex(ws);
   const prog = k < ws.length ? programName(ws[k]) : undefined;
   const args = ws.slice(k + 1);
-  if (prog && nonExecuting(prog, args)) return prog === 'git' ? gitPayloads(args, ctx) : null;
+  if (prog === 'git') { const v = gitPayloads(args, ctx); if (v) return v; }
+  if (prog && !force && nonExecuting(prog, args)) return null;
   if (prog === 'xargs') return credentialSlots(args.slice(xargsCommandIndex(args)), ctx, depth + 1);
   if (prog === 'find') {
     // Only the commands find runs; its own arguments are paths and tests.
@@ -769,6 +791,14 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false) {
       i = end;
     }
     return null;
+  }
+  if (prog === 'rg') {
+    // rg --pre PROG runs PROG with each file name as its first argument: a file can be named "credential".
+    for (let i = 0; i < args.length; i += 1) {
+      const t = nameOf(args[i]);
+      const pre = t === '--pre' ? args[i + 1] : t.startsWith('--pre=') ? { ...args[i], value: t.slice(6), shape: shapeOf(args[i]).slice(6) } : null;
+      if (pre && mayBeRiverwright(pre, ctx)) return credentialVerdict('rg --pre runs riverwright with each file name as its subcommand (a file can be named "credential")');
+    }
   }
   if (prog === 'start-process' || prog === 'saps') {
     if (args.some((w) => mayBeRiverwright(w, ctx))) return credentialVerdict('Start-Process runs riverwright with an argument list (it could hold "credential")');
@@ -787,7 +817,19 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false) {
     const v = payload(args.map((w) => nameOf(w)).join(' '), ctx);
     if (v) return v;
   }
+  if (force) {
+    for (const w of ws) { const v = /\s/.test(w.value) ? payload(w.value, ctx) : null; if (v) return v; }
+  }
   return null;
+}
+
+// Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads).
+const STDIN_RUNNERS = new Set(['at', 'batch', 'crontab', 'ssh', 'su', 'runuser', 'script', 'expect']);
+
+// The command piping into a program that runs its stdin: its output is a command, so its words are checked as if
+// it ran them (echo -e 'rw credential setup' | sh, printf '%s\n' rw credential | at now).
+function pipedCredential(prev, ctx) {
+  return prev && ctx.cred ? credentialSlots(prev.words, ctx, 1, false, true) : null;
 }
 
 // Inline code (node -e, python -c, perl -e, ruby -e, deno eval, bun -e) that starts riverwright with "credential"
@@ -811,6 +853,9 @@ function classifySimple(cmd, ctx) {
   }
   // The riverwright-credential rule (R26) runs before any other rule can settle the verdict.
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
+  if (ctx.cred && cmd.stdin === 'pipe' && STDIN_RUNNERS.has(programName(cmd.words[programIndex(cmd.words)]))) {
+    if (take(pipedCredential(cmd.prev, ctx))) return found;
+  }
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo
   // or git commit -m are text, never commands.

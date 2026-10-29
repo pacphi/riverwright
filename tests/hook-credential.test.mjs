@@ -264,6 +264,20 @@ const DENIED_R26 = [
   // fish and PowerShell evaluate a parenthesised argument: its output is the slot.
   'rw (echo credential)',
   "& rw ('cred'+'ential')",
+  // git subcommands that run commands, BSD sed -i '', rg --pre, and code piped to something that runs it.
+  'git bisect run rw credential setup',
+  "git rebase -x 'rw credential setup' HEAD~2",
+  "git submodule foreach 'rw credential setup'",
+  "git difftool --extcmd='rw credential setup'",
+  "git config core.editor 'rw credential setup' && git commit",
+  "sed -i '' 's/.*/rw credential setup/e' f",
+  'touch credential; rg --pre rw x credential',
+  'rg --pre=rw x credential',
+  "echo -e 'rw credential setup' | sh",
+  "printf '%s\\n' rw credential setup | sh",
+  "echo 'rw credential setup' | at now",
+  "echo '* * * * * rw credential setup' | crontab -",
+  "echo 'rw credential setup' | ssh host",
 ];
 // R26 accepted cost: an unknown program may run its arguments, so a variable there could be riverwright, and the
 // variable after it the subcommand. The xargs and gh rules are unchanged structural checks.
@@ -304,6 +318,11 @@ const ALLOWED_R26 = [
   'rw state get *',
   'ls rw $(pwd)',
   'echo riverwright `date`',
+  "git commit -m 'rw credential'",
+  "git log --grep 'rw credential'",
+  'git config user.name rw',
+  'git rebase -i HEAD~2',
+  'echo rw credential | grep x',
 ];
 // The CLI dispatches on its first argument only (scripts/lib/cli.mjs main), so these cannot run the credential
 // command: riverwright answers "unknown command --home". The slot rule allows them.
