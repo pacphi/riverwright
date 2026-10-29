@@ -431,8 +431,10 @@ human action in front of every public step.
 Decision and evidence: [ADR-0010](../adr/0010-sealed-credential-released-by-human-unlock.md),
 [research](../research/credential-separation.md). Plan 2a built everything in this section except the `submit` and
 `post` commands themselves, the `doctor` report and the push that uses the hardware key, which arrive in Plan 2b.
-Nothing here has been checked in CI on all three systems or by the owner's manual checks yet (Plan 2a, Tasks 16
-and 17).
+Nothing here has been checked in CI on all three systems or by the owner's manual checks yet (Plan 2a, Task 16;
+both owner-pending), so nothing is verified. The independent security review (Task 17: two reviews and a Codex
+re-review) is done; its findings and outcomes are in
+[research §11](../research/credential-separation.md#11-review-findings-for-plan-2a).
 
 **Vault.** `riverwright credential setup|status|remove` manages one vault file per account at
 `<home>/vault/vault.json` (a person runs this command, so `<home>` honors `RIVERWRIGHT_HOME`; see §7.1 for what

@@ -107,7 +107,9 @@ review by a second model family follows the build, with reviewers read-only.
 
 Updated 2026-10-29. Built by [Plan 2a](../plans/2026-09-30-plan-2a-security-foundation.md) on the branch
 `plan-2a-security`, reviewed task by task, not yet merged into `develop`, not yet run in CI on all three systems, and
-not yet through the owner's manual checks (Task 16) or the independent security review (Task 17).
+not yet through the owner's manual checks (Task 16). The independent security review (Task 17: two reviews and a
+Codex re-review) is done; its outcomes are in
+[research §11](../research/credential-separation.md#11-review-findings-for-plan-2a).
 
 - **Built:** the vault and `riverwright credential setup|status|remove` (item 1); the public gate
   `runPublicAction` with the summary, the passphrase unlock, the recompute before the action and before every retry,

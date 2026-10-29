@@ -6,12 +6,14 @@ Spec: [`docs/specs/core-single-issue-pipeline.md`](../specs/core-single-issue-pi
 `riverwright read`; Plan 2b is being revised to match). Execution: subagent-driven, starting with Plan 2a; the method
 for 2b and 2c is decided after 2a. Nothing is built until the owner gives the go-ahead.
 
-**Status on 2026-10-29:** the owner gave the go-ahead for Plan 2a on 2026-10-28. Tasks 1 to 14 are built and
-reviewed task by task on the branch `plan-2a-security`, and Task 15 (these documents) is written with its review
-pending; everything is committed locally, not pushed or merged. Still to come:
-the owner's manual checks (Task 16), the independent security review (Task 17) and a green CI run on all three
-systems; then the owner decides about merging into `develop`. Where the build differs from the plan text, the
-specs and the ADRs' implementation status sections say what was built. Plans 2b and 2c have not started.
+**Status on 2026-10-29:** the owner gave the go-ahead for Plan 2a on 2026-10-28. Tasks 1 to 15 are built and
+reviewed task by task on the branch `plan-2a-security` (Task 15, these documents, included). Task 17, the
+independent security review, is done: two reviews (Claude and Codex) and a Codex re-review, with the findings and
+outcomes in [research §11](../research/credential-separation.md#11-review-findings-for-plan-2a); a final
+whole-branch review followed. Everything is committed locally, not pushed or merged, and nothing is verified. Still
+to come, both owner-pending: the owner's manual checks (Task 16) and a green CI run on all three systems; then the
+owner decides about merging into `develop`. Where the build differs from the plan text, the specs and the ADRs'
+implementation status sections say what was built. Plans 2b and 2c have not started.
 
 Spec 1 is built through three plans. Each ends with working, tested software. Plans 2a to 2c were written
 against a verified scratch prototype of the plan before them, so they name real functions and types; Plan 3 is
