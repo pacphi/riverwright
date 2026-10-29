@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { APPROVAL_MODES, GATES, checkBinding, contentHash, makeBinding, recordApproval, isApprovalValid, approvedSha, approvedBranch, revokeGate } from '../scripts/lib/approvals.mjs';
+import { APPROVAL_MODES, GATES, checkBinding, contentHash, makeBinding, recordApproval, isApprovalValid, revokeGate } from '../scripts/lib/approvals.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -23,7 +23,6 @@ test('an approval is valid only for the approved commit', () => {
   assert.equal(isApprovalValid(s, 'submit-gate', { sha: A }), true);
   assert.equal(isApprovalValid(s, 'submit-gate', { sha: B }), false);
   assert.equal(isApprovalValid(s, 'checkpoint-1', { sha: A }), false);
-  assert.equal(approvedSha(s, 'submit-gate'), A);
 });
 
 test('a DCO sign-off changes the SHA, so the pre-sign-off approval stops counting', () => {
@@ -44,7 +43,7 @@ test('content approvals survive line-ending changes but not edits', () => {
 test('revokeGate voids the gate', () => {
   const s = revokeGate(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' }), 'submit-gate', { now: 't2' });
   assert.equal(isApprovalValid(s, 'submit-gate', { sha: A }), false);
-  assert.equal(approvedSha(s, 'submit-gate'), null);
+  assert.equal(s.approvals[0].revoked, true);
 });
 
 test('unknown gates and modes are rejected', () => {
@@ -55,8 +54,8 @@ test('unknown gates and modes are rejected', () => {
 
 test('a submit-gate approval can name the run branch, and only a riverwright/ branch', () => {
   const s = recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'riverwright/3509-codex' });
-  assert.equal(approvedBranch(s, 'submit-gate'), 'riverwright/3509-codex');
-  assert.equal(approvedBranch(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'refs/heads/riverwright/1-x' }), 'submit-gate'), 'riverwright/1-x');
+  assert.equal(s.approvals[0].branch, 'riverwright/3509-codex');
+  assert.equal(recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: 'refs/heads/riverwright/1-x' }).approvals[0].branch, 'riverwright/1-x');
   for (const bad of ['main', 'riverwright/../main', 'riverwright/a b', 'riverwright/', 'riverwright/x.lock', 'refs/heads/main']) {
     assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: bad }), /branch/, bad);
   }

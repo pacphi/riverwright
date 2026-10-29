@@ -169,6 +169,8 @@ function checkOne(event, publicKey, ledgerDir) {
 // to the requested SHA or content (and, when `nonce` is given, only that one receipt; when `seq` is given, only the
 // event at that ledger position, which a copied receipt cannot fake because checkOne compares the signed seq). `binding` is required: a forgotten argument must not accept any binding.
 // Returns { ok: true, receipt, seq } or { ok: false, reason }.
+// The `nonce` parameter is KEPT FOR PLAN 2B (final review M4): no caller passes it today (the guard and the
+// submit proof select by `seq`).
 export function findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, nonce = null, seq = null }) {
   if (!isObject(binding)) throw bad('findValidReceipt needs the binding ({ kind, value }) being published');
   const events = readEvents(ledgerDir).filter(isObject);
@@ -215,6 +217,9 @@ export function findNewestValidReceipt({ ledgerDir, publicKey, gate, run, nowMs,
 // guard can see it, and records the outcome once afterwards. A crash mid-action therefore leaves the receipt
 // usable until it expires, bound to the exact commit, branch and fork (ADR-0014). Throws RECEIPT_REFUSED with
 // the reason when no receipt qualifies.
+// KEPT FOR PLAN 2B (final review M4): no production code calls this yet; only tests do. It is the "claimed"
+// state that ADR-0014 option B would use, and `ledger verify` already reads claimed lines. Remove it if the owner
+// chooses ADR-0014 option A and Plan 2b does not use it.
 export function consumeReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, at, outcome = 'claimed' }) {
   if (!['claimed', 'succeeded', 'failed'].includes(outcome)) throw bad('outcome must be claimed, succeeded or failed');
   let receipt;

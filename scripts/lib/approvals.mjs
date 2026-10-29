@@ -69,15 +69,6 @@ export function isApprovalValid(state, gate, target) {
   return a.binding.kind === want.kind && a.binding.value === want.value;
 }
 
-export function approvedSha(state, gate) {
-  const a = latest(state, gate);
-  return a && a.binding.kind === 'sha' ? a.binding.value : null;
-}
-
-export function approvedBranch(state, gate) {
-  return latest(state, gate)?.branch ?? null;
-}
-
 export function revokeGate(state, gate, { now }) {
   return {
     ...state,
