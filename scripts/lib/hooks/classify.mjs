@@ -537,7 +537,10 @@ const LAUNCHER_FILES = ['../../../bin/riverwright', '../../../bin/riverwright.cm
 
 const credentialVerdict = (why) => outward('riverwright-credential', why);
 const isCredential = (v) => v?.rule === 'riverwright-credential';
-const prefer = (found, v) => (!found || (isCredential(v) && !isCredential(found)) ? (v ?? found) : found);
+// The rules that apply everywhere outrank the others: riverwright-credential first, then riverwright-publish-env (F3).
+const RANK = { 'riverwright-credential': 2, 'riverwright-publish-env': 1 };
+const rank = (v) => (v ? (RANK[v.rule] ?? 0) : -1);
+const prefer = (found, v) => (!found || rank(v) > rank(found) ? (v ?? found) : found);
 const mentionsCredential = (s) => /credential/i.test(String(s).replace(/["'`\\^]/g, ''));
 
 // A glob, matched (never expanded) against a short name, case-insensitively. Any [...] class counts as one
@@ -1458,6 +1461,57 @@ function runtimeCredential(cmd, ctx) {
   return null;
 }
 
+// F3 (Task 17): "riverwright submit" and "riverwright post" ask the human for the passphrase. An environment variable
+// that changes which code node loads or which programs it finds (NODE_OPTIONS, NODE_PATH, NODE_EXTRA_CA_CERTS, PATH,
+// LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT, DYLD_*), set in front of them or earlier in the same command line, or a node
+// runtime option in front of the launcher script (--require, --import, --loader, --inspect, ...), would put code the
+// agent chose in the process the passphrase is typed into. Such a command is denied everywhere, like the credential
+// rule. The plain trusted publish (the launcher, or node with the launcher script, and nothing else) never gets here.
+const PUBLISH_ENV = /^(NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|PATH|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|DYLD_\w+)$/i;
+const PUBLISH_SUBCOMMANDS = ['submit', 'post'];
+const SETTERS = new Set(['export', 'declare', 'typeset', 'local', 'readonly', 'set', 'setenv']);
+const assignedName = (w) => /^([A-Za-z_][A-Za-z0-9_]*)\+?=/.exec(nameOf(w))?.[1] ?? null;
+
+function couldBePublish(w) {
+  if (!w) return false;
+  const sh = shapeOf(w);
+  return /[{}]/.test(sh) || EXTGLOB.test(sh) || sh.split(',').some((part) => PUBLISH_SUBCOMMANDS.some((n) => globMatch(part, n)));
+}
+
+function publishEnvVerdict(cmd, ctx) {
+  const ws = cmd.words;
+  const k = programIndex(ws, ctx);
+  const pre = ws.slice(0, k);
+  const named = pre.map(assignedName).filter((n) => n && PUBLISH_ENV.test(n));
+  const prog = k < ws.length && !isLauncherPath(ws[k], ctx) ? programName(ws[k]) : null;
+  // A lone assignment (PATH=/x; ...) or an export changes what later commands in the line run with.
+  if (k >= ws.length || SETTERS.has(prog)) {
+    const set = [...named, ...(SETTERS.has(prog) ? ws.slice(k + 1).map((w) => /^([A-Za-z_][A-Za-z0-9_]*)/.exec(nameOf(w))?.[1]).filter((n) => n && PUBLISH_ENV.test(n)) : [])];
+    if (set.length && !ctx.opts.publishTaint) ctx.opts.publishTaint = set[0];
+    return null;
+  }
+  let sub = null;
+  const flags = [];
+  if (isLauncherPath(ws[k], ctx) || isLiteralRiverwright(ws[k])) sub = ws[k + 1];
+  else if (prog !== null && JS_RUNTIMES.has(prog)) {
+    const spec = INTERPRETERS.find((x) => x.test.test(prog));
+    for (let j = k + 1; j < ws.length; j += 1) {
+      const t = nameOf(ws[j]);
+      if (t.startsWith('-') && t !== '-') {
+        flags.push(t);
+        if (spec?.values.includes(t) || PRELOAD_OPTS.has(t)) j += 1;
+        continue;
+      }
+      if (codeFileIsRiverwright(ws[j], ctx)) sub = ws[j + 1];
+      break;
+    }
+  }
+  if (!couldBePublish(sub)) return null;
+  const why = named.length ? `setting ${named[0]}` : flags.length ? `the node option ${flags[0]}` : ctx.opts.publishTaint ? `setting ${ctx.opts.publishTaint} earlier in the command` : null;
+  if (!why) return null;
+  return outward('riverwright-publish-env', `${why} in front of "riverwright ${nameOf(sub)}" could load code into the process you type your passphrase into. Run "riverwright submit" or "riverwright post" plainly, in your own terminal`);
+}
+
 // Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
 // they are given no command of their own.
 const STDIN_RUNNERS = new Set(['at', 'batch', 'crontab', 'ssh', 'su', 'runuser', 'script', 'expect']);
@@ -1582,6 +1636,7 @@ function classifySimple(cmd, ctx) {
   // The riverwright-credential rule (R26) runs before any other rule can settle the verdict.
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
   if (ctx.cred && take(runtimeCredential(cmd, ctx))) return found;
+  if (ctx.cred) take(publishEnvVerdict(cmd, ctx));
   if (ctx.cred && cmd.stdin === 'pipe' && take(stdinRunnerCredential(cmd, ctx))) return found;
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo

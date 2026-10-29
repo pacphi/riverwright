@@ -321,3 +321,60 @@ test('F2: the real hook denies a launcher link reached after cd (exit 2)', posix
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
   }
 });
+
+// F3 (Claude): an environment or runtime-flag prefix on riverwright submit or post lost the publish exemption but was
+// not denied, so the human could type the passphrase into a process whose code the agent chose.
+const L = path.join(ROOT, 'bin', 'riverwright');
+const LS = path.join(ROOT, 'scripts', 'riverwright.mjs');
+const TRUSTED = { trustedLauncher: [L, path.join(ROOT, 'bin', 'riverwright.cmd'), LS] };
+const F3_DENIED = [
+  `NODE_OPTIONS=--require=/tmp/evil.cjs ${L} submit`,
+  `env NODE_OPTIONS=--require=/tmp/evil.cjs ${L} submit`,
+  `env -i NODE_OPTIONS=x ${L} post`,
+  `PATH=/tmp/evil:/usr/bin ${L} submit`,
+  `NODE_PATH=/tmp/m ${L} submit`,
+  `NODE_EXTRA_CA_CERTS=/tmp/ca.pem ${L} post`,
+  `LD_PRELOAD=/tmp/x.so ${L} submit`,
+  `LD_LIBRARY_PATH=/tmp/l ${L} submit`,
+  `DYLD_INSERT_LIBRARIES=/tmp/x.dylib ${L} submit`,
+  `DYLD_LIBRARY_PATH=/tmp/l ${L} post`,
+  `sudo env PATH=/tmp/e ${L} submit`,
+  'NODE_OPTIONS=--require=/tmp/evil.cjs rw submit',
+  'PATH=/tmp/evil:/usr/bin riverwright post',
+  `node --require /tmp/evil.cjs ${LS} submit`,
+  `node -r /tmp/evil.cjs ${LS} submit`,
+  `node --import=/tmp/evil.mjs ${LS} post`,
+  `node --loader /tmp/l.mjs ${LS} submit`,
+  `node --experimental-loader=/tmp/l.mjs ${LS} submit`,
+  `node --inspect ${LS} submit`,
+  `node --inspect-brk=0 ${LS} submit`,
+  `export NODE_OPTIONS=--require=/tmp/e.cjs; ${L} submit`,
+  `PATH=/tmp/e:$PATH; ${L} submit`,
+  `export PATH=/tmp/e; rw post`,
+  `NODE_OPTIONS=x ${L} su[b]mit`,
+];
+const F3_ALLOWED = [
+  `PATH=/tmp/x ${L} ledger verify --run /r`,
+  `NODE_OPTIONS=--max-old-space-size=4096 npm test`,
+  `node --inspect app.mjs`,
+  `${L} submit; export PATH=/tmp/x`,
+];
+
+test('F3: environment and runtime-flag prefixes in front of riverwright submit or post are denied everywhere', () => {
+  for (const c of F3_DENIED) assert.equal(classify(c, TRUSTED).rule, 'riverwright-publish-env', c);
+  for (const c of F3_ALLOWED) assert.equal(classify(c, TRUSTED).outward, false, c);
+  // The plain trusted publish stays allowed.
+  for (const c of [`${L} submit`, `${L} post`, `node ${LS} submit`]) assert.equal(classify(c, TRUSTED).riverwrightPublish, true, c);
+  // It outranks an ordinary outward verdict earlier in the command, so it holds outside the workspace too.
+  assert.equal(classify(`git push; NODE_OPTIONS=x ${L} submit`, TRUSTED).rule, 'riverwright-publish-env');
+});
+
+test('F3: the real hook denies a prefixed submit outside the workspace (exit 2) and allows the plain one', () => {
+  const outside = tmpDir('user-project-');
+  for (const c of [`NODE_OPTIONS=--require=/tmp/evil.cjs ${L} submit`, `node --require /tmp/evil.cjs ${LS} submit`, `PATH=/tmp/evil:/usr/bin ${L} post`]) {
+    const r = realHook(c, { cwd: outside });
+    assert.equal(r.status, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-publish-env/, c);
+  }
+  assert.equal(realHook(`${L} submit`, { cwd: outside }).status, 0);
+});

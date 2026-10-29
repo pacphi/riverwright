@@ -50,6 +50,9 @@ export async function run([host, ...rest], io) {
       // Always in scope (R23): the credential command acts on the account's vault wherever it runs, and a hook
       // sees only an agent's tool calls; the human runs it in their own terminal, which no hook sees.
       reason = `Blocked by Riverwright (riverwright-credential): ${verdict.detail}. An agent never runs this command; you run "riverwright credential" yourself, in your own terminal.`;
+    } else if (verdict.outward && verdict.rule === 'riverwright-publish-env') {
+      // Always in scope too (Task 17 F3): the passphrase prompt runs wherever the command runs.
+      reason = `Blocked by Riverwright (riverwright-publish-env): ${verdict.detail}.`;
     } else if (verdict.outward && inScope) {
       reason = `Blocked by Riverwright (${verdict.rule}): ${verdict.detail}. Public actions go through "riverwright submit" or "riverwright post" after your approval.`;
     } else if (verdict.outward && hasUnresolved(command) && hasActiveRun(home)) {
