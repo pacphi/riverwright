@@ -70,3 +70,28 @@ export function writeFileAtomic(p, data, { mode, followSymlink = false } = {}) {
   }
   return target;
 }
+
+// Files whose size cannot be trusted (git internals, hooks) are read through here. The file must be a regular file (a symlink to one is fine) of at
+// most `cap` bytes, checked before it is opened and again on the open descriptor; it is opened without blocking (a FIFO
+// opened by mistake does not wait for a writer) and read for at most `cap` bytes. Returns the text, or null when it
+// does not exist. Anything else (a FIFO, a device, a socket, a directory, an oversized file) throws, and the caller
+// treats the file as unreadable: git is then not trusted, which fails closed and never waits.
+export function readBounded(file, cap) {
+  let st;
+  try { st = fs.statSync(file); } catch (err) { if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null; throw err; }
+  const regular = (s) => s.isFile() && s.size <= cap;
+  if (!regular(st)) throw new Error(`not a regular file of at most ${cap} bytes: ${file}`);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOCTTY ?? 0));
+  try {
+    const fst = fs.fstatSync(fd);
+    if (!regular(fst)) throw new Error(`not a regular file of at most ${cap} bytes: ${file}`);
+    // The buffer is the file's size plus one byte: a file that grew since the check fails closed.
+    const buf = Buffer.alloc(fst.size + 1);
+    let n = 0;
+    for (let got = 1; got > 0 && n <= fst.size; n += got) got = fs.readSync(fd, buf, n, fst.size + 1 - n, null);
+    if (n > fst.size) throw new Error(`changed while it was read: ${file}`);
+    return buf.toString('utf8', 0, n);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
