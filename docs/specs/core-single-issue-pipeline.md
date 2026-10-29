@@ -290,8 +290,8 @@ What is built (Plan 2a):
   `GIT_TEST_COMMIT_GRAPH` or `GIT_ALTERNATE_OBJECT_DIRECTORIES` never reach it.
 - **What the guard cannot stop.** Git connects to the remote before it runs the pre-push hook, so the guard stops
   the push, not the network connection. When git names no ref to update (everything up to date, or every ref
-  refused by git itself, such as a stale `--force-with-lease`), the guard allows the empty push and records
-  "nothing to push". Every decision is written to the ledger; if it cannot be written, the push is refused.
+  refused by git itself, such as a stale `--force-with-lease`), the guard allows the empty push, after the same
+  destination and receipt checks, and records "nothing to push". Every decision is written to the ledger; if it cannot be written, the push is refused.
 - **Installing the guard** (`installGuard` in `scripts/lib/clone-guard.mjs`; `checkGuard` reports what is no
   longer true). It must be given only a workspace clone: it refuses a directory that is not the top of its own work
   tree (`NOT_CLONE_ROOT`), but given the root of a user's own repository it would replace that repository's local
