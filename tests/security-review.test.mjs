@@ -424,6 +424,51 @@ test('R37: the real hook denies a wrapped, prefixed or chained submit outside th
   }
 });
 
+// R38 (Codex re-review, Important 1): the allowlist missed the F1 shapes. node, bun or deno reading riverwright from
+// stdin, or preloading it, run it with the words after the script operand as its arguments, so "submit" or "post"
+// there reached the publish entry point. The publish rule now finds that slot the way the credential rule does.
+const R38_STDIN_DENIED = [
+  'node - submit < riverwright.mjs',
+  'node - post < riverwright.mjs',
+  `node - submit < ${LS}`,
+  'cat riverwright.mjs | node - post',
+  'node /dev/stdin submit < riverwright.mjs',
+  'node --import=./riverwright.mjs - submit < /dev/null',
+  'node --require ./riverwright.mjs - post',
+  'node -r./riverwright.mjs - submit',
+  `node --import=${LS} app.mjs submit`,
+  'NODE_OPTIONS=--import=./riverwright.mjs node - submit',
+  'NODE_OPTIONS=--import=./riverwright.mjs node - post < /dev/null',
+  'node --require ./attacker.cjs - submit < riverwright.mjs',
+  'bun - submit < riverwright.mjs',
+  'bun --preload ./riverwright.mjs - post',
+  'deno run - post < riverwright.mjs',
+  'node - su[b]mit < riverwright.mjs',
+];
+
+test('R38: node, bun or deno running riverwright from stdin or a preload with submit or post is denied everywhere', () => {
+  const opts = { ...TRUSTED, cwd: SCRIPTS };
+  for (const c of R38_STDIN_DENIED) assert.equal(classify(c, opts).rule, 'riverwright-publish-env', c);
+  for (const c of ['node - version < riverwright.mjs', 'node - submit < other.mjs', 'node --import ./setup.mjs app.mjs submit', 'node build.mjs submit']) {
+    assert.equal(classify(c, opts).outward, false, c);
+  }
+  // The plain trusted launcher, as the hook passes it, stays allowed.
+  for (const c of [`${L} submit`, `${L} post o/r#1`]) assert.deepEqual(classify(c, opts), { outward: false, riverwrightPublish: true }, c);
+});
+
+test('R38: the real hook denies submit or post read from stdin or preloaded (exit 2) and allows the plain launcher', async () => {
+  const home = tmpDir('riverwright-home-');
+  const run = (command) => callMain(['hook', 'claude-code', '--home', home], {
+    stdin: hookPayload(command, SCRIPTS), env: { HOME: hermeticDir, USERPROFILE: hermeticDir }, cwd: SCRIPTS, testing: { userInfo: () => ({ homedir: hermeticDir }) },
+  });
+  for (const c of ['node - submit < riverwright.mjs', 'node --import=./riverwright.mjs - post < /dev/null', 'cat riverwright.mjs | node - post']) {
+    const r = await run(c);
+    assert.equal(r.code, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-publish-env/, c);
+  }
+  assert.equal((await run(`${L} submit`)).code, 0);
+});
+
 // Parity (automated finding on the C1 fix): classify.mjs reads a NUL-bearing command several ways, but the scope check
 // (scope.mjs touchesHome) lexed it once (bash's reading), so the two could disagree about where the command reaches.
 // Both now take their readings from one helper, and a command is in scope when any reading reaches the workspace.

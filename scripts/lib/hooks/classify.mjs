@@ -84,7 +84,8 @@ export { hasUnresolved };
 //     the program, then submit or post and plain arguments. Any other command where a word that is or could be
 //     riverwright is followed by one that is or could be submit or post (found as the slot is above) is denied
 //     everywhere as riverwright-publish-env: an assignment, wrapper or runtime in front, or any other command, pipe,
-//     redirect or subshell on the line.
+//     redirect or subshell on the line. node, bun or deno running riverwright from stdin or a preload with submit or
+//     post after the script operand is denied the same way (R38, the F1 slot).
 //   - Structural checks kept from earlier rounds: xargs, parallel, find -exec and rg --pre feeding riverwright;
 //     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, a sed e command,
 //     an awk system(), ...) that names it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
@@ -1428,7 +1429,10 @@ function nodeOptionsPreload(w, ctx) {
   return false;
 }
 
-function runtimeCredential(cmd, ctx) {
+// The words riverwright sees as its arguments when node, bun or deno runs it from stdin or a preload: { prog, loads,
+// rest }, or null when the runtime does not run riverwright that way. The credential rule and the publish rule (R38)
+// both read their slot from `rest`.
+function runtimeRiverwright(cmd, ctx) {
   const ws = cmd.words;
   const k = programIndex(ws, ctx);
   if (k >= ws.length || isLauncherPath(ws[k], ctx)) return null;
@@ -1459,9 +1463,13 @@ function runtimeCredential(cmd, ctx) {
   const stdinIsRiverwright = fromStdin && (cmd.inputs.some((w) => codeFileIsRiverwright(w, ctx))
     || (cmd.stdin === 'pipe' && Boolean(cmd.prev?.words.slice(1).some((w) => codeFileIsRiverwright(w, ctx)))));
   if (!loads && !stdinIsRiverwright) return null;
-  const rest = script === -1 ? [] : args.slice(script + 1);
-  if (rest.some((w) => couldBeCredential(w))) {
-    return credentialVerdict(`${prog} runs riverwright from ${loads ? 'a preloaded module' : 'its standard input'}, so the words after the script operand are its arguments (one is, or could be, "credential")`);
+  return { prog, loads, rest: script === -1 ? [] : args.slice(script + 1) };
+}
+
+function runtimeCredential(cmd, ctx) {
+  const run = runtimeRiverwright(cmd, ctx);
+  if (run?.rest.some((w) => couldBeCredential(w))) {
+    return credentialVerdict(`${run.prog} runs riverwright from ${run.loads ? 'a preloaded module' : 'its standard input'}, so the words after the script operand are its arguments (one is, or could be, "credential")`);
   }
   return null;
 }
@@ -1519,6 +1527,15 @@ function publishSlots(ws, ctx, depth = 0) {
     }
   }
   return null;
+}
+
+// R38 (Codex re-review): node, bun or deno running riverwright from stdin or a preload (node - submit <
+// riverwright.mjs, node --import=./riverwright.mjs - post) is never the plain trusted form, so a slot after the script
+// operand that is, or could be, "submit" or "post" is denied, found as runtimeCredential finds "credential".
+function runtimePublish(cmd, ctx) {
+  const sub = runtimeRiverwright(cmd, ctx)?.rest.find((w) => couldBePublish(w));
+  if (!sub) return null;
+  return outward('riverwright-publish-env', PUBLISH_DETAIL(PUBLISH_SUBCOMMANDS.find((n) => n === nameOf(sub).toLowerCase())));
 }
 
 // Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
@@ -1646,6 +1663,7 @@ function classifySimple(cmd, ctx) {
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
   if (ctx.cred && take(runtimeCredential(cmd, ctx))) return found;
   if (ctx.cred) take(publishSlots(cmd.words, ctx));
+  if (ctx.cred) take(runtimePublish(cmd, ctx));
   if (ctx.cred && cmd.stdin === 'pipe' && take(stdinRunnerCredential(cmd, ctx))) return found;
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo
