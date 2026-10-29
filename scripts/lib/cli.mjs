@@ -13,6 +13,7 @@ const COMMANDS = {
   setup: () => import('./commands/setup.mjs'),
   fingerprint: () => import('./commands/fingerprint.mjs'),
   evidence: () => import('./commands/evidence.mjs'),
+  ledger: () => import('./commands/ledger.mjs'),
 };
 
 export function usage() {
