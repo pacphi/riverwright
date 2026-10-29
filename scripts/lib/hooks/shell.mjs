@@ -35,7 +35,11 @@ function findClose(src, start, open = '(', close = ')') {
   return -1;
 }
 
-export function lex(src) {
+// NUL handling (Task 17 C1). A NUL cannot reach a program: execve ends every argument at its first NUL. Shells differ
+// before that. bash cuts an ANSI-C $'...' segment at a decoded NUL and keeps the rest of the word ($'ab\0cd'ef is abef);
+// zsh keeps the NUL in the word, so the program receives only the text before it (ab). `nul` picks the reading:
+// 'segment' (bash, the default) or 'word' (zsh and execve). The classifier checks both.
+export function lex(src, { nul = 'segment' } = {}) {
   const text = String(src ?? '');
   const n = text.length;
   const commands = [];
@@ -51,6 +55,11 @@ export function lex(src) {
   };
   const endWord = () => {
     if (!word) return;
+    if (nul === 'word') {
+      const cut = (v) => { const z = v.indexOf('\0'); return z === -1 ? v : v.slice(0, z); };
+      word.value = cut(word.value);
+      word.shape = cut(word.shape);
+    }
     if (redirect === 'heredoc' || redirect === 'heredoc-strip') {
       pendingHeredocs.push({ cmd: cur, delim: word.value, strip: redirect === 'heredoc-strip', quoted: word.quoted });
       cur.stdin = 'heredoc';
@@ -141,6 +150,7 @@ export function lex(src) {
         }
       }
       if (j >= n) incomplete = true;
+      if (nul !== 'word' && out.includes('\0')) out = out.slice(0, out.indexOf('\0'));
       w.value += out; w.shape += out;
       w.quoted = true;
       return Math.min(j + 1, n);

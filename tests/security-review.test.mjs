@@ -1,0 +1,84 @@
+// Task 17 (independent security review of Plan 2a): one regression test group per finding. Each test reproduces
+// the finding exactly as the review described it. The record of findings and outcomes is in
+// docs/research/credential-separation.md ("Review findings for Plan 2a").
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import { spawnSync } from 'node:child_process';
+import { classifyCommand } from '../scripts/lib/hooks/classify.mjs';
+import { lex } from '../scripts/lib/hooks/shell.mjs';
+import { RIVERWRIGHT, tmpDir } from './helpers.mjs';
+
+const hermeticDir = tmpDir('rw-t17-');
+const HERMETIC_ENV = { HOME: hermeticDir, GIT_CONFIG_NOSYSTEM: '1' };
+const classify = (c, o = {}) => classifyCommand(c, { cwd: hermeticDir, env: HERMETIC_ENV, ...o });
+const hookPayload = (command, cwd) => JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd });
+
+// Runs the real hook entry (a child process) for one command; the workspace is a scratch folder.
+function realHook(command, { home = tmpDir('riverwright-home-'), cwd = hermeticDir, env = HERMETIC_ENV } = {}) {
+  const r = spawnSync(process.execPath, [RIVERWRIGHT, 'hook', 'claude-code', '--home', home], {
+    input: hookPayload(command, cwd), env: { PATH: process.env.PATH, ...env }, cwd: hermeticDir, encoding: 'utf8', timeout: 5000,
+  });
+  assert.equal(r.error?.code, undefined, `${JSON.stringify(command)}: the hook did not return`);
+  return r;
+}
+
+// C1 (Codex): bash cuts an ANSI-C $'...' segment at a NUL, and execve cuts every argument at its first NUL (zsh keeps
+// the NUL in the word, so the program sees only the text before it). The classifier must read the words the program
+// receives, under both readings.
+test('C1: the lexer cuts an ANSI-C segment at a decoded NUL, as bash does', () => {
+  for (const [src, want] of [
+    ["$'ab\\0cd'ef", 'abef'], ["$'ab\\x00cd'", 'ab'], ["$'q\\c@r's", 'qs'], ["$'a\\u0000b'", 'a'], ["$'a\\000b'", 'a'], ["$'a\\U00000000b'", 'a'],
+  ]) {
+    assert.equal(lex(src).commands[0].words[0].value, want, src);
+  }
+  // The other reading (zsh, or any program receiving the word through execve): the whole word ends at the NUL.
+  assert.equal(lex("$'ab\\0cd'ef", { nul: 'word' }).commands[0].words[0].value, 'ab');
+});
+
+const C1_CREDENTIAL = [
+  "rw $'credential\\0ignored' setup --replace",
+  "rw $'credential\\0x' setup",
+  "rw $'credential\\x00x' setup",
+  "rw $'credential\\c@x' setup",
+  "rw $'credential\\u0000x' setup",
+  "$'rw\\0x' credential setup",
+  "rw $'credential\\0'x setup",
+];
+const C1_OUTWARD = [
+  ["gh pr $'create\\0ignored' --fill", 'gh-pr-create'],
+  ["gh pr $'create\\0x' --fill", 'gh-pr-create'],
+  ["gh pr $'create\\0'x --fill", 'gh-pr-create'],
+  ["gh pr $'cre\\0x'ate --fill", 'gh-pr-create'],
+  ["git $'push\\0ignored' --no-verify fork HEAD", 'git-push'],
+  ["git $'push\\0x' fork HEAD", 'git-push'],
+  ["git $'push\\x00x' fork HEAD", 'git-push'],
+];
+
+test('C1: a NUL escape cannot hide credential, gh pr create or git push from their rules', () => {
+  for (const c of C1_CREDENTIAL) assert.equal(classify(c).rule, 'riverwright-credential', c);
+  for (const [c, rule] of C1_OUTWARD) assert.equal(classify(c).rule, rule, c);
+  // A raw NUL in the command text is read with and without it.
+  assert.equal(classify('rw cre\0dential setup').rule, 'riverwright-credential');
+  assert.equal(classify('gh pr create\0x --fill').rule, 'gh-pr-create');
+  // Controls: a NUL elsewhere changes nothing.
+  assert.equal(classify("rw $'version\\0x'").outward, false);
+  assert.equal(classify("echo $'a\\0b'").outward, false);
+});
+
+test('C1: the real hook denies the NUL spellings (exit 2)', () => {
+  const home = tmpDir('riverwright-home-');
+  const worktree = path.join(home, 'o', 'r', 'worktrees', 'issue-1');
+  fs.mkdirSync(worktree, { recursive: true });
+  for (const c of ["rw $'credential\\0x' setup", "rw $'credential\\0ignored' setup --replace"]) {
+    const r = realHook(c, { home });
+    assert.equal(r.status, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
+  }
+  // The publication rules hold inside the workspace.
+  for (const c of ["gh pr $'create\\0x' --fill", "git $'push\\0x' fork HEAD"]) {
+    const r = realHook(c, { home, cwd: worktree });
+    assert.equal(r.status, 2, c);
+  }
+});

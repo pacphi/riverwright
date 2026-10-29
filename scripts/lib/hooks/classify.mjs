@@ -24,7 +24,8 @@ export { hasUnresolved };
 // It is the subcommand-slot rule (R26): the CLI dispatches on its first argument alone, so riverwright runs the
 // credential command only when the word right after the program is "credential". Every word is read the way the shell
 // decodes it first (quotes, backslash escapes, ANSI-C $'..' with \x, \u and octal, line continuations including
-// CRLF). Then, for each word that is or could be riverwright, the next word is denied when it is, could be, or could
+// CRLF). A NUL is read every way a shell can pass it on: bash cuts the $'..' segment at it, zsh and execve cut the
+// whole word at it, and a raw NUL may be dropped (C1). Then, for each word that is or could be riverwright, the next word is denied when it is, could be, or could
 // vanish into "credential": a variable or substitution with no literal text that rules it out (--run="$RUN" cannot be
 // "credential"; "$X" can), a glob that matches it, any brace or extglob, %NAME%, a PowerShell splat or comma list, a
 // parenthesised argument (fish, PowerShell), or a "--" or glob that may vanish ahead of it. After a literal riverwright
@@ -423,7 +424,7 @@ function classifyParallel(args, ctx) {
     break;
   }
   if (i >= own.length) return null;
-  const inner = /\s/.test(nameOf(own[i])) ? (lex(nameOf(own[i])).commands[0]?.words ?? []) : own.slice(i);
+  const inner = /\s/.test(nameOf(own[i])) ? (lex(nameOf(own[i]), ctx.opts.lex).commands[0]?.words ?? []) : own.slice(i);
   return feedsRiverwright(inner, ctx) ? credentialVerdict('parallel supplies the arguments to riverwright (they could be "credential")') : null;
 }
 
@@ -462,7 +463,7 @@ function classifyInvocation(words, cmd, ctx) {
       const m = /^([^=]+)=([\s\S]*)$/.exec(nameOf(w));
       if (!m) continue;
       if (isDynamic(w) && ctx.strict) return unresolvable('an alias is defined from a variable or substitution');
-      const inner = lex(m[2]).commands[0];
+      const inner = lex(m[2], ctx.opts.lex).commands[0];
       // bash expands an alias defined earlier in the same script (shopt -s expand_aliases).
       if (ctx.cred && inner && throughWrappers(inner.words).length && mayBeRiverwright(throughWrappers(inner.words)[0], ctx)) {
         return credentialVerdict(`alias ${m[1]} runs riverwright (its arguments could be "credential")`);
@@ -1075,7 +1076,7 @@ function gitAliasBody(body, ctx) {
   const v = payload(code, ctx);
   if (v) return v;
   if (body.startsWith('!')) {
-    const first = lex(code).commands[0];
+    const first = lex(code, ctx.opts.lex).commands[0];
     const ws = first ? first.words.slice(programIndex(first.words, ctx)) : [];
     if (ws.length && mayBeRiverwright(ws[0], ctx)) return credentialVerdict('a git "!" alias runs riverwright (the arguments after it could be "credential")');
   }
@@ -1371,7 +1372,7 @@ function readsCommandsFromStdin(prog, args, ctx) {
     const { remote } = sshParts(args);
     if (!remote.length) return true;
     // A remote shell or interpreter with no script reads the commands from stdin too (ssh host sh, ssh host 'bash -s').
-    const first = lex(remote.map(nameOf).join(' ')).commands[0];
+    const first = lex(remote.map(nameOf).join(' '), ctx.opts.lex).commands[0];
     return Boolean(first) && bareStdinCommand(first.words, ctx);
   }
   return false;
@@ -1468,7 +1469,7 @@ function classifyScript(text, ctx) {
     if (rw && /[$`*?[{}%@]/.test(s.slice(rw.index + rw[0].length))) return credentialVerdict('the command is too large to check, and it runs riverwright with a word that could be "credential"');
     return ctx.strict ? unresolvable('the command nests too deeply to check') : null;
   }
-  const { commands, incomplete } = lex(s);
+  const { commands, incomplete } = lex(s, ctx.opts.lex);
   let found = incomplete && ctx.strict ? unresolvable('the command has an unterminated quote, substitution or here-document') : null;
   for (const cmd of commands) {
     found = prefer(found, classifySimple(cmd, ctx));
@@ -1507,14 +1508,21 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
     return mentionsCredential(text) || RIVERWRIGHT_TEXT.test(text) ? credentialVerdict('the command is too long to check, and it names riverwright or "credential"') : unresolvable('the command is too long to check');
   }
   const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
-  const opts = { cwd, env: env ?? {}, platform, launchers, realCache: new Map(), gitCache: new Map() };
+  const opts = { cwd, env: env ?? {}, platform, launchers, realCache: new Map(), gitCache: new Map(), lex: {} };
+  // Each reading is classified and the strongest verdict kept; an extra reading can only add denials.
+  //   - On Windows a backslash separates path segments and does not escape, so
+  //     "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is also read with "/" (the program it is).
+  //   - A NUL (C1): bash cuts an ANSI-C segment at it, zsh and execve cut the whole word at it (see lex), and a raw NUL
+  //     in the text may be dropped by the shell that reads it. Each of those readings is checked.
+  const readings = [[text, {}]];
+  if (text.includes("$'") || text.includes('\0')) readings.push([text, { nul: 'word' }]);
+  if (text.includes('\0')) readings.push([text.replaceAll('\0', ''), {}]);
+  if (platform === 'win32' && text.includes('\\')) readings.push(...readings.map(([t, l]) => [t.replace(/\\/g, '/'), l]));
   try {
-    let found = classifyScript(text, makeCtx(0, true, { used: 0 }, opts));
-    // On Windows a backslash separates path segments and does not escape; read that way too, so
-    // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is. This second
-    // reading applies to every rule, not only the credential rule; it can only add denials.
-    if (platform === 'win32' && text.includes('\\') && !isCredential(found)) {
-      found = prefer(found, classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }, opts)));
+    let found = null;
+    for (const [t, lexOpts] of readings) {
+      found = prefer(found, classifyScript(t, makeCtx(0, true, { used: 0 }, { ...opts, lex: lexOpts })));
+      if (isCredential(found)) break;
     }
     return found ?? { outward: false };
   } catch (err) {
