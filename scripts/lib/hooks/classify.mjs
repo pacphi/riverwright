@@ -218,7 +218,10 @@ function pipedText(prev) {
 }
 
 function classifyInterpreter(prog, spec, args, cmd, ctx) {
-  const judge = (code) => (codeLooksOutward(code) ? outward('inline-code', `${prog} inline code reaches GitHub or runs git/gh`) : null);
+  const judge = (code) => {
+    if (INLINE_CREDENTIAL.test(code)) return outward('riverwright-credential', CREDENTIAL_DETAIL);
+    return codeLooksOutward(code) ? outward('inline-code', `${prog} inline code reaches GitHub or runs git/gh`) : null;
+  };
   const run = (w) => {
     if (!w) return null;
     if (isDynamic(w)) return unresolvable(`${prog} runs code held in a variable or substitution`);
@@ -341,6 +344,36 @@ function classifyInvocation(words, cmd, ctx) {
   return null;
 }
 
+// "riverwright credential ..." seals, replaces or removes the credential. The human runs it in their own
+// terminal, so an agent's shell command that names it is denied in any spelling: the launcher, an absolute
+// or relative path, "rw", node running scripts/riverwright.mjs, npx or pnpm exec. Every word of a simple command
+// is checked (not only the first), so wrappers, option values and runners cannot hide the program.
+// base() lowercases and drops .exe/.cmd/.bat, so upper case and Windows names are caught too. A word that
+// names the subcommand through a variable is refused as unresolvable, because it could be "credential".
+const RIVERWRIGHT_PROGRAM = /^(?:riverwright|rw)(?:\.mjs)?$/;
+const RIVERWRIGHT_VALUE_OPTS = new Set(['--home', '--run', '--workspace']);
+const CREDENTIAL_DETAIL = 'riverwright credential (sealing, replacing or removing your credential is something you do yourself, in your own terminal)';
+
+function classifyRiverwrightCredential(words, ctx) {
+  for (let j = 0; j < words.length; j += 1) {
+    if (isDynamic(words[j]) || !RIVERWRIGHT_PROGRAM.test(base(nameOf(words[j])))) continue;
+    const args = words.slice(j + 1);
+    if (args.some((w) => !isDynamic(w) && nameOf(w).toLowerCase() === 'credential')) return outward('riverwright-credential', CREDENTIAL_DETAIL);
+    if (!ctx.strict) continue;
+    for (let k = 0; k < args.length; k += 1) {
+      const t = nameOf(args[k]);
+      if (!isDynamic(args[k]) && RIVERWRIGHT_VALUE_OPTS.has(t.toLowerCase())) { k += 1; continue; }
+      if (!isDynamic(args[k]) && t.startsWith('-')) continue;
+      if (isDynamic(args[k])) return unresolvable('the riverwright subcommand is a variable or substitution (it could be "credential")');
+      break;
+    }
+  }
+  return null;
+}
+
+// Inline code (node -e, python -c) that starts riverwright with "credential" next to it, as a string or an argument list.
+const INLINE_CREDENTIAL = /(?:^|[^\w-])(?:riverwright|rw)(?:\.mjs|\.cmd)?['"`\[\])\s,]+['"`]?credential\b/i;
+
 function classifySimple(cmd, ctx) {
   const all = [...cmd.words, ...cmd.redirects, ...cmd.herestrings];
   // Substitutions run before the command itself.
@@ -367,6 +400,8 @@ function classifySimple(cmd, ctx) {
     break;
   }
   if (i < cmd.words.length) {
+    const c = classifyRiverwrightCredential(cmd.words.slice(i), ctx);
+    if (c) return c;
     const v = classifyInvocation(cmd.words.slice(i), cmd, ctx);
     if (v) return v;
   }
@@ -425,5 +460,13 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
   const text = String(command ?? '');
   if (text.length > MAX_INPUT) return unresolvable('the command is too long to check');
   if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
-  return classifyScript(text, makeCtx(0, true, { used: 0 })) ?? { outward: false };
+  const found = classifyScript(text, makeCtx(0, true, { used: 0 }));
+  if (found) return found;
+  // On Windows a backslash separates path segments and does not escape; read that way too, so
+  // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is.
+  if (platform === 'win32' && text.includes('\\')) {
+    const slashed = classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }));
+    if (slashed) return slashed;
+  }
+  return { outward: false };
 }

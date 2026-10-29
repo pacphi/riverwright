@@ -77,7 +77,7 @@ test('buildHookCommand quotes paths with spaces and refuses unsafe paths', () =>
 const posixOnly = { skip: process.platform === 'win32' };
 
 test('launcherHookCommand goes through the launcher, which denies (exit 2) when node is missing', posixOnly, () => {
-  const cmd = launcherHookCommand(ROOT, 'claude-code', { platform: 'darwin' });
+  const cmd = launcherHookCommand(ROOT, 'claude-code', { platform: 'darwin', home: tmpDir('riverwright-home-') });
   const r = spawnSync('/bin/sh', ['-c', cmd], { input: '{}', encoding: 'utf8', env: { PATH: '/nonexistent' } });
   assert.equal(r.status, 2, `${cmd}\n${r.stderr}`);
   assert.match(r.stderr, /needs Node\.js 24/);
@@ -91,20 +91,20 @@ test('launcherHookCommand runs the hook when node is present', posixOnly, () => 
 
 test('launcherHookCommand quotes paths with spaces for sh, cmd and PowerShell', () => {
   assert.equal(
-    launcherHookCommand('/Users/Jane Doe/Library/Application Support/riverwright', 'claude-code', { platform: 'darwin' }),
-    '/bin/sh "/Users/Jane Doe/Library/Application Support/riverwright/bin/riverwright" hook claude-code',
+    launcherHookCommand('/Users/Jane Doe/Library/Application Support/riverwright', 'claude-code', { platform: 'darwin', home: '/Users/Jane Doe/.riverwright' }),
+    '/bin/sh "/Users/Jane Doe/Library/Application Support/riverwright/bin/riverwright" hook claude-code --home "/Users/Jane Doe/.riverwright"',
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\riverwright', 'cursor', { platform: 'win32' }),
-    '"C:\\Program Files\\riverwright\\bin\\riverwright.cmd" hook cursor',
+    launcherHookCommand('C:\\Program Files\\riverwright', 'cursor', { platform: 'win32', home: 'C:\\Users\\Jane Doe\\.riverwright' }),
+    '"C:\\Program Files\\riverwright\\bin\\riverwright.cmd" hook cursor --home "C:\\Users\\Jane Doe\\.riverwright"',
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\riverwright', 'codex', { platform: 'win32', shell: 'powershell' }),
-    String.raw`$ErrorActionPreference = 'Stop'; try { $global:LASTEXITCODE = $null; & "C:\Program Files\riverwright\bin\riverwright.cmd" hook codex; if ($null -eq $LASTEXITCODE) { exit 2 }; exit $LASTEXITCODE } catch { exit 2 }`,
+    launcherHookCommand('C:\\Program Files\\riverwright', 'codex', { platform: 'win32', shell: 'powershell', home: 'C:\\Users\\Jane Doe\\.riverwright' }),
+    String.raw`$ErrorActionPreference = 'Stop'; try { $global:LASTEXITCODE = $null; & "C:\Program Files\riverwright\bin\riverwright.cmd" hook codex --home "C:\Users\Jane Doe\.riverwright"; if ($null -eq $LASTEXITCODE) { exit 2 }; exit $LASTEXITCODE } catch { exit 2 }`,
   );
   assert.equal(
-    launcherHookCommand('C:\\Program Files\\riverwright', 'claude-code', { platform: 'win32', shell: 'sh' }),
-    '/bin/sh "C:/Program Files/riverwright/bin/riverwright" hook claude-code',
+    launcherHookCommand('C:\\Program Files\\riverwright', 'claude-code', { platform: 'win32', shell: 'sh', home: 'C:\\Users\\Jane Doe\\.riverwright' }),
+    '/bin/sh "C:/Program Files/riverwright/bin/riverwright" hook claude-code --home "C:/Users/Jane Doe/.riverwright"',
   );
 });
 
@@ -116,8 +116,17 @@ test('launcherHookCommand refuses relative and unquotable roots, unknown hosts a
   assert.throws(() => launcherHookCommand('/a/riverwright', 'codex', { platform: 'linux', shell: 'fish' }), /unknown shell/);
 });
 
+test('a generated hook command must carry --home: without it nothing is generated', () => {
+  for (const home of [undefined, null, '', '   ']) {
+    assert.throws(() => launcherHookCommand('/a/riverwright', 'codex', { platform: 'linux', home }), (e) => e.code === 'NO_HOME' && /--home/.test(e.message), JSON.stringify(home));
+    assert.throws(() => launcherHookCommand('C:\\rw', 'codex', { platform: 'win32', shell: 'powershell', home }), /--home/, JSON.stringify(home));
+  }
+  assert.throws(() => launcherHookCommand('/a/riverwright', 'codex', { platform: 'linux' }), (e) => e.code === 'NO_HOME');
+  assert.throws(() => launcherHookCommand('/a/riverwright', 'codex'), (e) => e.code === 'NO_HOME');
+});
+
 test('Windows launcher hook command denies (exit 2) under cmd when node is missing', { skip: process.platform !== 'win32' }, () => {
-  const cmd = launcherHookCommand(ROOT, 'claude-code', { platform: 'win32' });
+  const cmd = launcherHookCommand(ROOT, 'claude-code', { platform: 'win32', home: tmpDir('riverwright-home-') });
   const r = spawnSync(process.env.ComSpec ?? 'cmd.exe', ['/d', '/s', '/c', `"${cmd}"`], {
     input: '{}', encoding: 'utf8', windowsVerbatimArguments: true, env: { PATH: 'C:\\nonexistent', SystemRoot: process.env.SystemRoot },
   });
@@ -125,7 +134,7 @@ test('Windows launcher hook command denies (exit 2) under cmd when node is missi
 });
 
 test('Windows launcher hook command denies (exit 2) under PowerShell when node is missing', { skip: process.platform !== 'win32' }, () => {
-  const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'win32', shell: 'powershell' });
+  const cmd = launcherHookCommand(ROOT, 'codex', { platform: 'win32', shell: 'powershell', home: tmpDir('riverwright-home-') });
   const ps = path.join(process.env.SystemRoot ?? 'C:\\Windows', 'System32', 'WindowsPowerShell', 'v1.0', 'powershell.exe');
   // PowerShell starts a .cmd through cmd.exe, which it finds via ComSpec; node stays absent.
   const r = spawnSync(ps, ['-NoProfile', '-NonInteractive', '-Command', cmd], {

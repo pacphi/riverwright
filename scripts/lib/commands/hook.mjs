@@ -11,6 +11,7 @@ import { classifyCommand, hasUnresolved } from '../hooks/classify.mjs';
 import { touchesHome } from '../hooks/scope.mjs';
 import { extractCommand, renderDeny, renderAllow } from '../hooks/dialects.mjs';
 import { nowIso } from '../clock.mjs';
+import { printable } from '../printable.mjs';
 
 // The installed launcher's own files: only these may run "riverwright submit" / "riverwright post" unblocked.
 export const TRUSTED_LAUNCHER = ['../../../bin/riverwright', '../../../bin/riverwright.cmd', '../../riverwright.mjs']
@@ -57,8 +58,12 @@ export async function run([host, ...rest], io) {
   if (dir) {
     try {
       appendEvent(dir, { type: 'guard', at: nowIso(io), decision: 'deny', reason, host, command: String(command ?? '') });
-    } catch {
-      // Recording is best effort; the denial itself must not depend on it.
+    } catch (err) {
+      // Recording stays best effort: the denial itself, on stdout and in the exit code, does not depend on it.
+      // But a denial that was not recorded is shown, as one control-free line on stderr (the error text can
+      // carry a path or file content, so it is cleaned first).
+      const why = printable(err instanceof Error ? err.message : err).split('\n')[0];
+      io.stderr.write(`riverwright hook: could not record this denial in the ledger: ${why}\n`);
     }
   }
   return emit(io, renderDeny(host, reason));
