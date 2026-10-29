@@ -548,7 +548,8 @@ function riverwrightArgs(args, ctx) {
   for (let k = 0; k < args.length; k += 1) {
     const t = nameOf(args[k]);
     if (!isDynamic(args[k]) && RIVERWRIGHT_VALUE_OPTS.has(t.toLowerCase())) { k += 1; continue; }
-    if (!isDynamic(args[k]) && t.startsWith('-')) continue;
+    // An option stays an option even when its value is a variable (--home="$H").
+    if (t.startsWith('-')) continue;
     if (isDynamic(args[k])) return credentialVerdict('the riverwright subcommand is a variable or substitution (it could be "credential")');
     break;
   }
@@ -629,7 +630,7 @@ function classifyRiverwrightCredential(words, ctx) {
 // next to it, or near it in an argument list, or that loads the CLI or the credential command directly.
 const INLINE_CREDENTIAL = /(?:^|[^\w-])(?:riverwright|rw)(?:\.mjs|\.cmd)?['"`\[\])\s,]+['"`]?credential\b/i;
 const INLINE_NEAR = /\briverwright\b[\s\S]{0,160}?\bcredential\b|['"`]rw(?:\.cmd|\.mjs)?['"`][\s\S]{0,160}?\bcredential\b/i;
-const INLINE_CLI = /(?:commands[\\/]+credential|lib[\\/]+cli)\.m?js\b/i;
+const INLINE_CLI = /(?:commands[\\/]+credential|lib[\\/]+cli)\.mjs\b/i;
 const inlineCredential = (code) => INLINE_CREDENTIAL.test(code) || INLINE_NEAR.test(code) || INLINE_CLI.test(code);
 
 // Every part of a simple command is classified. The first verdict found is kept, except that a

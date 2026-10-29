@@ -178,6 +178,9 @@ const ALLOWED_I1 = [
   'echo $HOME credentials',
   'find . -name "*.mjs" -exec grep -l rw {} +',
   'echo push | xargs printf "%s\\n"',
+  'rw --home="$H" state get',
+  'riverwright --run="$RUN" ledger verify',
+  'node -e "require(\'./lib/cli.js\')"',
 ];
 
 test('the hook denies an agent shell command that runs riverwright credential in any spelling', () => {
