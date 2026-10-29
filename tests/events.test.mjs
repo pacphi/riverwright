@@ -124,3 +124,46 @@ for (let i = 0; i < 25; i++) appendChained(${JSON.stringify(d)}, () => ({ event:
   assert.equal(v.ok, true, JSON.stringify(v.problems));
   assert.equal(v.count, 75);
 });
+
+test('an anchor taken at seq 2 still verifies after later events are appended', () => {
+  const d = tmpDir();
+  add(d);
+  const second = add(d);
+  add(d);
+  const v = verifyChain(d, { expectSeq: 2, expectHead: second.hash });
+  assert.equal(v.ok, true, JSON.stringify(v.problems));
+  assert.equal(v.count, 3);
+});
+
+test('editing line 2 fails verification against an anchor taken at seq 2', () => {
+  const d = tmpDir();
+  add(d);
+  const second = add(d);
+  add(d);
+  const ls = lines(d);
+  ls[1] = ls[1].replace('"note"', '"edit"');
+  write(d, ls);
+  const v = verifyChain(d, { expectSeq: 2, expectHead: second.hash });
+  assert.equal(v.ok, false);
+  assert.match(v.problems.map((p) => p.reason).join(' '), /anchored seq 2 does not match the anchored head/);
+});
+
+test('an anchored seq beyond the ledger length with a head reports truncation', () => {
+  const d = tmpDir();
+  add(d);
+  const second = add(d);
+  const v = verifyChain(d, { expectSeq: 5, expectHead: second.hash });
+  assert.equal(v.ok, false);
+  assert.match(v.problems.map((p) => p.reason).join(' '), /truncated/);
+});
+
+for (const [name, bad] of [['has no seq', '{"schema":"riverwright-event/1"}'], ['is null', 'null'], ['has a non-integer seq', '{"seq":"2"}'], ['has seq 0', '{"seq":0}']]) {
+  test(`an append refuses with LEDGER_CORRUPT when the last line ${name}, and the file is unchanged`, () => {
+    const d = tmpDir();
+    add(d);
+    fs.appendFileSync(eventsFile(d), `${bad}\n`);
+    const before = fs.readFileSync(eventsFile(d), 'utf8');
+    assert.throws(() => add(d), (e) => e.code === 'LEDGER_CORRUPT' && /events\.ndjson/.test(e.message) && /ledger verify/.test(e.message));
+    assert.equal(fs.readFileSync(eventsFile(d), 'utf8'), before);
+  });
+}

@@ -54,6 +54,9 @@ function tail(dir) {
   } catch {
     throw new RiverwrightError('LEDGER_CORRUPT', `the last line of ${eventsFile(dir)} is not valid JSON; run "riverwright ledger verify"`);
   }
+  if (!Number.isInteger(parsed?.seq) || parsed.seq < 1) {
+    throw new RiverwrightError('LEDGER_CORRUPT', `the last line of ${eventsFile(dir)} has no valid seq; run "riverwright ledger verify"`);
+  }
   return { prev: lineHash(last), seq: parsed.seq };
 }
 
@@ -120,6 +123,7 @@ export function verifyChain(dir, { expectHead = null, expectSeq = null } = {}) {
   else problems.push({ line: ls.length, reason: 'the last line does not end with a newline (a write was cut short)' });
   let prev = GENESIS;
   let seq = 0;
+  let anchoredHash = null;
   ls.forEach((line, i) => {
     const n = i + 1;
     let e;
@@ -135,8 +139,11 @@ export function verifyChain(dir, { expectHead = null, expectSeq = null } = {}) {
     if (e.prev !== prev) problems.push({ line: n, reason: `prev does not match the hash of line ${n - 1} (an earlier line was edited, removed or reordered)` });
     seq = typeof e.seq === 'number' ? e.seq : seq;
     prev = lineHash(line);
+    if (n === expectSeq) anchoredHash = prev;
   });
   if (expectSeq && seq < expectSeq) problems.push({ line: ls.length, reason: `the ledger ends at seq ${seq} but seq ${expectSeq} was anchored (truncated)` });
-  if (expectHead && prev !== expectHead) problems.push({ line: ls.length, reason: 'the head differs from the anchored head (the last line was changed, or the history was rewritten)' });
+  if (expectHead && expectSeq) {
+    if (ls.length >= expectSeq && anchoredHash !== expectHead) problems.push({ line: expectSeq, reason: `the line at anchored seq ${expectSeq} does not match the anchored head (that line or an earlier one was changed, or the history was rewritten)` });
+  } else if (expectHead && prev !== expectHead) problems.push({ line: ls.length, reason: 'the head differs from the anchored head (the last line was changed, or the history was rewritten)' });
   return { ok: problems.length === 0, count: ls.length, seq, head: prev, problems };
 }
