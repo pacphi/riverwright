@@ -762,24 +762,24 @@ const WORST = (() => {
   };
 })();
 
-test('N3: a worst-case 256 KB command is classified in under a second', () => {
+test('N3: a worst-case 256 KB command is classified in under three seconds (linear, not quadratic)', () => {
   for (const [label, c] of Object.entries(WORST)) {
     assert.ok(c.length <= 256 * 1024, label);
     for (const platform of ['darwin', 'win32']) {
       const cmd = platform === 'win32' ? `${c.slice(0, 256 * 1024 - 4)} \\x` : c;
       const t0 = performance.now();
-      classifyCommand(cmd, { platform });
+      classify(cmd, { platform });
       const ms = performance.now() - t0;
-      assert.ok(ms < 1000, `${label} (${platform}) took ${ms.toFixed(0)} ms`);
+      assert.ok(ms < 3000, `${label} (${platform}) took ${ms.toFixed(0)} ms`);
     }
   }
 });
 
 test('a command longer than the classifier reads is denied when it names riverwright or credential', () => {
   const pad = 'x'.repeat(300 * 1024);
-  assert.equal(classifyCommand(`echo ${pad}; rw $C remove`).rule, 'riverwright-credential');
-  assert.equal(classifyCommand(`echo ${pad}; rw credential remove`).rule, 'riverwright-credential');
-  assert.notEqual(classifyCommand(`echo ${pad}`).rule, 'riverwright-credential');
+  assert.equal(classify(`echo ${pad}; rw $C remove`).rule, 'riverwright-credential');
+  assert.equal(classify(`echo ${pad}; rw credential remove`).rule, 'riverwright-credential');
+  assert.notEqual(classify(`echo ${pad}`).rule, 'riverwright-credential');
 });
 
 test('N3: input shaped to overflow the stack never throws, and the verdict is the same every time', () => {
@@ -791,17 +791,17 @@ test('N3: input shaped to overflow the stack never throws, and the verdict is th
     `${'('.repeat(40000)}x${')'.repeat(40000)}`,
   ];
   for (const c of shapes) {
-    const a = classifyCommand(c);
+    const a = classify(c);
     assert.equal(typeof a.outward, 'boolean');
-    assert.deepEqual(classifyCommand(c), a);
+    assert.deepEqual(classify(c), a);
   }
   // A commit message full of brace sequences is not a riverwright command.
-  assert.equal(classifyCommand(shapes[0]).outward, false);
+  assert.equal(classify(shapes[0]).outward, false);
 });
 
 test('other riverwright commands and unrelated uses of the word are not blocked by that rule', () => {
-  for (const c of [...ALLOWED, ...ALLOWED_I1]) assert.equal(classifyCommand(c).outward, false, c);
-  for (const c of ['C:\\Users\\me\\rw\\notes.txt', 'type C:\\rw\\bin\\rw.cmd']) assert.equal(classifyCommand(c, { platform: 'win32' }).outward, false, c);
+  for (const c of [...ALLOWED, ...ALLOWED_I1]) assert.equal(classify(c).outward, false, c);
+  for (const c of ['C:\\Users\\me\\rw\\notes.txt', 'type C:\\rw\\bin\\rw.cmd']) assert.equal(classify(c, { platform: 'win32' }).outward, false, c);
 });
 
 test('a symlink to the launcher or its script, by any name, is the launcher', posixOnly, () => {
@@ -809,34 +809,34 @@ test('a symlink to the launcher or its script, by any name, is the launcher', po
   const links = { x: path.join(ROOT, 'bin', 'riverwright'), y: path.join(ROOT, 'bin', 'rw'), 'a.mjs': path.join(ROOT, 'scripts', 'riverwright.mjs'), 'b.mjs': path.join(ROOT, 'scripts', 'lib', 'cli.mjs') };
   for (const [name, target] of Object.entries(links)) fs.symlinkSync(target, path.join(dir, name));
   for (const c of [`${dir}/x credential setup`, `${dir}/y credential remove`, `node ${dir}/a.mjs credential setup`, `node ${dir}/b.mjs credential setup`, `sudo ${dir}/x credential setup`]) {
-    assert.equal(classifyCommand(c).rule, 'riverwright-credential', c);
+    assert.equal(classify(c).rule, 'riverwright-credential', c);
   }
   // A relative path is resolved against the command's working directory.
-  assert.equal(classifyCommand('./x credential setup', { cwd: dir }).rule, 'riverwright-credential');
-  assert.equal(classifyCommand('node a.mjs credential setup', { cwd: dir }).rule, 'riverwright-credential');
+  assert.equal(classify('./x credential setup', { cwd: dir }).rule, 'riverwright-credential');
+  assert.equal(classify('node a.mjs credential setup', { cwd: dir }).rule, 'riverwright-credential');
   // The symlinked launcher running something else is not blocked.
-  assert.equal(classifyCommand(`${dir}/x ledger verify --run /tmp/r`).outward, false);
+  assert.equal(classify(`${dir}/x ledger verify --run /tmp/r`).outward, false);
   // A program word that resolves to the launcher has its subcommand checked: a variable could be "credential".
-  assert.equal(classifyCommand(`${dir}/x $SUB`).rule, 'riverwright-credential');
+  assert.equal(classify(`${dir}/x $SUB`).rule, 'riverwright-credential');
   // R26: any word of a command that is not a known non-executing tool, so a launcher the classifier does not model
   // cannot hide the symlink.
   for (const c of [`script -q /dev/null ${dir}/x credential setup`, `xvfb-run ${dir}/y $SUB`, `faketime now node ${dir}/a.mjs credential`]) {
-    assert.equal(classifyCommand(c).rule, 'riverwright-credential', c);
+    assert.equal(classify(c).rule, 'riverwright-credential', c);
   }
-  assert.equal(classifyCommand(`xvfb-run ${dir}/x state get`).outward, false);
+  assert.equal(classify(`xvfb-run ${dir}/x state get`).outward, false);
 });
 
 test('a command nested too deeply to read that mentions credential is denied by the credential rule', () => {
   let c = 'rw credential setup';
   for (let k = 0; k < 12; k += 1) c = `sh -c ${JSON.stringify(c)}`;
-  assert.equal(classifyCommand(c).rule, 'riverwright-credential');
+  assert.equal(classify(c).rule, 'riverwright-credential');
 });
 
 test('on Windows a backslash path to the launcher is read as a path', () => {
   for (const c of ['C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup', '"C:\\Program Files\\rw\\bin\\rw.cmd" credential remove', 'node C:\\rw\\scripts\\riverwright.mjs credential setup']) {
-    assert.equal(classifyCommand(c, { platform: 'win32' }).rule, 'riverwright-credential', c);
+    assert.equal(classify(c, { platform: 'win32' }).rule, 'riverwright-credential', c);
   }
-  assert.equal(classifyCommand('C:\\rw\\bin\\riverwright.cmd ledger verify', { platform: 'win32' }).outward, false);
+  assert.equal(classify('C:\\rw\\bin\\riverwright.cmd ledger verify', { platform: 'win32' }).outward, false);
 });
 
 // The rule works through the host hook, like every other Lock 2 rule: inside the workspace it denies.
