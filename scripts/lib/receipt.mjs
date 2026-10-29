@@ -141,13 +141,14 @@ function checkOne(event, publicKey, ledgerDir) {
 }
 
 // The newest receipt for this gate and run that is signed, anchored to the ledger, unused, current and bound
-// to the requested SHA or content (and, when `nonce` is given, only that one receipt). `binding` is required: a forgotten argument must not accept any binding.
+// to the requested SHA or content (and, when `nonce` is given, only that one receipt; when `seq` is given, only the
+// event at that ledger position, which a copied receipt cannot fake because checkOne compares the signed seq). `binding` is required: a forgotten argument must not accept any binding.
 // Returns { ok: true, receipt, seq } or { ok: false, reason }.
-export function findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, nonce = null }) {
+export function findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, nonce = null, seq = null }) {
   if (!isObject(binding)) throw bad('findValidReceipt needs the binding ({ kind, value }) being published');
   const events = readEvents(ledgerDir).filter(isObject);
   const used = consumedNonces(events);
-  const candidates = events.filter((e) => e.event === 'approved' && e.data?.receipt?.gate === gate && e.data.receipt.run === run && (nonce === null || e.data.receipt.nonce === nonce));
+  const candidates = events.filter((e) => e.event === 'approved' && e.data?.receipt?.gate === gate && e.data.receipt.run === run && (nonce === null || e.data.receipt.nonce === nonce) && (seq === null || e.seq === seq));
   if (!candidates.length) return { ok: false, reason: 'no receipt for this gate and run: unlock through "riverwright submit" or "riverwright post"' };
   let first = null;
   for (const e of [...candidates].reverse()) {

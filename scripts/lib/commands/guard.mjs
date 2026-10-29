@@ -49,6 +49,8 @@ const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e)
 // from them, using the SHAs git sends on stdin. A receipt can therefore let through only the approved commit on
 // the approved branch, or a push that updates nothing (git runs the hook with no lines when everything is up
 // to date).
+// The newest event is only located here (by ledger position); findValidReceipt then verifies that event alone, by
+// seq, so a forged newest event is refused and never falls back or resolves to an older receipt.
 // Returns { receipt } or { receipt: null, why }. Every failure, including an unreadable vault or ledger, denies.
 function unlockedReceipt({ home, dir, run, nowMs }) {
   try {
@@ -56,10 +58,10 @@ function unlockedReceipt({ home, dir, run, nowMs }) {
     const { publicKey } = readVault(home);
     const newest = readEvents(ledgerDir)
       .filter((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.gate === GATE && e.data.receipt.run === run)
-      .at(-1)?.data.receipt;
+      .at(-1);
     if (!newest) return { receipt: null, why: 'no receipt for this gate and run: unlock through "riverwright submit"' };
-    if (newest.binding?.kind !== 'sha' || typeof newest.binding.value !== 'string') return { receipt: null, why: 'the newest receipt is not bound to a commit' };
-    const found = findValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: newest.binding, nonce: newest.nonce });
+    if (newest.data.receipt.binding?.kind !== 'sha' || typeof newest.data.receipt.binding.value !== 'string') return { receipt: null, why: 'the newest receipt is not bound to a commit' };
+    const found = findValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: newest.data.receipt.binding, seq: newest.seq });
     return found.ok ? { receipt: found.receipt } : { receipt: null, why: found.reason };
   } catch (e) {
     return { receipt: null, why: e instanceof RiverwrightError ? e.message : 'the receipt could not be checked' };

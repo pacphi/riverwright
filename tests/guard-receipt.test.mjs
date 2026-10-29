@@ -30,6 +30,14 @@ async function workspace() {
   saveState(runDir, setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK));
   return { home, worktree, runDir };
 }
+// Child git processes in tests must not read the user's global or system git config: a url.*.insteadOf there
+// could redirect a push to a real remote.
+function isolatedGitEnv() {
+  const dir = tmpDir('riverwright-gitenv-');
+  const empty = path.join(dir, 'gitconfig');
+  fs.writeFileSync(empty, '');
+  return { ...process.env, GIT_CONFIG_GLOBAL: empty, GIT_CONFIG_NOSYSTEM: '1', HOME: dir, USERPROFILE: dir, XDG_CONFIG_HOME: dir, GIT_TERMINAL_PROMPT: '0' };
+}
 const push = (w, sha = A, ref) => callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(sha, ref), cwd: w.worktree });
 
 test('a fresh receipt for the exact commit and branch lets the push through', async () => {
@@ -299,6 +307,34 @@ test('a used newest receipt is not replaced by an older unused one for the same 
   assert.match(r.stderr, /already used/);
 });
 
+test('a forged newest event carrying an older valid receipt is refused, not resolved to the older receipt (R17)', async () => {
+  const w = await workspace();
+  const keys = armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const older = JSON.parse(fs.readFileSync(path.join(ledgerDirFor(w.runDir), 'events.ndjson'), 'utf8').split('\n')[0]).data.receipt;
+  appendChained(ledgerDirFor(w.runDir), () => ({
+    event: 'approved', at: new Date().toISOString(), actor: { type: 'human' }, run: 'ruvnet/ruflo#3509', data: { receipt: older },
+  }));
+  const r = await push(w, A);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /seq/);
+  assert.ok(keys);
+});
+
+test('a newest event with a bad signature is refused even when an older valid unused receipt exists (R17)', async () => {
+  const w = await workspace();
+  armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const attacker = crypto.generateKeyPairSync('ed25519');
+  appendChained(ledgerDirFor(w.runDir), ({ prev, seq }) => ({
+    event: 'approved', at: new Date().toISOString(), actor: { type: 'human' }, run: 'ruvnet/ruflo#3509',
+    data: { receipt: signReceipt(buildReceipt({ gate: 'submit-gate', run: 'ruvnet/ruflo#3509', binding: { kind: 'sha', value: C }, branch: BRANCH, ledgerHead: prev, seq, at: new Date().toISOString() }), attacker.privateKey) },
+  }));
+  for (const sha of [A, C]) {
+    const r = await push(w, sha);
+    assert.notEqual(r.code, 0, sha);
+    assert.match(r.stderr, /signature/, sha);
+  }
+});
+
 test('two refs in one push: the newest receipt never lets the unapproved one through', async () => {
   const w = await workspace();
   armRun({ home: w.home, runDir: w.runDir, sha: A });
@@ -340,7 +376,7 @@ test('git hands the hook the rewritten URL: pushInsteadOf and pushurl onto the u
   const upstream = 'ruvnet/ruflo.git';
   for (const mode of ['pushInsteadOf', 'pushurl']) {
     const w = await workspace();
-    const git = (...a) => spawnSync('git', a, { cwd: w.worktree, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    const git = (...a) => spawnSync('git', a, { cwd: w.worktree, encoding: 'utf8', env: isolatedGitEnv() });
     git('config', 'user.email', 'a@b.c');
     git('config', 'user.name', 'a');
     fs.writeFileSync(path.join(w.worktree, 'f'), 'x');
