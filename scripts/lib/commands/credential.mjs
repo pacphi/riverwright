@@ -95,7 +95,9 @@ async function status(io, home) {
   }
   if (!vault) io.stdout.write(`No sealed credential yet (looked in ${printable(vaultFile(home))}). Run "riverwright credential setup" in a terminal.\n`);
   else io.stdout.write(`Sealed credential: ${printable(vaultFile(home))}\nKey derivation: ${printable(vault.kdf.name)}\nCreated: ${printable(vault.createdAt ?? 'unknown')}\n`);
-  const findings = await auditAmbient({ env: io.env, userHome: os.userInfo().homedir });
+  // The account's home from the password database (HOME does not change it). io.testing.userInfo is the in-process
+  // test seam (never set by scripts/riverwright.mjs), so a test never audits the real ~/.ssh.
+  const findings = await auditAmbient({ env: io.env, userHome: (io.testing?.userInfo ?? os.userInfo)().homedir });
   if (findings.length === 0) {
     io.stdout.write('No credential routes found that an agent could use without Riverwright.\n');
   } else {

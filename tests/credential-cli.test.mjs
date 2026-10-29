@@ -1,13 +1,21 @@
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { callMain, fakeSecretTerminal, tmpDir } from './helpers.mjs';
 import { readVault, openVault, vaultFile, fingerprint } from '../scripts/lib/vault.mjs';
 import { RiverwrightError } from '../scripts/lib/errors.mjs';
 import { FAST_KDF, PASSPHRASE, TOKEN } from './receipt-helpers.mjs';
 
-const cred = (home, args, opts = {}) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: home, PATH: '' }, testing: { now: '2026-10-02T14:03:11.000Z', kdf: FAST_KDF }, ...opts });
+// Test hygiene (Task 17): "credential status" runs the ambient audit in the account's home (os.userInfo().homedir,
+// which HOME does not change), so it would read the real ~/.ssh. Every call here passes the userInfo seam with an empty
+// scratch home, and os.userInfo itself throws while this file runs: a call that skips the seam fails instead.
+const realUserInfo = os.userInfo;
+before(() => { os.userInfo = () => { throw new Error('a test read the real account home (os.userInfo) without the seam'); }; });
+after(() => { os.userInfo = realUserInfo; });
+const scratchAccount = () => ({ homedir: tmpDir('rw-account-') });
+const cred = (home, args, opts = {}) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: home, PATH: '' }, testing: { now: '2026-10-02T14:03:11.000Z', kdf: FAST_KDF, userInfo: scratchAccount }, ...opts });
 const noTerminal = () => { throw new RiverwrightError('NO_TTY', 'Terminal approval needs a real terminal.'); };
 const leaks = (r, t) => [TOKEN, PASSPHRASE].some((s) => r.stdout.includes(s) || r.stderr.includes(s) || (t?.written ?? []).join('').includes(s));
 
@@ -124,11 +132,20 @@ test('credential status shows the fingerprint and no secret, and says so when th
 
 test('credential status lists ambient credential routes and never their values', async () => {
   const home = tmpDir();
-  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: home, GH_TOKEN: TOKEN, PATH: '' }, testing: { kdf: FAST_KDF } });
+  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: home, GH_TOKEN: TOKEN, PATH: '' }, testing: { kdf: FAST_KDF, userInfo: scratchAccount } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /GH_TOKEN/);
   assert.match(r.stdout, /without Riverwright/);
   assert.equal(r.stdout.includes(TOKEN), false);
+});
+
+test('test hygiene: credential status audits the account home the userInfo seam gives, never the real one', async () => {
+  const account = tmpDir('rw-account-');
+  fs.mkdirSync(path.join(account, '.ssh'));
+  fs.writeFileSync(path.join(account, '.ssh', 'id_seamtest'), '-----BEGIN OPENSSH PRIVATE KEY-----\nnot a real key\n');
+  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: tmpDir(), PATH: '' }, testing: { userInfo: () => ({ homedir: account }) } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /id_seamtest/);
 });
 
 test('credential remove deletes the vault only after "remove" is typed at the terminal', async () => {

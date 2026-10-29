@@ -23,6 +23,8 @@ const hook = (w, command, cwd, stdin) => callMain(['hook', 'claude-code', '--hom
   stdin: stdin ?? JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd }),
   env: w.env,
   cwd,
+  // "~" is the account home from the password database; the seam keeps it in the fake home (never the real one).
+  testing: { userInfo: () => ({ homedir: w.top }) },
 });
 
 test('$HOME and ~ in a -C path are expanded before deciding scope', async () => {

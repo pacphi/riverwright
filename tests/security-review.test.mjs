@@ -378,3 +378,11 @@ test('F3: the real hook denies a prefixed submit outside the workspace (exit 2) 
   }
   assert.equal(realHook(`${L} submit`, { cwd: outside }).status, 0);
 });
+
+// Test hygiene (Task 17): the hook resolves "~" in the account home given by the in-process seam, not the real one.
+test('test hygiene: the hook takes the account home for ~ from the userInfo seam', posixOnly, async () => {
+  const { base, account } = linkWorld();
+  const home = tmpDir('riverwright-home-');
+  const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: hookPayload('~/tool credential setup', base), env: { HOME: tmpDir('rw-other-') }, cwd: base, testing: { userInfo: () => ({ homedir: account }) } });
+  assert.equal(r.code, 2);
+});
