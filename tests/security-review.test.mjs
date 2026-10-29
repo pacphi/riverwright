@@ -308,9 +308,13 @@ test('F2: a launcher link is resolved after cd, pushd and a subshell cd, through
 // cd's filled the 32-directory cap and an ordinary script with a variable argument was denied everywhere. A cd in a
 // sequence now replaces the directory the shell is in; only real branching (||, a subshell's end, popd, cd -, a cd
 // that may fail) keeps more than one, and the cap applies to that.
-test('R38: sequential cd\'s replace the directory, so an ordinary script after them is allowed', posixOnly, () => {
-  const ordinary = ['node build.mjs "$INPUT"', 'node ./shell.mjs "$INPUT"', 'python3 ./build.py "$INPUT"'];
+const ordinary = ['node build.mjs "$INPUT"', 'node ./shell.mjs "$INPUT"', 'python3 ./build.py "$INPUT"'];
+
+test('R38: three cd\'s from the checkout root leave an ordinary script allowed (Codex reproduction)', () => {
   for (const c of ordinary) assert.equal(classify(`cd scripts && cd lib && cd hooks && ${c}`, { cwd: ROOT }).outward, false, c);
+});
+
+test('R38: sequential cd\'s replace the directory, so an ordinary script after them is allowed', posixOnly, () => {
   // Ten nested folders, entered one relative cd at a time, joined by && or by ;.
   const { base, links } = linkWorld();
   const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
