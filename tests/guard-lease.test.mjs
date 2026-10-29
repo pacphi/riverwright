@@ -6,6 +6,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import zlib from 'node:zlib';
 import { createState, saveState, setFork } from '../scripts/lib/state.mjs';
 import { runRiverwright, tmpDir } from './helpers.mjs';
 import { armRun, runDirIn } from './receipt-helpers.mjs';
@@ -165,4 +166,119 @@ test('git\'s explicit --force-with-lease push hands the guard the leased tip, an
   armRun({ home: w.home, runDir: w.runDir, sha: w.B, lease: w.A });
   const allowed = guard(w, lines);
   assert.equal(allowed.code, 0, allowed.stderr);
+});
+
+// Ruling R33-1. The clone is agent-writable, and git does not check an object's hash while it walks history. A
+// loose object rewritten in place (same name, new content) can therefore add a parent git believes. The guard walks
+// the ancestry itself and recomputes every object's hash, so the forged parent is not believed.
+function forgeLooseCommit(w, sha, extraParent) {
+  const body = Buffer.from(w.git('cat-file', 'commit', sha).stdout, 'utf8');
+  const text = body.toString('utf8');
+  const nl = text.indexOf('\n');
+  const forged = Buffer.from(`${text.slice(0, nl + 1)}parent ${extraParent}\n${text.slice(nl + 1)}`, 'utf8');
+  const gitDir = w.git('rev-parse', '--absolute-git-dir').stdout.trim();
+  const obj = path.join(gitDir, 'objects', sha.slice(0, 2), sha.slice(2));
+  fs.chmodSync(obj, 0o644);
+  fs.writeFileSync(obj, zlib.deflateSync(Buffer.concat([Buffer.from(`commit ${forged.length}\0`), forged])));
+  return gitDir;
+}
+
+// The reviewer's probe: the fork branch holds R (someone else's work on P); the agent's approved L also sits on P.
+function divergedFork() {
+  const w = amended();
+  w.git('reset', '-q', '--hard', w.A);
+  w.git('commit', '-q', '--allow-empty', '-m', 'maintainer work on the fork branch');
+  const R = w.git('rev-parse', 'HEAD').stdout.trim();
+  w.git('checkout', '-q', '--detach', w.A);
+  w.git('commit', '-q', '--allow-empty', '-m', 'agent L');
+  const L = w.git('rev-parse', 'HEAD').stdout.trim();
+  return { ...w, P: w.A, R, L };
+}
+
+test('a forged ancestor object in the clone does not make a replacement look like a fast-forward (R33-1)', { skip: process.platform === 'win32' }, () => {
+  const w = divergedFork();
+  armRun({ home: w.home, runDir: w.runDir, sha: w.L });
+  const before = push(w, w.L, w.R);
+  assert.notEqual(before.code, 0);
+  assert.match(before.stderr, /replace/);
+  forgeLooseCommit(w, w.P, w.R);
+  assert.equal(w.git('merge-base', '--is-ancestor', w.R, w.L).code, 0, 'the forged object fools git itself');
+  const after = push(w, w.L, w.R);
+  assert.notEqual(after.code, 0, 'the guard must not believe the forged parent');
+  assert.match(after.stderr, /replace/);
+});
+
+// Ruling R33-2. GIT_TEST_COMMIT_GRAPH=1 in the pushing shell makes git read the commit-graph whatever
+// core.commitGraph says. A graph written from a forged object, copied into an intact clone, then claims A is B's parent.
+test('GIT_TEST_COMMIT_GRAPH from the pushing shell and a forged commit-graph cannot fake a fast-forward (R33-2)', { skip: process.platform === 'win32' }, () => {
+  const w = amended();
+  armRun({ home: w.home, runDir: w.runDir, sha: w.B });
+  const gitDir = w.git('rev-parse', '--absolute-git-dir').stdout.trim();
+  const copy = path.join(tmpDir('riverwright-forge-'), 'repo');
+  fs.cpSync(path.dirname(gitDir), copy, { recursive: true });
+  const c = { ...w, worktree: copy, git: (...a) => {
+    const r = spawnSync('git', a, { cwd: copy, encoding: 'utf8', env: { ...process.env, ...w.env } });
+    return { code: r.status, stdout: r.stdout, stderr: r.stderr };
+  } };
+  forgeLooseCommit(c, w.B, w.A);
+  assert.equal(c.git('commit-graph', 'write', '--reachable').code, 0);
+  fs.mkdirSync(path.join(gitDir, 'objects', 'info'), { recursive: true });
+  fs.copyFileSync(path.join(copy, '.git', 'objects', 'info', 'commit-graph'), path.join(gitDir, 'objects', 'info', 'commit-graph'));
+  const env = { ...w.env, GIT_TEST_COMMIT_GRAPH: '1' };
+  const live = spawnSync('git', ['-c', 'core.commitGraph=false', 'merge-base', '--is-ancestor', w.A, w.B], { cwd: w.worktree, env: { ...process.env, ...env } });
+  assert.equal(live.status, 0, 'the forged graph fools git when GIT_TEST_COMMIT_GRAPH is set');
+  const r = guard({ ...w, env }, `refs/heads/${BRANCH} ${w.B} refs/heads/${BRANCH} ${w.A}\n`);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /replace/);
+});
+
+test('a missing ancestor object or a shallow boundary on the way counts as a replacement', () => {
+  const w = amended();
+  // A -> M -> D: a real fast-forward from A to D.
+  w.git('reset', '-q', '--hard', w.A);
+  w.git('commit', '-q', '--allow-empty', '-m', 'middle');
+  const M = w.git('rev-parse', 'HEAD').stdout.trim();
+  w.git('commit', '-q', '--allow-empty', '-m', 'top');
+  const D = w.git('rev-parse', 'HEAD').stdout.trim();
+  armRun({ home: w.home, runDir: w.runDir, sha: D });
+  const ok = push(w, D, w.A);
+  assert.equal(ok.code, 0, ok.stderr);
+  const gitDir = w.git('rev-parse', '--absolute-git-dir').stdout.trim();
+  fs.writeFileSync(path.join(gitDir, 'shallow'), `${M}\n`);
+  const shallow = push(w, D, w.A);
+  assert.notEqual(shallow.code, 0);
+  assert.match(shallow.stderr, /replace/);
+  fs.rmSync(path.join(gitDir, 'shallow'));
+  const obj = path.join(gitDir, 'objects', M.slice(0, 2), M.slice(2));
+  fs.rmSync(obj, { force: true });
+  const missing = push(w, D, w.A);
+  assert.notEqual(missing.code, 0);
+  assert.match(missing.stderr, /replace/);
+});
+
+test('a sha256 repository: a fast-forward is allowed and a replacement refused', () => {
+  const env = isolatedGitEnv();
+  const home = tmpDir('riverwright-home-');
+  const worktree = path.join(home, 'ruvnet', 'ruflo', 'worktrees', 'issue-3509');
+  fs.mkdirSync(worktree, { recursive: true });
+  const git = (...a) => spawnSync('git', a, { cwd: worktree, encoding: 'utf8', env: { ...process.env, ...env } });
+  assert.equal(git('init', '-q', '--object-format=sha256').status, 0);
+  git('commit', '-q', '--allow-empty', '-m', 'a');
+  const A = git('rev-parse', 'HEAD').stdout.trim();
+  git('commit', '-q', '--allow-empty', '-m', 'c');
+  const C = git('rev-parse', 'HEAD').stdout.trim();
+  git('reset', '-q', '--hard', A);
+  git('commit', '-q', '--amend', '--allow-empty', '-m', 'b');
+  const B = git('rev-parse', 'HEAD').stdout.trim();
+  assert.equal(A.length, 64);
+  const runDir = runDirIn(home);
+  saveState(runDir, setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK));
+  const w = { home, worktree, runDir, env };
+  armRun({ home, runDir, sha: C });
+  const ff = push(w, C, A);
+  assert.equal(ff.code, 0, ff.stderr);
+  armRun({ home, runDir, sha: B });
+  const replace = push(w, B, A);
+  assert.notEqual(replace.code, 0);
+  assert.match(replace.stderr, /replace/);
 });

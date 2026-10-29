@@ -24,6 +24,10 @@ test('remote URLs normalize across https, ssh, scp and credentials', () => {
     assert.equal(normalizeRemoteUrl(u), want, u);
   }
   assert.equal(normalizeRemoteUrl('/tmp/bare.git'), null);
+  // Finding M-3: empty segments and a bare ".git" segment are not quietly dropped; git sends those paths as given.
+  for (const u of ['https://github.com/pacphi/ruflo/.git', 'https://github.com//pacphi//ruflo', 'https://github.com/pacphi//ruflo', 'git@github.com:pacphi//ruflo.git', 'https://github.com/pacphi/ruflo//', 'https://github.com/pacphi/.git']) {
+    assert.equal(normalizeRemoteUrl(u), null, u);
+  }
   assert.equal(normalizeRemoteUrl('C:\\repos\\x'), null);
 });
 

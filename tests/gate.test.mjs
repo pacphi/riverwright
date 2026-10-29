@@ -1324,6 +1324,10 @@ test('a submit gate without a fork the guard can recognise, or a fork or lease o
     [{ gate: 'post-comment', branch: null, binding: content, recompute: async () => content }, /fork/],
     [{ lease: 'abc' }, /lease/],
     [{ lease: 'C'.repeat(40) }, /lease/],
+    // Finding M-1: leases that can never be a real replacement.
+    [{ lease: '0'.repeat(40) }, /lease/],
+    [{ lease: binding.value }, /lease/],
+    [{ lease: 'c'.repeat(64) }, /lease/],
     [{ gate: 'post-comment', branch: null, fork: null, binding: content, recompute: async () => content, lease: 'c'.repeat(40) }, /lease/],
     [{ binding: { kind: 'content', value: `sha256:${'d'.repeat(64)}` }, lease: 'c'.repeat(40) }, /lease/],
   ];

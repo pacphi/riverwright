@@ -1,5 +1,3 @@
-import crypto from 'node:crypto';
-import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { printable } from '../printable.mjs';
@@ -13,20 +11,21 @@ import { readVault } from '../vault.mjs';
 import { findNewestValidReceipt, newestReceiptEvent } from '../receipt.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
+import { guardGitEnv, isVerifiedAncestor } from '../ancestry.mjs';
 
 // In-process test seam only: io.testing is supplied by the test helper and never by scripts/riverwright.mjs,
 // so no environment variable, git config or flag can reach it. In production the run is always located
 // from the repository being pushed.
 async function testRunDir(io) {
   if (io.testing.runDir) return io.testing.runDir;
-  const r = await runFile('git', ['config', '--get', 'riverwright.run'], { cwd: io.cwd });
+  const r = await runFile('git', ['config', '--get', 'riverwright.run'], { cwd: io.cwd, env: guardGitEnv() });
   return r.code === 0 ? r.stdout.trim() || null : null;
 }
 
 // <home>/<owner>/<repo>/worktrees/issue-<n> (the top of the worktree being pushed) owns
 // <home>/<owner>/<repo>/runs/issue-<n>, whose runId must be <owner>/<repo>#<n>.
 async function runFromRepository(io, home) {
-  const r = await runFile('git', ['rev-parse', '--show-toplevel'], { cwd: io.cwd });
+  const r = await runFile('git', ['rev-parse', '--show-toplevel'], { cwd: io.cwd, env: guardGitEnv() });
   const top = r.code === 0 ? r.stdout.trim() : '';
   if (!top || !isInside(top, home)) return null;
   const parts = path.relative(realish(home), realish(top)).split(path.sep);
@@ -38,20 +37,18 @@ async function runFromRepository(io, home) {
 
 const GATE = 'submit-gate';
 
-// Whether each update fast-forwards the remote tip git reported, asked of git itself (ADR-0012). The clone is
-// agent-writable, so the question is asked with everything in it that can rewrite history turned off: replace refs
-// (--no-replace-objects), grafts (GIT_GRAFT_FILE pointing at a file that does not exist) and the commit-graph
-// file (core.commitGraph=false). Ancestry then comes only from the commit objects, which are named by their own
-// hash. Only exit 0 is a fast-forward: a tip whose objects are missing, a shallow history, a timeout or any other
-// git failure counts as "not a fast-forward". A new branch (remote tip all zeros) is not asked about. The SHAs were
-// checked as full hex by parsePrePushLines, so neither can be read as an option.
+// Whether each update fast-forwards the remote tip git reported (ADR-0012; ruling R33). The clone is agent-writable
+// and git does not check an object's hash while it walks history, so `git merge-base --is-ancestor` can be fooled
+// by a loose object rewritten in place, and a forged commit-graph fools it when GIT_TEST_COMMIT_GRAPH is set. The
+// question is therefore answered by isVerifiedAncestor: a walk in Node over objects whose hashes it recomputes,
+// started with an allowlisted environment. Anything it cannot prove (a mismatch, a missing object, a shallow
+// boundary, the cap, any git failure) counts as "not a fast-forward". A new branch (remote tip all zeros) is not
+// asked about. The SHAs were checked as full hex by parsePrePushLines.
 async function withFastForward(updates, cwd) {
-  const noGrafts = path.join(os.tmpdir(), `riverwright-no-grafts-${crypto.randomUUID()}`);
-  const env = { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: noGrafts };
+  const env = guardGitEnv();
   return Promise.all(updates.map(async (u) => {
     if (/^0+$/.test(u.remoteSha) || /^0+$/.test(u.localSha)) return u;
-    const r = await runFile('git', ['--no-replace-objects', '-c', 'core.commitGraph=false', 'merge-base', '--is-ancestor', u.remoteSha, u.localSha], { cwd, env });
-    return { ...u, fastForward: r.code === 0 };
+    return { ...u, fastForward: await isVerifiedAncestor({ cwd, env, ancestor: u.remoteSha, descendant: u.localSha }) };
   }));
 }
 

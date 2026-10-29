@@ -116,7 +116,9 @@ const WRAPPERS = {
 const WRAPPER_POSITIONALS = { timeout: 1, flock: 1 };
 // eval, and its PowerShell equivalents (names are lowercased by base()).
 const EVALUATORS = new Set(['eval', 'iex', 'invoke-expression', 'icm', 'invoke-command']);
-const DANGEROUS_ENV = /^(GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|GIT_PROXY_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_EXEC_PATH|GIT_TEMPLATE_DIR|GIT_ALLOW_PROTOCOL|RIVERWRIGHT_\w*|HOME|XDG_CONFIG_HOME)$/i;
+// GIT_TEST_* is matched as a prefix (ruling R33-2): GIT_TEST_COMMIT_GRAPH, for one, makes git read the commit-graph
+// whatever core.commitGraph says. The object-directory, replace and graft variables change which history git sees.
+const DANGEROUS_ENV = /^(GIT_SSH|GIT_SSH_COMMAND|GIT_SSH_VARIANT|GIT_PROXY_COMMAND|GIT_ASKPASS|SSH_ASKPASS|GIT_CONFIG\w*|GIT_DIR|GIT_WORK_TREE|GIT_COMMON_DIR|GIT_EXEC_PATH|GIT_TEMPLATE_DIR|GIT_ALLOW_PROTOCOL|GIT_TEST\w*|GIT_OBJECT_DIRECTORY|GIT_ALTERNATE_OBJECT_DIRECTORIES|GIT_REPLACE_REF_BASE|GIT_NO_REPLACE_OBJECTS|GIT_GRAFT_FILE|GIT_NO_LAZY_FETCH|RIVERWRIGHT_\w*|HOME|XDG_CONFIG_HOME)$/i;
 const GIT_WATCHED_KEY = /^(remote\.|credential|url\.|branch\.[^.]+\.(pushremote|remote)|push\.|alias\.|riverwright\.|include\.|includeif\.|core\.(hookspath|sshcommand|gitproxy|askpass)|http\.|protocol\.)/i;
 const GIT_PUSHERS = new Set(['push', 'send-pack', 'http-push', 'send-email', 'imap-send']);
 const GIT_VALUE_OPTS = new Set(['-C', '--git-dir', '--work-tree', '--namespace', '--super-prefix', '--attr-source', '--list-cmds']);

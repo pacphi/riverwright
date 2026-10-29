@@ -35,6 +35,17 @@ test('the signed bytes are a fixed-order JSON array, so no field can slide into 
   assert.equal(JSON.parse(receiptBytes(tricky).toString('utf8').split('\n')[1])[1], 'a","b');
 });
 
+// Finding M-2: JSON.stringify writes an undefined array element as null, so the signed bytes alone cannot tell a
+// missing field from null. receiptBytes refuses a missing field instead of signing or checking such bytes.
+test('the signed bytes refuse a receipt with a field missing rather than read it as null', () => {
+  const r = buildReceipt(base);
+  for (const key of ['fork', 'lease', 'branch', 'run', 'nonce']) {
+    const { [key]: _gone, ...rest } = r;
+    assert.throws(() => receiptBytes(rest), /BAD_RECEIPT|missing/, key);
+  }
+  assert.doesNotThrow(() => receiptBytes(r));
+});
+
 test('only the three public gates get receipts, with a full SHA or a content hash', () => {
   assert.throws(() => buildReceipt({ ...base, gate: 'checkpoint-1' }), /public gate/);
   assert.throws(() => buildReceipt({ ...base, binding: { kind: 'sha', value: 'abc' } }), /binding/);
@@ -380,7 +391,9 @@ test('a lease names the remote tip a re-submit replaces, is signed, and belongs 
   assert.equal(verifyReceipt({ ...signReceipt(buildReceipt(base), k.privateKey), lease: C }, k.publicKey), false, 'a lease cannot be added to a signed receipt');
   assert.equal(buildReceipt(base).lease, null);
   for (const lease of ['abc', C.toUpperCase(), `${C} `, 'g'.repeat(40), 42, '']) assert.throws(() => buildReceipt({ ...base, lease }), /lease/, String(lease));
-  assert.doesNotThrow(() => buildReceipt({ ...base, lease: 'e'.repeat(64) }));
+  assert.doesNotThrow(() => buildReceipt({ ...base, binding: { kind: 'sha', value: 'f'.repeat(64) }, lease: 'e'.repeat(64) }));
+  // Finding M-1: a lease that can never be a real replacement is refused, so the human is never shown one.
+  for (const lease of ['0'.repeat(40), base.binding.value, 'e'.repeat(64)]) assert.throws(() => buildReceipt({ ...base, lease }), /lease/, lease);
   assert.throws(() => buildReceipt({ ...base, gate: 'post-comment', branch: null, fork: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` }, lease: C }), /lease/);
   assert.throws(() => buildReceipt({ ...base, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` }, lease: C }), /lease/);
 });

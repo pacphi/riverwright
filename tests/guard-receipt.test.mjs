@@ -9,7 +9,7 @@ import { appendChained, readEvents } from '../scripts/lib/events.mjs';
 import { buildReceipt, consumeReceipt, markConsumed, signReceipt } from '../scripts/lib/receipt.mjs';
 import { runPublicAction } from '../scripts/lib/gate.mjs';
 import { vaultFile } from '../scripts/lib/vault.mjs';
-import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
+import { ledgerDirFor, readLedger } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
 import { callMain, fakeSecretTerminal, tmpDir } from './helpers.mjs';
 import { FORK_KEY, NOW, PASSPHRASE, armRun, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
@@ -225,6 +225,11 @@ test('a push with nothing to update is allowed only while a receipt is unlocked'
   armRun({ home: w.home, runDir: w.runDir, sha: A });
   const during = await empty();
   assert.equal(during.code, 0, during.stderr);
+  // Finding M-5: the ledger does not say a push was approved when git sent nothing to push.
+  const guardEvents = readLedger(w.runDir).filter((e) => e.type === 'guard');
+  assert.equal(guardEvents.at(-1).decision, 'allow');
+  assert.match(guardEvents.at(-1).reason, /nothing to push/);
+  assert.doesNotMatch(guardEvents.at(-1).reason, /approved push/);
   markConsumed({ ledgerDir: ledgerDirFor(w.runDir), nonce: nonceOf(w), outcome: 'succeeded', at: new Date().toISOString() });
   const after = await empty();
   assert.notEqual(after.code, 0);

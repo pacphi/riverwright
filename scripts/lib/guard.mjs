@@ -62,6 +62,9 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
       return deny(`The fork branch already holds ${remoteTip.slice(0, 12)}, which this push would replace. Only a re-submit that you approve with "riverwright submit" may replace it.`);
     }
   }
+  // Git runs the hook with no lines when nothing is to be updated (up to date, or every ref refused by git itself,
+  // such as a stale lease). Nothing is pushed then, and the ledger says so rather than "approved push" (finding M-5).
+  if (!updates.length) return { allow: true, reason: 'nothing to push: git named no ref to update' };
   return { allow: true, reason: 'approved push to your fork' };
 }
 

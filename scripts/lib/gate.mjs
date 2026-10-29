@@ -413,6 +413,10 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
   if (lease !== null && !(gate === 'submit-gate' && bound.kind === 'sha' && typeof lease === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(lease))) {
     throw new RiverwrightError('BAD_CALL', 'a lease is the full lowercase SHA of the fork branch tip being replaced, and only the submit gate for a commit takes one');
   }
+  // Finding M-1: never show the human a replacement that cannot be real.
+  if (lease !== null && (/^0+$/.test(lease) || lease === bound.value || lease.length !== bound.value.length)) {
+    throw new RiverwrightError('BAD_CALL', 'a lease is the commit the fork branch holds now: not all zeros, not the commit being approved, and a SHA of the same length');
+  }
   checkLines(summary, { label: 'the summary', required: true });
   checkLines(warnings, { label: 'the warnings', required: false });
   for (const [name, fn] of [['now', now], ['clock', clock], ['sleep', sleep], ['recompute', recompute], ['action', action]]) {

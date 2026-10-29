@@ -66,6 +66,9 @@ export function buildReceipt({ gate, run, binding, branch = null, fork = null, l
   else if (branch !== null) throw bad('only the submit gate names a branch');
   if (gate === 'submit-gate' ? !isForkKey(fork) : fork !== null) throw bad('a submit-gate receipt names its fork as host/owner/repo (for example github.com/you/repo), and no other gate names a fork');
   if (lease !== null && !(gate === 'submit-gate' && binding.kind === 'sha' && typeof lease === 'string' && SHA.test(lease))) throw bad('a lease is the full lowercase SHA of the remote tip, and only a submit-gate receipt for a commit has one');
+  // Finding M-1: a lease that can never be a real replacement (all zeros, the approved commit itself, or a SHA of
+  // another object format) is refused here, so no receipt and no gate prompt can claim one.
+  if (lease !== null && (/^0+$/.test(lease) || lease === binding.value || lease.length !== binding.value.length)) throw bad('a lease is the commit the fork branch holds now: not all zeros, not the approved commit, and the same length as the approved commit\'s SHA');
   if (!HEAD.test(ledgerHead ?? '')) throw bad('ledgerHead must be sha256:<64 hex>');
   if (!Number.isInteger(seq) || seq < 1) throw bad('seq must be a positive integer');
   if (typeof at !== 'string' || !AT.test(at) || Number.isNaN(Date.parse(at))) throw bad('"at" must be an ISO-8601 UTC time such as 2026-10-02T14:03:11.000Z');
@@ -74,8 +77,14 @@ export function buildReceipt({ gate, run, binding, branch = null, fork = null, l
 }
 
 // A JSON array in fixed order, so no field can be moved into its neighbour without changing the bytes.
+// JSON.stringify writes an undefined array element as null, so these bytes alone could not tell a missing field from
+// a null one (finding M-2). A missing field is therefore refused here, not signed or checked as null. verifyReceipt
+// also rebuilds the receipt and compares it whole, so a receipt with a key removed never verifies either way.
+const SIGNED = [(r) => r.gate, (r) => r.run, (r) => r.binding?.kind, (r) => r.binding?.value, (r) => r.branch, (r) => r.fork, (r) => r.lease, (r) => r.ledgerHead, (r) => r.seq, (r) => r.at, (r) => r.nonce];
 export function receiptBytes(r) {
-  return Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify([r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.fork, r.lease, r.ledgerHead, r.seq, r.at, r.nonce])}`, 'utf8');
+  const fields = SIGNED.map((get) => get(r));
+  if (fields.some((v) => v === undefined)) throw bad('a receipt field is missing, so its signed bytes cannot be built');
+  return Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify(fields)}`, 'utf8');
 }
 
 export function signReceipt(receipt, privateKey) {

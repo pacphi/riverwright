@@ -63,6 +63,18 @@ export const BYPASSES = [
   'RIVERWRIGHT_TEST=1 npm test',
   'env GIT_EXEC_PATH=/tmp/evil git status',
   'export GIT_DIR=/tmp/x/.git',
+  // ruling R33-2: GIT_TEST_* (any of them) and the variables that change which objects or history git reads
+  'GIT_TEST_COMMIT_GRAPH=1 git push origin HEAD',
+  'GIT_TEST_ANYTHING_NEW=1 git status',
+  'git_test_commit_graph=1 git status',
+  'env GIT_TEST_COMMIT_GRAPH=1 git push origin HEAD',
+  'export GIT_TEST_COMMIT_GRAPH=1',
+  'GIT_OBJECT_DIRECTORY=/tmp/x git status',
+  'GIT_ALTERNATE_OBJECT_DIRECTORIES=/tmp/x git status',
+  'GIT_REPLACE_REF_BASE=refs/x/ git log',
+  'GIT_NO_REPLACE_OBJECTS=1 git log',
+  'GIT_GRAFT_FILE=/tmp/g git log',
+  'GIT_NO_LAZY_FETCH=0 git log',
   // HTTP clients writing to GitHub
   'curl -X POST https://api.github.com/repos/o/r/issues -d @body.json',
   'curl -XPATCH https://api.github.com/repos/o/r/pulls/1',

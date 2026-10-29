@@ -27,8 +27,13 @@ export function normalizeRemoteUrl(url) {
   }
   host = host.toLowerCase();
   if (!HOST.test(host)) return null;
-  const parts = rest.replace(/\/+$/, '').replace(/\.git$/i, '').split('/').filter(Boolean);
+  // One trailing slash and a ".git" suffix on the repository name are allowed. An empty segment ("//") or a bare
+  // ".git" segment is refused rather than dropped: git sends the path as given, and on a path-based server
+  // ".../repo/.git" can be another repository (finding M-3).
+  const parts = rest.replace(/\/$/, '').replace(/(?<=[^/])\.git$/i, '').split('/');
   if (parts.length !== 2 || !parts.every((p) => SEGMENT.test(p) && !p.includes('..'))) return null;
+  // Lowercased: the key assumes a host whose owner and repository names are case-insensitive, as on GitHub. On a
+  // case-sensitive host Owner/Repo and owner/repo would share a key.
   return `${host}/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
 }
 
