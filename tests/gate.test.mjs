@@ -19,6 +19,7 @@ const RUN = 'ruvnet/ruflo#3509';
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
 const BRANCH = 'riverwright/3509-codex';
+const FORK = 'https://github.com/pacphi/ruflo.git';
 const binding = { kind: 'sha', value: A };
 
 function setup() {
@@ -30,7 +31,7 @@ function setup() {
   const clock = { t: 1_000_000 };
   const sleeps = [];
   const base = {
-    home, runDir, gate: 'submit-gate', run: RUN, binding, branch: BRANCH, host: 'claude-code',
+    home, runDir, gate: 'submit-gate', run: RUN, binding, branch: BRANCH, fork: FORK, host: 'claude-code',
     summary: [`Push ${A} to pacphi/ruflo:${BRANCH}`, 'Open a draft pull request against ruvnet/ruflo'],
     warnings: [], now: () => NOW, clock: () => clock.t,
     sleep: async (ms) => { sleeps.push(ms); clock.t += ms; },
@@ -1281,4 +1282,61 @@ test('m3: only lines that start with four spaces and "at " are kept as frames', 
   const stack = ['Error: header', '    at kept (a.js:1:1)', '  at two (b.js:1:1)', ' at one (c.js:1:1)', '    atx (d.js:1:1)', '\tat tab (e.js:1:1)', 'x    at inline (f.js:1:1)', '    at also (g.js:1:1)'].join('\n');
   const { caught } = await failWith(() => ({ message: 'm', stack }));
   assert.equal(caught.details.stack, 'm\n    at kept (a.js:1:1)\n    at also (g.js:1:1)');
+});
+
+// ---- Task 14: the fork (R16(b)) and the lease (ADR-0012) are signed, and the gate shows both in its own words ----
+
+test('a lease is carried into the signed receipt, so the unlock approves replacing exactly that commit', async () => {
+  const s = setup();
+  const lease = 'c'.repeat(40);
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  const r = await runPublicAction({ ...s.base, lease, terminal: t, action: async ({ receipt }) => receipt.lease });
+  assert.equal(r.result, lease);
+  assert.equal(readEvents(s.ledgerDir)[0].data.receipt.lease, lease);
+  // The gate's own line (not the caller's summary) says that the push replaces that commit.
+  const own = t.written.join('').split('\n').find((l) => l.startsWith('Your passphrase signs'));
+  assert.match(own, new RegExp(`replaces commit ${lease}`));
+  const plain = setup();
+  const pt = fakeSecretTerminal([PASSPHRASE]);
+  const p = await runPublicAction({ ...plain.base, terminal: pt, action: async ({ receipt }) => receipt.lease });
+  assert.equal(p.result, null);
+  assert.doesNotMatch(pt.written.join(''), /replaces/);
+});
+
+test('the fork is signed as its normalized key, and the gate names it in its own line', async () => {
+  const s = setup();
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  const r = await runPublicAction({ ...s.base, fork: 'git@github.com:PacPhi/ruflo.git', terminal: t, action: async ({ receipt }) => receipt.fork });
+  assert.equal(r.result, 'github.com/pacphi/ruflo');
+  assert.equal(readEvents(s.ledgerDir)[0].data.receipt.fork, 'github.com/pacphi/ruflo');
+  const own = t.written.join('').split('\n').find((l) => l.startsWith('Your passphrase signs'));
+  assert.match(own, /to your fork github\.com\/pacphi\/ruflo/);
+});
+
+test('a submit gate without a fork the guard can recognise, or a fork or lease on another gate, is refused before anything is shown', async () => {
+  const content = { kind: 'content', value: `sha256:${'d'.repeat(64)}` };
+  const cases = [
+    [{ fork: null }, /fork/],
+    [{ fork: undefined }, /fork/],
+    [{ fork: '/tmp/decoy.git' }, /fork/],
+    [{ fork: 'http://github.com/pacphi/ruflo.git' }, /fork/],
+    [{ fork: 'github.com/pacphi/ruflo' }, /fork/],
+    [{ gate: 'post-comment', branch: null, binding: content, recompute: async () => content }, /fork/],
+    [{ lease: 'abc' }, /lease/],
+    [{ lease: 'C'.repeat(40) }, /lease/],
+    [{ gate: 'post-comment', branch: null, fork: null, binding: content, recompute: async () => content, lease: 'c'.repeat(40) }, /lease/],
+    [{ binding: { kind: 'content', value: `sha256:${'d'.repeat(64)}` }, lease: 'c'.repeat(40) }, /lease/],
+  ];
+  for (const [extra, why] of cases) {
+    const s = setup();
+    const t = fakeSecretTerminal([PASSPHRASE]);
+    let called = false;
+    await assert.rejects(runPublicAction({ ...s.base, ...extra, terminal: t, action: async () => { called = true; } }), (e) => e.code === 'BAD_CALL' && why.test(e.message), JSON.stringify(extra));
+    assert.equal(called, false);
+    assert.equal(t.written.join(''), '', JSON.stringify(extra));
+    assert.deepEqual(events(s), [], JSON.stringify(extra));
+  }
+  const post = setup();
+  const ok = await runPublicAction({ ...post.base, gate: 'post-comment', branch: null, fork: null, binding: content, recompute: async () => content, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ receipt }) => [receipt.fork, receipt.lease] });
+  assert.deepEqual(ok.result, [null, null]);
 });

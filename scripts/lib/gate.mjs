@@ -27,6 +27,7 @@ import { RiverwrightError } from './errors.mjs';
 import { openVault, readVault } from './vault.mjs';
 import { canHideInput, noEchoControl, readSecret } from './tty.mjs';
 import { PUBLIC_GATES, appendReceipt, markConsumed } from './receipt.mjs';
+import { normalizeRemoteUrl } from './giturl.mjs';
 import { appendEvent, ledgerDirFor } from './ledger.mjs';
 import { loadState, saveState } from './state.mjs';
 import { assertHost } from './hosts.mjs';
@@ -382,8 +383,14 @@ function sanitize(error, token, { code, what, transient = false }) {
 
 // ---- The gate ----
 
-// runPublicAction({ home, runDir, gate, run, binding, branch?, host?, terminal, summary, warnings?, now, clock?,
-//   sleep?, recompute, action }) => { result, receipt, attempts, outcomeRecorded }
+// runPublicAction({ home, runDir, gate, run, binding, branch?, fork?, lease?, host?, terminal, summary, warnings?,
+//   now, clock?, sleep?, recompute, action }) => { result, receipt, attempts, outcomeRecorded }
+//
+// The submit gate also takes `fork`, the URL of the fork the commit is pushed to (https, ssh or scp form), and may
+// take `lease`, the full SHA of the fork branch's current tip that this push replaces (ADR-0012). The receipt
+// signs the fork as its host/owner/repo key (ruling R16(b)) and the lease as given, and the gate states both in its
+// own line above the passphrase prompt, not only in the caller's summary: the caller may have read the fork from
+// state.json, which an agent can write, so the human's eyes on this line are what make the signed fork trustworthy.
 //
 // action({ token, receipt, attempt, signal, deadline }) does the public thing. It throws an error with
 // `transient === true` for a network error, a 5xx or a rate limit; anything else is final. `signal` aborts when
@@ -392,7 +399,7 @@ function sanitize(error, token, { code, what, transient = false }) {
 // the gate gave up would be recorded wrongly. Nothing thrown after the unlock is rethrown as is: see sanitize().
 // recompute() returns the payload's binding as it is now (a commit SHA or a content hash, from the live
 // repository or the normalized text). The caller owns the terminal ({ input, output }) and closes it.
-export async function runPublicAction({ home, runDir, gate, run, binding, branch = null, host = null, terminal, summary, warnings = [], now, clock = Date.now, sleep = defaultSleep, recompute, action }) {
+export async function runPublicAction({ home, runDir, gate, run, binding, branch = null, fork = null, lease = null, host = null, terminal, summary, warnings = [], now, clock = Date.now, sleep = defaultSleep, recompute, action }) {
   // Everything that can be checked without the human is checked before anything is shown or written.
   if (!PUBLIC_GATES.includes(gate)) throw new RiverwrightError('NOT_PUBLIC_GATE', `${shown(gate)} is not a public gate (${PUBLIC_GATES.join(', ')})`);
   const bound = checkBinding(binding);
@@ -400,6 +407,12 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
   assertHost(host);
   const onBranch = gate === 'submit-gate' ? normalizeBranch(branch) : null;
   if (gate !== 'submit-gate' && branch !== null) throw new RiverwrightError('BAD_CALL', 'only the submit gate names a branch');
+  const forkKey = gate === 'submit-gate' ? normalizeRemoteUrl(fork) : null;
+  if (gate === 'submit-gate' && !forkKey) throw new RiverwrightError('BAD_CALL', 'the submit gate needs the fork\'s URL (https://host/owner/repo or git@host:owner/repo)');
+  if (gate !== 'submit-gate' && fork !== null) throw new RiverwrightError('BAD_CALL', 'only the submit gate names a fork');
+  if (lease !== null && !(gate === 'submit-gate' && bound.kind === 'sha' && typeof lease === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(lease))) {
+    throw new RiverwrightError('BAD_CALL', 'a lease is the full lowercase SHA of the fork branch tip being replaced, and only the submit gate for a commit takes one');
+  }
   checkLines(summary, { label: 'the summary', required: true });
   checkLines(warnings, { label: 'the warnings', required: false });
   for (const [name, fn] of [['now', now], ['clock', clock], ['sleep', sleep], ['recompute', recompute], ['action', action]]) {
@@ -422,7 +435,9 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
   out.write(`\nRiverwright is about to act publicly (${gate}) for ${printable(run)}:\n`);
   for (const line of summary) out.write(indented(line, '  '));
   const what = bound.kind === 'sha' ? `commit ${bound.value}` : `content ${bound.value}`;
-  out.write(`\nYour passphrase signs a receipt for this exact ${what}${onBranch ? ` on ${onBranch}` : ''}.\n`);
+  const where = forkKey ? ` on ${onBranch} to your fork ${forkKey}` : '';
+  const replaces = lease ? `; it replaces commit ${lease}, which that branch holds now` : '';
+  out.write(`\nYour passphrase signs a receipt for this exact ${what}${where}${replaces}.\n`);
   if (warnings.length) {
     out.write('\nRiverwright cannot stop these routes to your credentials:\n');
     for (const w of warnings) out.write(indented(w, '  - ', '    '));
@@ -472,7 +487,7 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
       throw changed();
     }
 
-    const written = appendReceipt({ ledgerDir, privateKey, gate, run, binding: bound, branch: onBranch, at: now() });
+    const written = appendReceipt({ ledgerDir, privateKey, gate, run, binding: bound, branch: onBranch, fork: forkKey, lease, at: now() });
     privateKey = null;
     const receipt = deepFreeze(structuredClone(written.record.data.receipt));
 

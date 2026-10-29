@@ -12,7 +12,7 @@ import { vaultFile } from '../scripts/lib/vault.mjs';
 import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
 import { callMain, fakeSecretTerminal, tmpDir } from './helpers.mjs';
-import { NOW, PASSPHRASE, armRun, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
+import { FORK_KEY, NOW, PASSPHRASE, armRun, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -69,7 +69,7 @@ test('a receipt signed by any other key is refused, even with a well-formed ledg
   const attacker = crypto.generateKeyPairSync('ed25519');
   appendChained(ledgerDirFor(w.runDir), ({ prev, seq }) => ({
     event: 'approved', at: new Date().toISOString(), actor: { type: 'human' }, run: 'ruvnet/ruflo#3509',
-    data: { receipt: signReceipt(buildReceipt({ gate: 'submit-gate', run: 'ruvnet/ruflo#3509', binding: { kind: 'sha', value: A }, branch: BRANCH, ledgerHead: prev, seq, at: new Date().toISOString() }), attacker.privateKey) },
+    data: { receipt: signReceipt(buildReceipt({ gate: 'submit-gate', run: 'ruvnet/ruflo#3509', binding: { kind: 'sha', value: A }, branch: BRANCH, fork: FORK_KEY, ledgerHead: prev, seq, at: new Date().toISOString() }), attacker.privateKey) },
   }));
   const r = await push(w);
   assert.notEqual(r.code, 0);
@@ -254,7 +254,7 @@ test('during the gate\'s push the guard allows; once the outcome is recorded it 
     const guard = () => callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A), cwd: w.worktree, testing: { now: NOW } });
     let during;
     const run = runPublicAction({
-      home: w.home, runDir: w.runDir, gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: BRANCH,
+      home: w.home, runDir: w.runDir, gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: BRANCH, fork: FORK,
       terminal: fakeSecretTerminal([PASSPHRASE]), summary: [`Push ${A} to pacphi/ruflo:${BRANCH}`], now: () => NOW,
       sleep: async () => {}, recompute: async () => ({ kind: 'sha', value: A }),
       action: async () => {
@@ -326,7 +326,7 @@ test('a newest event with a bad signature is refused even when an older valid un
   const attacker = crypto.generateKeyPairSync('ed25519');
   appendChained(ledgerDirFor(w.runDir), ({ prev, seq }) => ({
     event: 'approved', at: new Date().toISOString(), actor: { type: 'human' }, run: 'ruvnet/ruflo#3509',
-    data: { receipt: signReceipt(buildReceipt({ gate: 'submit-gate', run: 'ruvnet/ruflo#3509', binding: { kind: 'sha', value: C }, branch: BRANCH, ledgerHead: prev, seq, at: new Date().toISOString() }), attacker.privateKey) },
+    data: { receipt: signReceipt(buildReceipt({ gate: 'submit-gate', run: 'ruvnet/ruflo#3509', binding: { kind: 'sha', value: C }, branch: BRANCH, fork: FORK_KEY, ledgerHead: prev, seq, at: new Date().toISOString() }), attacker.privateKey) },
   }));
   for (const sha of [A, C]) {
     const r = await push(w, sha);

@@ -1,3 +1,5 @@
+import crypto from 'node:crypto';
+import os from 'node:os';
 import path from 'node:path';
 import { parseArgs } from 'node:util';
 import { printable } from '../printable.mjs';
@@ -35,6 +37,23 @@ async function runFromRepository(io, home) {
 }
 
 const GATE = 'submit-gate';
+
+// Whether each update fast-forwards the remote tip git reported, asked of git itself (ADR-0012). The clone is
+// agent-writable, so the question is asked with everything in it that can rewrite history turned off: replace refs
+// (--no-replace-objects), grafts (GIT_GRAFT_FILE pointing at a file that does not exist) and the commit-graph
+// file (core.commitGraph=false). Ancestry then comes only from the commit objects, which are named by their own
+// hash. Only exit 0 is a fast-forward: a tip whose objects are missing, a shallow history, a timeout or any other
+// git failure counts as "not a fast-forward". A new branch (remote tip all zeros) is not asked about. The SHAs were
+// checked as full hex by parsePrePushLines, so neither can be read as an option.
+async function withFastForward(updates, cwd) {
+  const noGrafts = path.join(os.tmpdir(), `riverwright-no-grafts-${crypto.randomUUID()}`);
+  const env = { ...process.env, GIT_NO_REPLACE_OBJECTS: '1', GIT_GRAFT_FILE: noGrafts };
+  return Promise.all(updates.map(async (u) => {
+    if (/^0+$/.test(u.remoteSha) || /^0+$/.test(u.localSha)) return u;
+    const r = await runFile('git', ['--no-replace-objects', '-c', 'core.commitGraph=false', 'merge-base', '--is-ancestor', u.remoteSha, u.localSha], { cwd, env });
+    return { ...u, fastForward: r.code === 0 };
+  }));
+}
 
 // Consent for a push is the NEWEST submit-gate receipt for this run in the ledger, if it is signed, anchored,
 // unused and current, verified against the vault's public key (ADR-0010, spec §7.1; ruling R17). state.json is
@@ -101,6 +120,7 @@ export async function run(args, io) {
     io.stderr.write('Riverwright: this clone is managed by Riverwright but its run record is missing, so the push is blocked.\n');
     return 1;
   }
+  updates = await withFastForward(updates, io.cwd);
   const { dir } = located;
   const state = loadState(dir);
   const destination = remoteUrl ?? remoteName;
@@ -117,7 +137,9 @@ export async function run(args, io) {
   const decision = decidePrePush({
     remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null,
     approvedSha: receipt ? receipt.binding.value : null,
+    approvedFork: receipt ? receipt.fork : null,
     approvedBranch: receipt ? receipt.branch : null,
+    approvedLease: receipt ? receipt.lease : null,
     upstream: run,
   });
   // The receipt's reason explains only the "nothing unlocked" refusal, not a wrong destination or a missing fork.

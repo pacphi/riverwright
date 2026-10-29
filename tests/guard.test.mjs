@@ -9,7 +9,7 @@ import { recordApproval } from '../scripts/lib/approvals.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
 import { callMain, runRiverwright, tmpDir } from './helpers.mjs';
-import { NOW, armRun } from './receipt-helpers.mjs';
+import { FORK_KEY, NOW, armRun } from './receipt-helpers.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -28,7 +28,7 @@ test('remote URLs normalize across https, ssh, scp and credentials', () => {
 });
 
 test('the approved commit may go to the fork on a riverwright/ branch', () => {
-  const d = decidePrePush({ remoteUrl: 'git@github.com:pacphi/ruflo.git', updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: 'riverwright/3509-codex' });
+  const d = decidePrePush({ remoteUrl: 'git@github.com:pacphi/ruflo.git', updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex' });
   assert.equal(d.allow, true, d.reason);
 });
 
@@ -48,7 +48,7 @@ test('everything else is refused with a reason', () => {
     [{ forkUrl: FORK, approvedSha: A, updates: `refs/heads/riverwright/x ${ZERO} refs/heads/riverwright/x ${A}\n` }, /Deleting/],
   ];
   for (const [input, reason] of cases) {
-    const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(input.updates), forkUrl: input.forkUrl, approvedSha: input.approvedSha, approvedBranch: 'riverwright/3509-codex' });
+    const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(input.updates), forkUrl: input.forkUrl, approvedSha: input.approvedSha, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex' });
     assert.equal(d.allow, false);
     assert.match(d.reason, reason);
   }
@@ -231,10 +231,10 @@ test('a push over plain http or a non-default port is not a push to the fork', (
 });
 
 test('the approval is bound to one branch: another riverwright/ branch is refused', () => {
-  const other = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A, 'refs/heads/riverwright/9999-elsewhere')), forkUrl: FORK, approvedSha: A, approvedBranch: 'riverwright/3509-codex' });
+  const other = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A, 'refs/heads/riverwright/9999-elsewhere')), forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex' });
   assert.equal(other.allow, false);
   assert.match(other.reason, /approved branch riverwright\/3509-codex/);
-  const none = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: null });
+  const none = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: null });
   assert.equal(none.allow, false);
   assert.match(none.reason, /does not name a branch/);
 });
@@ -285,9 +285,9 @@ test('the upstream repository named by the signed run is refused in every URL fo
     assert.equal(d.allow, false, remoteUrl);
     assert.match(d.reason, /upstream repository/, remoteUrl);
   }
-  const fork = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
+  const fork = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
   assert.equal(fork.allow, true);
-  const sibling = decidePrePush({ remoteUrl: 'https://github.com/ruvnet/ruflo-extras.git', updates: parsePrePushLines(line(A)), forkUrl: 'https://github.com/ruvnet/ruflo-extras.git', approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
+  const sibling = decidePrePush({ remoteUrl: 'https://github.com/ruvnet/ruflo-extras.git', updates: parsePrePushLines(line(A)), forkUrl: 'https://github.com/ruvnet/ruflo-extras.git', approvedSha: A, approvedFork: 'github.com/ruvnet/ruflo-extras', approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
   assert.equal(sibling.allow, true);
 });
 
@@ -304,4 +304,64 @@ test('parsePrePushLines wants exactly four fields, tolerates CRLF and normalises
 test('a refusal for nothing unlocked carries a code, not just text', () => {
   const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: null });
   assert.equal(d.code, 'NOTHING_UNLOCKED');
+});
+
+// ---- Task 14 ----
+
+// R16(b): the receipt signs the fork. state.json's fork.url is agent-writable, so the destination must be exactly
+// the signed fork, whatever state.json says.
+test('the destination must be exactly the fork the receipt signed, whatever state.json says', () => {
+  const base = { updates: parsePrePushLines(line(A)), approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' };
+  for (const url of ['https://github.com/attacker/ruflo.git', 'git@github.com:attacker/ruflo.git', 'ssh://git@github.com/attacker/ruflo', 'https://github.com/pacphi/ruflo-other.git', 'https://gitlab.com/pacphi/ruflo.git']) {
+    const d = decidePrePush({ ...base, remoteUrl: url, forkUrl: url, approvedFork: FORK_KEY });
+    assert.equal(d.allow, false, url);
+    assert.match(d.reason, /not the fork you approved/, url);
+  }
+  for (const url of [FORK, 'git@github.com:PacPhi/ruflo.git', 'ssh://git@github.com:22/pacphi/ruflo', 'https://x:y@github.com/pacphi/ruflo/']) {
+    assert.equal(decidePrePush({ ...base, remoteUrl: url, forkUrl: FORK, approvedFork: FORK_KEY }).allow, true, url);
+  }
+  const unsigned = decidePrePush({ ...base, remoteUrl: FORK, forkUrl: FORK, approvedFork: null });
+  assert.equal(unsigned.allow, false);
+  assert.match(unsigned.reason, /does not name the fork/);
+  const signedElsewhere = decidePrePush({ ...base, remoteUrl: FORK, forkUrl: FORK, approvedFork: 'github.com/attacker/ruflo' });
+  assert.equal(signedElsewhere.allow, false);
+  assert.match(signedElsewhere.reason, /not the fork you approved/);
+});
+
+// A re-submit after an amend replaces the remote tip. Only a receipt whose lease equals that tip allows it (ADR-0012).
+test('a push that does not fast-forward the remote needs a receipt lease equal to the remote tip', () => {
+  const tip = 'c'.repeat(40);
+  const updates = (extra, remote = tip) => parsePrePushLines(`refs/heads/riverwright/3509-codex ${A} refs/heads/riverwright/3509-codex ${remote}\n`).map((u) => ({ ...u, ...extra }));
+  const base = { remoteUrl: FORK, forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex' };
+  assert.equal(decidePrePush({ ...base, updates: updates({ fastForward: true }) }).allow, true);
+  const none = decidePrePush({ ...base, updates: updates({ fastForward: false }) });
+  assert.equal(none.allow, false);
+  assert.match(none.reason, /replace/);
+  assert.equal(decidePrePush({ ...base, updates: updates({}) }).allow, false, 'unknown fast-forward status is not assumed');
+  assert.equal(decidePrePush({ ...base, updates: updates({ fastForward: 'yes' }) }).allow, false, 'only true counts as a fast-forward');
+  assert.equal(decidePrePush({ ...base, approvedLease: tip, updates: updates({ fastForward: false }) }).allow, true);
+  const wrong = decidePrePush({ ...base, approvedLease: 'd'.repeat(40), updates: updates({ fastForward: false }) });
+  assert.equal(wrong.allow, false);
+  assert.match(wrong.reason, /not the commit you approved replacing/);
+  assert.equal(decidePrePush({ ...base, updates: parsePrePushLines(line(A)) }).allow, true, 'a new branch needs no lease');
+});
+
+test('a lease receipt authorizes only replacing that tip with the approved commit on the approved branch', () => {
+  const tip = 'c'.repeat(40);
+  const push = (local, remote, ref = 'refs/heads/riverwright/3509-codex', extra = { fastForward: false }) => parsePrePushLines(`refs/heads/riverwright/3509-codex ${local} ${ref} ${remote}\n`).map((u) => ({ ...u, ...extra }));
+  const base = { remoteUrl: FORK, forkUrl: FORK, approvedSha: A, approvedFork: FORK_KEY, approvedBranch: 'riverwright/3509-codex', approvedLease: tip };
+  assert.equal(decidePrePush({ ...base, updates: push(A, tip) }).allow, true);
+  for (const [why, updates, reason] of [
+    ['another commit', push(B, tip), /not the approved commit/],
+    ['another branch', push(A, tip, 'refs/heads/riverwright/3509-other'), /approved branch/],
+    ['a fast-forward from another tip', push(A, 'd'.repeat(40), undefined, { fastForward: true }), /not the commit you approved replacing/],
+    ['creating the branch', push(A, ZERO), /not the commit you approved replacing/],
+    ['a delete', parsePrePushLines(`refs/heads/riverwright/3509-codex ${ZERO} refs/heads/riverwright/3509-codex ${tip}\n`), /Deleting/],
+  ]) {
+    const d = decidePrePush({ ...base, updates });
+    assert.equal(d.allow, false, why);
+    assert.match(d.reason, reason, why);
+  }
+  const other = decidePrePush({ ...base, remoteUrl: 'https://github.com/attacker/ruflo.git', forkUrl: 'https://github.com/attacker/ruflo.git', updates: push(A, tip) });
+  assert.equal(other.allow, false);
 });

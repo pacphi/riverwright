@@ -5,13 +5,13 @@ import crypto from 'node:crypto';
 import { appendReceipt } from '../scripts/lib/receipt.mjs';
 import { RECEIPT_SCHEMA, RECEIPT_TTL_MS, buildReceipt, consumeReceipt, findValidReceipt, receiptBytes, signReceipt, verifyReceipt, verifyReceipts, verifyConsumptions, markConsumed } from '../scripts/lib/receipt.mjs';
 import { GENESIS, appendChained, eventsFile, lineHash, readEvents, verifyChain } from '../scripts/lib/events.mjs';
-import { NOW, NOW_MS, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
+import { FORK_KEY, NOW, NOW_MS, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
 import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
 import { tmpDir } from './helpers.mjs';
 
 const RUN = 'ruvnet/ruflo#3509';
 const A = 'a'.repeat(40);
-const base = { gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: 'riverwright/3509-codex', ledgerHead: `sha256:${'1'.repeat(64)}`, seq: 4, at: NOW, nonce: '0123456789abcdef0123456789abcdef' };
+const base = { gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: 'riverwright/3509-codex', fork: FORK_KEY, ledgerHead: `sha256:${'1'.repeat(64)}`, seq: 4, at: NOW, nonce: '0123456789abcdef0123456789abcdef' };
 const keysOf = () => { const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519'); return { privateKey, publicKey: publicKey.export({ type: 'spki', format: 'pem' }) }; };
 
 test('a signed receipt verifies, and changing any signed field breaks it', () => {
@@ -19,7 +19,7 @@ test('a signed receipt verifies, and changing any signed field breaks it', () =>
   const r = signReceipt(buildReceipt(base), k.privateKey);
   assert.equal(r.schema, RECEIPT_SCHEMA);
   assert.equal(verifyReceipt(r, k.publicKey), true);
-  const edits = { gate: 'post-comment', run: 'ruvnet/ruflo#1', binding: { kind: 'sha', value: 'b'.repeat(40) }, branch: 'riverwright/1-x', ledgerHead: `sha256:${'2'.repeat(64)}`, seq: 5, at: '2026-10-02T14:03:12.000Z', nonce: 'fedcba9876543210fedcba9876543210' };
+  const edits = { gate: 'post-comment', run: 'ruvnet/ruflo#1', binding: { kind: 'sha', value: 'b'.repeat(40) }, branch: 'riverwright/1-x', fork: 'github.com/someone/ruflo', lease: 'c'.repeat(40), ledgerHead: `sha256:${'2'.repeat(64)}`, seq: 5, at: '2026-10-02T14:03:12.000Z', nonce: 'fedcba9876543210fedcba9876543210' };
   for (const [key, value] of Object.entries(edits)) assert.equal(verifyReceipt({ ...r, [key]: value }, k.publicKey), false, key);
   assert.equal(verifyReceipt(r, keysOf().publicKey), false);
   assert.equal(verifyReceipt({ ...r, signature: 'not base64 !!' }, k.publicKey), false);
@@ -30,7 +30,7 @@ test('the signed bytes are a fixed-order JSON array, so no field can slide into 
   const r = buildReceipt(base);
   const [tag, body] = receiptBytes(r).toString('utf8').split('\n');
   assert.equal(tag, RECEIPT_SCHEMA);
-  assert.deepEqual(JSON.parse(body), [r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.ledgerHead, r.seq, r.at, r.nonce]);
+  assert.deepEqual(JSON.parse(body), [r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.fork, r.lease, r.ledgerHead, r.seq, r.at, r.nonce]);
   const tricky = buildReceipt({ ...base, run: 'a","b' });
   assert.equal(JSON.parse(receiptBytes(tricky).toString('utf8').split('\n')[1])[1], 'a","b');
 });
@@ -39,9 +39,9 @@ test('only the three public gates get receipts, with a full SHA or a content has
   assert.throws(() => buildReceipt({ ...base, gate: 'checkpoint-1' }), /public gate/);
   assert.throws(() => buildReceipt({ ...base, binding: { kind: 'sha', value: 'abc' } }), /binding/);
   assert.throws(() => buildReceipt({ ...base, binding: { kind: 'content', value: 'hello' } }), /binding/);
-  assert.throws(() => buildReceipt({ ...base, gate: 'post-comment', branch: 'riverwright/1-x' }), /branch/);
+  assert.throws(() => buildReceipt({ ...base, gate: 'post-comment', branch: 'riverwright/1-x', fork: null }), /branch/);
   assert.throws(() => buildReceipt({ ...base, gate: 'submit-gate', branch: null }), /branch/);
-  assert.doesNotThrow(() => buildReceipt({ ...base, gate: 'post-comment', branch: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` } }));
+  assert.doesNotThrow(() => buildReceipt({ ...base, gate: 'post-comment', branch: null, fork: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` } }));
 });
 
 function setup() {
@@ -332,7 +332,7 @@ test('M4: the nonce must be exactly 32 lowercase hex characters and not one repe
 test('M4: appending a receipt with a nonce already in the ledger is refused', () => {
   const s = setup();
   const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
-  assert.throws(() => appendReceipt({ ledgerDir: s.ledgerDir, privateKey: s.keys.privateKey, gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: 'riverwright/3509-codex', at: NOW, nonce: w.record.data.receipt.nonce }), /nonce/);
+  assert.throws(() => appendReceipt({ ledgerDir: s.ledgerDir, privateKey: s.keys.privateKey, gate: 'submit-gate', run: RUN, binding: { kind: 'sha', value: A }, branch: 'riverwright/3509-codex', fork: FORK_KEY, at: NOW, nonce: w.record.data.receipt.nonce }), /nonce/);
 });
 
 test('M5: a non-object ledger line (null) does not crash find; verifyReceipts reports it', () => {
@@ -364,4 +364,77 @@ test('KNOWN LIMITATION (ADR-0010, I2): dropping the tail line that records consu
   fs.writeFileSync(file, `${fs.readFileSync(file, 'utf8').trim().split('\n').slice(0, -1).join('\n')}\n`);
   // Tamper-evident, not tamper-proof: without an anchor outside the agent-writable ledger this cannot be seen.
   assert.equal(find(s).ok, true);
+});
+
+// ADR-0012: a lease is the remote tip a re-submit replaces. It is signed, and only a submit-gate receipt for a
+// commit carries one.
+test('a lease names the remote tip a re-submit replaces, is signed, and belongs to the submit gate and a commit only', () => {
+  const k = keysOf();
+  const C = 'c'.repeat(40);
+  const r = signReceipt(buildReceipt({ ...base, lease: C }), k.privateKey);
+  assert.equal(r.lease, C);
+  assert.equal(verifyReceipt(r, k.publicKey), true);
+  assert.equal(verifyReceipt({ ...r, lease: 'd'.repeat(40) }, k.publicKey), false);
+  assert.equal(verifyReceipt({ ...r, lease: null }, k.publicKey), false);
+  assert.equal(verifyReceipt(signReceipt(buildReceipt(base), k.privateKey), k.publicKey), true);
+  assert.equal(verifyReceipt({ ...signReceipt(buildReceipt(base), k.privateKey), lease: C }, k.publicKey), false, 'a lease cannot be added to a signed receipt');
+  assert.equal(buildReceipt(base).lease, null);
+  for (const lease of ['abc', C.toUpperCase(), `${C} `, 'g'.repeat(40), 42, '']) assert.throws(() => buildReceipt({ ...base, lease }), /lease/, String(lease));
+  assert.doesNotThrow(() => buildReceipt({ ...base, lease: 'e'.repeat(64) }));
+  assert.throws(() => buildReceipt({ ...base, gate: 'post-comment', branch: null, fork: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` }, lease: C }), /lease/);
+  assert.throws(() => buildReceipt({ ...base, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` }, lease: C }), /lease/);
+});
+
+// R16(b): the fork the commit goes to is signed, as the normalized host/owner/repo key, so a forged state.json
+// fork.url cannot send the approved commit anywhere else.
+test('a submit-gate receipt signs its fork as a normalized host/owner/repo key; other gates name none', () => {
+  const k = keysOf();
+  const r = signReceipt(buildReceipt(base), k.privateKey);
+  assert.equal(r.fork, FORK_KEY);
+  assert.equal(verifyReceipt({ ...r, fork: 'github.com/attacker/ruflo' }, k.publicKey), false);
+  assert.equal(verifyReceipt({ ...r, fork: null }, k.publicKey), false);
+  assert.throws(() => buildReceipt({ ...base, fork: null }), /fork/);
+  assert.throws(() => buildReceipt({ ...base, fork: undefined }), /fork/);
+  for (const fork of ['https://github.com/pacphi/ruflo.git', 'github.com/PacPhi/ruflo', 'github.com/pacphi/ruflo.git', 'github.com/pacphi', 'github.com/pacphi/ruflo/x',
+    'git@github.com:pacphi/ruflo', 'x@github.com/pacphi/ruflo', 'github.com:443/pacphi/ruflo', 'localhost/pacphi/ruflo', 'github.com/../ruflo', ' github.com/pacphi/ruflo', 42]) {
+    assert.throws(() => buildReceipt({ ...base, fork }), /fork/, String(fork));
+  }
+  assert.throws(() => buildReceipt({ ...base, gate: 'post-comment', branch: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` } }), /fork/);
+  assert.equal(buildReceipt({ ...base, gate: 'post-comment', branch: null, fork: null, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` } }).fork, null);
+  assert.doesNotThrow(() => buildReceipt({ ...base, binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` } }));
+});
+
+// A receipt signed before the fork and the lease were bound (no `fork` or `lease` keys) is refused: it cannot say
+// which fork it approved, so it fails closed.
+test('a receipt in the shape signed before fork and lease binding never verifies', () => {
+  const k = keysOf();
+  const { fork, lease, ...old } = buildReceipt(base);
+  assert.equal(fork, FORK_KEY);
+  assert.equal(lease, null);
+  const oldBytes = Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify([old.gate, old.run, old.binding.kind, old.binding.value, old.branch, old.ledgerHead, old.seq, old.at, old.nonce])}`, 'utf8');
+  const signedOld = { ...old, signature: crypto.sign(null, oldBytes, k.privateKey).toString('base64') };
+  assert.equal(verifyReceipt(signedOld, k.publicKey), false);
+  assert.equal(verifyReceipt({ ...signedOld, fork: FORK_KEY, lease: null }, k.publicKey), false);
+  const s = setup();
+  appendChained(s.ledgerDir, ({ prev, seq }) => {
+    const r = { ...old, ledgerHead: prev, seq };
+    const bytes = Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify([r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.ledgerHead, r.seq, r.at, r.nonce])}`, 'utf8');
+    return { event: 'approved', at: NOW, run: RUN, actor: { type: 'human' }, data: { receipt: { ...r, signature: crypto.sign(null, bytes, s.keys.privateKey).toString('base64') } } };
+  });
+  assert.equal(find(s).ok, false);
+  assert.equal(verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey }).length, 1);
+});
+
+test('appendReceipt signs the fork and the lease, and ledger verification accepts the result', () => {
+  const s = setup();
+  const C = 'c'.repeat(40);
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys, lease: C });
+  assert.equal(w.record.data.receipt.fork, FORK_KEY);
+  assert.equal(w.record.data.receipt.lease, C);
+  assert.deepEqual(verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey }), []);
+  assert.deepEqual(verifyConsumptions({ ledgerDir: s.ledgerDir }), []);
+  const found = find(s);
+  assert.equal(found.ok, true, found.reason);
+  assert.equal(found.receipt.lease, C);
+  assert.equal(found.receipt.fork, FORK_KEY);
 });

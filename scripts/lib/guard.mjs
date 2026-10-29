@@ -23,11 +23,15 @@ export function parsePrePushLines(text) {
   });
 }
 
-// `upstream` is the receipt's signed run ("owner/repo#n"). The fork URL still comes from state.json, which an
-// agent can write, so a push to the upstream repository is refused from signed data (R16(a)). Binding the
-// fork's own identity into the signed receipt is Task 14's job (R16(b)); until then a forged fork.url can
-// still name a third-party repository.
-export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approvedBranch = null, upstream = null }) {
+// Every value named approved* comes from the newest verified receipt; forkUrl comes from state.json, which an
+// agent can write, so it is never enough on its own.
+// - upstream: the receipt's signed run ("owner/repo#n"). A push to that repository is refused in any URL form (R16(a)).
+// - approvedFork: the fork the receipt signed (host/owner/repo). The destination must be exactly that repository
+//   (R16(b)), so a forged fork.url cannot send the approved commit anywhere else. A receipt without one allows nothing.
+// - approvedLease (ADR-0012): when the receipt carries one, the only update allowed is replacing exactly that remote
+//   tip with the approved commit. Without one, an update whose remote tip is not all zeros must be a fast-forward:
+//   `fastForward === true`, which the guard command asks of git; anything else counts as a replacement.
+export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approvedFork = null, approvedBranch = null, approvedLease = null, upstream = null }) {
   const upstreamRepo = /^([^/#\s]+\/[^/#\s]+)#\d+$/.exec(String(upstream ?? ''))?.[1];
   if (upstreamRepo && namesRepository(remoteUrl, upstreamRepo)) {
     return deny(`Push destination ${remoteUrl} is the upstream repository (${upstreamRepo}), not your fork. Riverwright never pushes there.`);
@@ -38,6 +42,8 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
     return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). Riverwright never pushes anywhere else.`);
   }
   if (!approvedSha) return deny('Nothing has been unlocked at the submit gate yet. Pushes happen only through "riverwright submit".', 'NOTHING_UNLOCKED');
+  if (!approvedFork) return deny('The submit-gate receipt does not name the fork it approved. Run "riverwright submit" again to approve this push.');
+  if (dest !== approvedFork) return deny(`Push destination ${remoteUrl} is not the fork you approved (${approvedFork}). Riverwright never pushes anywhere else.`);
   if (!approvedBranch) return deny('The submit-gate receipt does not name a branch.');
   for (const u of updates) {
     if (!u.localSha || ZERO.test(u.localSha)) return deny(`Deleting ${u.remoteRef} is not allowed.`);
@@ -45,6 +51,15 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
     if (u.remoteRef !== `refs/heads/${approvedBranch}`) return deny(`Only the approved branch ${approvedBranch} may be pushed (got ${u.remoteRef}).`);
     if (u.localSha !== approvedSha) {
       return deny(`Commit ${u.localSha.slice(0, 12)} is not the approved commit ${approvedSha.slice(0, 12)}. Run "riverwright submit" again to approve the new commit.`);
+    }
+    if (typeof u.remoteSha !== 'string' || !SHA.test(u.remoteSha)) return deny(`The push of ${u.remoteRef} does not say what the fork branch holds now.`);
+    const remoteTip = ZERO.test(u.remoteSha) ? null : u.remoteSha;
+    if (approvedLease) {
+      if (remoteTip !== approvedLease) {
+        return deny(`The fork branch holds ${remoteTip ? remoteTip.slice(0, 12) : 'nothing'}, which is not the commit you approved replacing (${approvedLease.slice(0, 12)}).`);
+      }
+    } else if (remoteTip && u.fastForward !== true) {
+      return deny(`The fork branch already holds ${remoteTip.slice(0, 12)}, which this push would replace. Only a re-submit that you approve with "riverwright submit" may replace it.`);
     }
   }
   return { allow: true, reason: 'approved push to your fork' };

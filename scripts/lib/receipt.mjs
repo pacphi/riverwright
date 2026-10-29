@@ -27,6 +27,7 @@ import { isDeepStrictEqual } from 'node:util';
 import { RiverwrightError } from './errors.mjs';
 import { normalizeBranch } from './approvals.mjs';
 import { shown } from './printable.mjs';
+import { normalizeRemoteUrl } from './giturl.mjs';
 import { GENESIS, appendChained, readEvents, verifyChain } from './events.mjs';
 
 export const RECEIPT_SCHEMA = 'riverwright-receipt/1';
@@ -39,29 +40,42 @@ const HEAD = /^sha256:[0-9a-f]{64}$/;
 const NONCE = /^[0-9a-f]{32}$/;
 const AT = /^\d{4}-\d\d-\d\dT\d\d:\d\d:\d\d(?:\.\d{1,9})?Z$/;
 const SIGNATURE = /^[A-Za-z0-9+/]{86}==$/;
-const FIELDS = ['schema', 'gate', 'run', 'binding', 'branch', 'ledgerHead', 'seq', 'at', 'nonce', 'signature'];
+const FIELDS = ['schema', 'gate', 'run', 'binding', 'branch', 'fork', 'lease', 'ledgerHead', 'seq', 'at', 'nonce', 'signature'];
 const nonceOk = (n) => typeof n === 'string' && NONCE.test(n) && !/^(.)\1+$/.test(n);
 const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e);
 
 const bad = (msg) => new RiverwrightError('BAD_RECEIPT', msg);
 
-export function buildReceipt({ gate, run, binding, branch = null, ledgerHead, seq, at, nonce = crypto.randomBytes(16).toString('hex') }) {
+// The fork a push may go to, as host/owner/repo: the key normalizeRemoteUrl gives an https, ssh or scp-style URL
+// of it. Only that exact canonical text is a fork key (lowercase, no scheme, user, port or ".git").
+export const isForkKey = (fork) => typeof fork === 'string' && normalizeRemoteUrl(`https://${fork}`) === fork;
+
+// The fields a receipt signs. `fork` (ruling R16(b)) and `lease` (ADR-0012) belong to the submit gate:
+// - fork: required on every submit-gate receipt, null on the others. The pre-push guard allows a push only to this
+//   repository, so a forged fork.url in state.json cannot send the approved commit anywhere else.
+// - lease: null, or (submit gate, bound to a commit) the full SHA of the remote branch tip the human approved
+//   replacing. The guard then allows only that one replacement.
+// A receipt signed before these fields existed has neither key: verifyReceipt refuses it (it cannot say which fork
+// it approved), so it fails closed and the human unlocks again.
+export function buildReceipt({ gate, run, binding, branch = null, fork = null, lease = null, ledgerHead, seq, at, nonce = crypto.randomBytes(16).toString('hex') }) {
   if (!PUBLIC_GATES.includes(gate)) throw bad(`"${gate}" is not a public gate (${PUBLIC_GATES.join(', ')})`);
   if (typeof run !== 'string' || !run) throw bad('a receipt names its run');
   const okBinding = (binding?.kind === 'sha' && SHA.test(binding.value)) || (binding?.kind === 'content' && CONTENT.test(binding.value));
   if (!okBinding) throw bad('binding must be a full commit SHA or a sha256: content hash');
   if (gate === 'submit-gate') branch = normalizeBranch(branch);
   else if (branch !== null) throw bad('only the submit gate names a branch');
+  if (gate === 'submit-gate' ? !isForkKey(fork) : fork !== null) throw bad('a submit-gate receipt names its fork as host/owner/repo (for example github.com/you/repo), and no other gate names a fork');
+  if (lease !== null && !(gate === 'submit-gate' && binding.kind === 'sha' && typeof lease === 'string' && SHA.test(lease))) throw bad('a lease is the full lowercase SHA of the remote tip, and only a submit-gate receipt for a commit has one');
   if (!HEAD.test(ledgerHead ?? '')) throw bad('ledgerHead must be sha256:<64 hex>');
   if (!Number.isInteger(seq) || seq < 1) throw bad('seq must be a positive integer');
   if (typeof at !== 'string' || !AT.test(at) || Number.isNaN(Date.parse(at))) throw bad('"at" must be an ISO-8601 UTC time such as 2026-10-02T14:03:11.000Z');
   if (!nonceOk(nonce)) throw bad('nonce must be 32 lowercase hex characters, not one repeated character');
-  return { schema: RECEIPT_SCHEMA, gate, run, binding: { kind: binding.kind, value: binding.value }, branch, ledgerHead, seq, at, nonce };
+  return { schema: RECEIPT_SCHEMA, gate, run, binding: { kind: binding.kind, value: binding.value }, branch, fork, lease, ledgerHead, seq, at, nonce };
 }
 
 // A JSON array in fixed order, so no field can be moved into its neighbour without changing the bytes.
 export function receiptBytes(r) {
-  return Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify([r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.ledgerHead, r.seq, r.at, r.nonce])}`, 'utf8');
+  return Buffer.from(`${RECEIPT_SCHEMA}\n${JSON.stringify([r.gate, r.run, r.binding.kind, r.binding.value, r.branch, r.fork, r.lease, r.ledgerHead, r.seq, r.at, r.nonce])}`, 'utf8');
 }
 
 export function signReceipt(receipt, privateKey) {
@@ -88,9 +102,9 @@ export function verifyReceipt(receipt, publicKey) {
 }
 
 // Signs and appends in one step, under the ledger lock, so the receipt names the exact head and seq it gets.
-export function appendReceipt({ ledgerDir, privateKey, gate, run, binding, branch = null, at, nonce }) {
+export function appendReceipt({ ledgerDir, privateKey, gate, run, binding, branch = null, fork = null, lease = null, at, nonce }) {
   return appendChained(ledgerDir, ({ prev, seq }) => {
-    const receipt = buildReceipt({ gate, run, binding, branch, ledgerHead: prev, seq, at, nonce });
+    const receipt = buildReceipt({ gate, run, binding, branch, fork, lease, ledgerHead: prev, seq, at, nonce });
     if (readEvents(ledgerDir).some((e) => isObject(e) && e.data?.receipt?.nonce === receipt.nonce)) throw bad('that nonce is already in the ledger');
     return { event: 'approved', at, run, actor: { type: 'human' }, data: { receipt: signReceipt(receipt, privateKey) } };
   });
@@ -135,6 +149,7 @@ function anchorReason(ledgerDir, r) {
 
 function checkOne(event, publicKey, ledgerDir) {
   const r = event.data.receipt;
+  if (isObject(r) && r.schema === RECEIPT_SCHEMA && !('fork' in r && 'lease' in r)) return 'the receipt was signed before receipts named their fork and lease, so it cannot authorize anything: unlock again';
   if (!verifyReceipt(r, publicKey)) return 'the receipt signature does not verify against the vault key';
   if (r.seq !== event.seq) return `the receipt names seq ${r.seq} but sits at seq ${event.seq}`;
   if (r.ledgerHead !== event.prev) return 'the ledger head the receipt signed is not the head before it: history before this receipt was changed';
