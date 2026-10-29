@@ -57,6 +57,8 @@ its lines are superseded by this note (ruling R40):
   `LD_*` or `DYLD_*` differ from a safe value: the runtime half of the publish allowlist (R37).
 - Report clearly when a `receipt-consumed` line appended by someone else blocks the human's own push (Task 17 F6,
   R35).
+- Decided 2026-10-29: Plan 2b builds it: record the vault key fingerprint at setup; ledger verify, doctor and the
+  passphrase prompt warn loudly when the vault key changes (R36, final review recommendation 2).
 - Real submit runs live under the account home (`~/.riverwright`); a run under a custom `RIVERWRIGHT_HOME` cannot
   pass the submit proof, because the vault always lives in the account home (owner decision 2026-10-29; R20, R21, R41).
 
@@ -114,15 +116,15 @@ its lines are superseded by this note (ruling R40):
 
 ## Owner decisions pending
 
-Present one at a time.
+Present one at a time. All four decisions the owner was asked for were made on 2026-10-29: ADR-0014 accepted (option
+A), R32 kept, R21 (the vault always lives in the account home) and the fingerprint warning (built in Plan 2b, see its
+work list). Still open below: the `consumeReceipt` question and the merge.
 
 - ADR-0014: decided 2026-10-29. The owner accepted option A: the eleven signed fields are official and the crash
   window is kept and recorded (R34).
 - R32: decided 2026-10-29. The owner chose to keep it: the push-key `ssh` ignores the user's and the system's SSH
   configuration, so host aliases, custom ports and jump hosts do not apply to that push.
 - R21: decided 2026-10-29 (R41). The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. The remaining wish: when a vault exists, `ledger verify` should name the vault path it checked, because "the receipt signature does not verify" reads as tampering (final review recommendation 3).
-- The vault-fingerprint warning: record the vault key's fingerprint at setup and have `ledger verify`, `doctor` and
-  the gate warn when it changes (R36, final review recommendation 2).
 - Whether to keep `consumeReceipt` and the `claimed` state: kept for ADR-0014 option B; remove if option A is chosen
   and Plan 2b does not use it (final review M4).
 - Merging the branch into `develop`, and pushing it.
@@ -210,8 +212,10 @@ The rulings were made during the Plan 2a build. Tracked documents and code comme
 | R33 | Fast-forward is decided by a hash-checked ancestry walk, and the guard's git gets an allowlisted environment |
 | R34 | Roadmap rules win over the brief; ADR-0014 written as Proposed; R32 and R21 go to the owner |
 | R35 | Task 17 triage: fix C1, C2, C3/F4, F1, F2, F3 and test hygiene; accept F5 and F6 with reasons |
-| R36 | Further hook spellings are recorded as known limits; the vault-fingerprint warning is proposed |
+| R36 | Further hook spellings are recorded as known limits; the vault-fingerprint warning is decided for Plan 2b |
 | R37 | `submit` and `post` are allowed only in their plain trusted form; the runtime half is Plan 2b's |
 | R38 | Stdin and preload forms of `submit` and `post` are denied; sequential `cd` tracking fixed |
 | R39 | Superseded by R38's checks; not needed |
 | R40 | `submit` begins the submit station inside the gate's action, before the push, and passes `fork` |
+| R41 | The vault always lives in the account home: `credential setup`, `status` and `remove` read the password database only and refuse `--home` from argv |
+| R42 | The whole vault folder follows R41: `credential push-key set`, `show` and `clear` use the account home too |

@@ -315,7 +315,7 @@ What is built (Plan 2a):
   `RIVERWRIGHT_HOME`. The checks that decide whether something public was approved do not: the guard (from its hook's
   `--home` or the account), and `ledger verify` and the submit proof of `state begin submit` (from the account only,
   §6 and §7.5). So a vault sealed under a custom `RIVERWRIGHT_HOME` is not the one `ledger verify` and the submit
-  proof read; they fail closed rather than trust a home the environment chose. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. `credential setup`, `status` and `remove` read the home from the password database only and refuse `--home` from the command line (ruling R41).
+  proof read; they fail closed rather than trust a home the environment chose. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. `credential setup`, `status` and `remove` read the home from the password database only and refuse `--home` from the command line (ruling R41). `credential push-key set`, `show` and `clear` follow the same rule, because `push-key.json` sits in the same vault folder (ruling R42).
 - The fork remote does not exist until the submit gate; `riverwright submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
 - Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live under
