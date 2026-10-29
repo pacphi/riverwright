@@ -21,6 +21,8 @@ ruvector.db
 .mcp.json
 .mcp.json.*
 .codex/
+# Agent skill folders installed by the AI tooling on one machine
+.agents/
 # Claude Code: local settings and agent worktrees (D19)
 .claude/
 **/.claude/settings.local.json

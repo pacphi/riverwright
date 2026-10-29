@@ -2,7 +2,8 @@
   // Markdown linting for the documentation. Run with: pnpm lint:md
   // The same shape as agentic-kit's config: prose and tables wrap naturally.
   "globs": ["**/*.md"],
-  "ignores": ["node_modules/**", "docs/archive/**"],
+  // Tool output is git-ignored and never reviewed, so it is not linted (a clone has none of it).
+  "ignores": ["node_modules/**", "docs/archive/**", ".claude/**", ".agents/**", ".claude-flow/**", ".swarm/**", ".hive-mind/**", ".agentic-qe/**", ".ruvnet-brain/**", ".codex/**"],
   "config": {
     "default": true,
     "MD013": false, // line length: prose and tables wrap naturally
