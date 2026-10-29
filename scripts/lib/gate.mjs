@@ -76,15 +76,32 @@ const typedGet = (name) => Object.getOwnPropertyDescriptor(TYPED, name).get;
 const [TA_BUFFER, TA_OFFSET, TA_LENGTH] = ['buffer', 'byteOffset', 'byteLength'].map(typedGet);
 const isTypedArray = (v) => { try { TA_LENGTH.call(v); return true; } catch { return false; } };
 
-const formsOf = (token) => [...new Set([token, encodeURIComponent(token), Buffer.from(token).toString('base64'), Buffer.from(token).toString('base64url'), Buffer.from(token).toString('base64').replace(/=+$/, '')])].filter((f) => f.length > 0);
-const holdsForm = (text, forms) => forms.some((f) => text.includes(f));
+// The forms: `full` are whole-token encodings (raw, URL-encoded, base64, base64url, hex, and the spaced hex that
+// util.inspect(Buffer) prints). `windows` are the 16-character pieces of the raw token, so each half of a split
+// token and a cut-off token match too. A false hit on a 16-character piece of a random token is negligible.
+const WINDOW = 16;
+function formsOf(token) {
+  const raw = Buffer.from(token);
+  const hex = raw.toString('hex');
+  const full = [...new Set([token, encodeURIComponent(token), raw.toString('base64'), raw.toString('base64url'), raw.toString('base64').replace(/=+$/, ''), hex, hex.replace(/(..)/g, '$1 ').trim()])].filter((f) => f.length > 0).sort((a, b) => b.length - a.length);
+  const windows = [];
+  for (let i = 0; token.length > WINDOW && i + WINDOW <= token.length; i += 1) windows.push(token.slice(i, i + WINDOW));
+  return { full, all: [...full, ...new Set(windows)] };
+}
+const holdsForm = (text, list) => list.some((f) => text.includes(f));
 // A base64 (or base64url) run that decodes, at any of the four character alignments, to bytes holding a form.
 const runHides = (run, forms) => {
-  for (let k = 0; k < 4; k += 1) if (holdsForm(Buffer.from(run.slice(k), 'base64').toString('latin1'), forms)) return true;
+  for (let k = 0; k < 4; k += 1) if (holdsForm(Buffer.from(run.slice(k), 'base64').toString('latin1'), forms.full)) return true;
   return false;
 };
-const hides = (text, forms) => holdsForm(text, forms) || [...text.matchAll(B64_RUN)].some(([run]) => runHides(run, forms));
-const scrub = (text, forms) => forms.reduce((t, f) => t.split(f).join(REDACTED), text).replace(B64_RUN, (run) => (runHides(run, forms) ? REDACTED : run));
+const hidesIn = (text, forms) => holdsForm(text, forms.all) || [...text.matchAll(B64_RUN)].some(([run]) => runHides(run, forms));
+// Also with all white space taken out, so a token or a base64 run wrapped across lines is found.
+const hides = (text, forms) => {
+  if (hidesIn(text, forms)) return true;
+  const squeezed = text.replace(/\s+/g, '');
+  return squeezed !== text && hidesIn(squeezed, forms);
+};
+const scrub = (text, forms) => forms.all.reduce((t, f) => t.split(f).join(REDACTED), text).replace(B64_RUN, (run) => (runHides(run, forms) ? REDACTED : run));
 const cut = (text) => (text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}... [cut]` : text);
 
 class Unclean extends Error {}
@@ -109,8 +126,10 @@ function cleanText(value, forms) {
   else if (isObj(value) && !util.types.isProxy(value) && isTypedArray(value)) {
     const bytes = Buffer.from(TA_BUFFER.call(value), TA_OFFSET.call(value), TA_LENGTH.call(value));
     text = bytes.toString('utf8');
-    // Belt and braces: the byte-exact decoding must not hold a form the UTF-8 text hides.
+    // Belt and braces: no other decoding of the bytes may hold a form. UTF-16LE (a Windows tool's stderr), at both
+    // byte alignments, is refused outright: its text would read "g?h?p?_?...".
     if (hides(bytes.toString('latin1'), forms) && !hides(text, forms)) throw new Unclean();
+    if (holdsForm(bytes.toString('utf16le'), forms.all) || holdsForm(bytes.subarray(1).toString('utf16le'), forms.all)) throw new Unclean();
   } else return undefined;
   // R11: what is kept is upstream text (a remote's stderr, an API message), so it cannot drive a terminal.
   const clean = printableLines(scrub(text, forms));
@@ -164,8 +183,13 @@ function isTransient(e) {
 }
 
 // code: ACTION_FAILED, RECOMPUTE_FAILED or ACTION_TIMEOUT. `what` prefixes the message.
+// `stack` is pinned as a plain data value, so a global Error.prepareStackTrace hook cannot format it later.
+const pinStack = (e, text) => Object.defineProperty(e, 'stack', { value: text, writable: true, configurable: true, enumerable: false });
 function sanitize(error, token, { code, what, transient = false }) {
-  const generic = () => new RiverwrightError(code, `${what}; its error is not shown because it could not be cleaned`, transient ? { transient } : {});
+  const generic = () => {
+    const e = new RiverwrightError(code, `${what}; its error is not shown because it could not be cleaned`, transient ? { transient } : {});
+    return pinStack(e, `${e.name}: ${e.message}`);
+  };
   if (typeof token !== 'string' || !token) return generic();
   const forms = formsOf(token);
   let built;
@@ -192,8 +216,10 @@ function sanitize(error, token, { code, what, transient = false }) {
     if (transient) details.transient = true;
     built = new RiverwrightError(code, message ? `${what}: ${message}` : what, details);
     // The final check, on the new error as a caller would print it.
-    const views = [built.message, String(built.stack), JSON.stringify(built), JSON.stringify(built.details)];
+    const stack = String(built.stack);
+    const views = [built.message, stack, JSON.stringify(built), JSON.stringify(built.details)];
     if (views.some((v) => hides(v, forms))) return generic();
+    pinStack(built, stack);
   } catch {
     return generic();
   }
@@ -305,6 +331,11 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
       const deadline = started + RETRY.windowMs;
       for (;;) {
         attempt += 1;
+        // The window is checked just before every attempt, whatever the sleep and the recompute spent.
+        if (clock() >= deadline) {
+          failure = new RiverwrightError('ACTION_TIMEOUT', `the two-minute window ended before attempt ${attempt} could start; it was not started`);
+          break;
+        }
         // Each attempt counts against the window: its signal fires when the window ends.
         const signal = AbortSignal.timeout(Math.max(0, deadline - clock()));
         try {
@@ -314,7 +345,7 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
           // Classified from the original, then cleaned at once: the raw error is not kept.
           const transient = isTransient(e);
           if (signal.aborted) {
-            failure = sanitize(e, token, { code: 'ACTION_TIMEOUT', what: 'the action did not finish before the two-minute window ended', transient });
+            failure = sanitize(e, token, { code: 'ACTION_TIMEOUT', what: 'the action did not finish before the two-minute window ended; it may already have been published; check before you run it again', transient });
             break;
           }
           const wait = RETRY.backoffMs[attempt - 1];

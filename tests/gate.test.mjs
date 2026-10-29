@@ -703,3 +703,152 @@ test('R11: upstream text kept in the error (a remote message in stderr, the mess
   assert.equal(/[\u001b\u009b‮\u0007\r]/.test(all), false, JSON.stringify(all));
   assert.match(caught.details.stderr, /denied\?\nnext\tline\n$/);
 });
+
+// ---- Fix round 2 (re-review N1 to N6) ----
+
+const ALIGN = [['aligned', 0], ['at an odd byte offset', 1]];
+for (const [bom, bomBytes] of [['no BOM', []], ['a BOM', [0xff, 0xfe]]]) {
+  for (const [where, pad] of ALIGN) {
+    test(`N1: a UTF-16LE stderr (${bom}, ${where}) holding the token is not shown`, async () => {
+      const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: Buffer.concat([Buffer.alloc(pad, 0x20), Buffer.from(bomBytes), Buffer.from(`w ${t}`, 'utf16le')]) }));
+      const all = rendered(caught);
+      assert.equal(holdsToken(all), false, all);
+      assert.equal(holdsToken(all.replace(/[?\0]/g, '')), false, all);
+      assert.equal(caught.message, GENERIC);
+      assert.equal(caught.details.stderr, undefined);
+    });
+  }
+}
+
+test('N1: a UTF-16LE Uint16Array view is covered too', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { stdout: new Uint16Array(Buffer.from(`${t}`, 'utf16le').buffer.slice(0, 82)) }));
+  assert.equal(holdsToken(rendered(caught).replace(/[?\0]/g, '')), false);
+});
+
+test('N2: an attempt is not started after the window, even when the sleep ran long', async () => {
+  const s = setup();
+  let n = 0;
+  let caught;
+  await assert.rejects(runPublicAction({
+    ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]),
+    sleep: async () => { s.clock.t += 40_000; },
+    action: async () => { n += 1; s.clock.t += 100_000; throw transient(); },
+  }), (e) => { caught = e; return true; });
+  assert.equal(n, 1);
+  assert.equal(caught.code, 'ACTION_TIMEOUT');
+  assert.deepEqual(outcomes(s), ['failed']);
+});
+
+test('N2: an attempt is not started after the window, even when the recompute ran long', async () => {
+  const s = setup();
+  let n = 0;
+  let calls = 0;
+  await assert.rejects(runPublicAction({
+    ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]),
+    recompute: async () => { calls += 1; if (calls > 1) s.clock.t += 30_000; return binding; },
+    action: async () => { n += 1; s.clock.t += 100_000; throw transient(); },
+  }), (e) => e.code === 'ACTION_TIMEOUT');
+  assert.equal(n, 1);
+  assert.deepEqual(outcomes(s), ['failed']);
+});
+
+test('N3: a timeout says the action may already have taken effect', async () => {
+  const s = setup();
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ signal, attempt }) => {
+    if (attempt === 1) { s.clock.t += RETRY.windowMs - RETRY.backoffMs[0] - 30; throw transient(); }
+    await new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); });
+    throw new Error('socket hang up');
+  } }), (e) => { caught = e; return true; });
+  assert.equal(caught.code, 'ACTION_TIMEOUT');
+  assert.match(caught.message, /it may already have been published; check before you run it again/);
+});
+
+test('N4: a global Error.prepareStackTrace hook cannot put the token back into the stack of the generic or the built error', async () => {
+  const saved = Error.prepareStackTrace;
+  try {
+    Error.prepareStackTrace = (err, frames) => `${err.name}: ${err.message}\n    at ${TOKEN} (${frames.length})`;
+    for (const make of [() => new Error('plain failure'), () => ({ message: 'x', stderr: Buffer.from(`w ${TOKEN}`, 'utf16le') })]) {
+      const s = setup();
+      let caught;
+      await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async () => { throw make(); } }), (e) => { caught = e; return true; });
+      const d = Object.getOwnPropertyDescriptor(caught, 'stack');
+      assert.equal('value' in d, true, 'stack is a plain data property');
+      const all = rendered(caught);
+      assert.equal(holdsToken(all), false, all);
+    }
+  } finally {
+    Error.prepareStackTrace = saved;
+  }
+});
+
+test('N5: the text is scrubbed before it is cut: a token across the 8 KiB cut does not leave a piece behind', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: `${'A'.repeat(8180)} ${t}` }));
+  assert.equal(caught.details.stderr.includes('ghp_'), false);
+  assert.match(caught.details.stderr, /\[redacted\]/);
+});
+
+test('N5: a token holding "?" with a control character in its place is caught after terminal cleaning', async () => {
+  const s = setup();
+  const odd = 'abc?defghijklmnop';
+  makeTestVault(s.home, { token: odd });
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async () => { throw new Error(`tok ${odd.replace('?', '\u001b')}`); } }), (e) => { caught = e; return true; });
+  assert.equal(caught.message, GENERIC);
+});
+
+test('N5: an error from the first recompute (before the receipt) is rebuilt: the token in it does not survive', async () => {
+  const s = setup();
+  let caught;
+  let thrown;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), recompute: async () => { thrown = Object.assign(new Error(`git failed ${TOKEN}`), { stderr: TOKEN }); throw thrown; }, action: async () => 'no' }), (e) => { caught = e; return true; });
+  assert.notEqual(caught, thrown);
+  assert.equal(caught.code, 'RECOMPUTE_FAILED');
+  assert.equal(holdsToken(rendered(caught)), false);
+  assert.deepEqual(events(s), ['unlock-refused']);
+});
+
+test('N5: an attempt stopped by the window that throws a transient error is not retried', async () => {
+  const s = setup();
+  let n = 0;
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ signal }) => {
+    n += 1;
+    // The first attempt leaves 30 ms (real time) of the window; the clock is put back once the signal fires, so only the aborted signal can stop a retry.
+    if (n === 1) { s.clock.t += RETRY.windowMs - RETRY.backoffMs[0] - 30; throw transient(); }
+    await new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); });
+    s.clock.t = 1_000_000;
+    throw transient();
+  } }), (e) => { caught = e; return true; });
+  assert.equal(n, 2);
+  assert.equal(caught.code, 'ACTION_TIMEOUT');
+});
+
+test('N6: each half of a split token, and a cut-off token, is redacted', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(t.slice(0, 20)), { stderr: t.slice(20), stdout: t.slice(0, 35) }));
+  const all = [caught.message, caught.details.stderr, caught.details.stdout].join('\n');
+  assert.equal(all.includes(TOKEN.slice(0, 16)), false);
+  assert.equal(all.includes(TOKEN.slice(25)), false);
+});
+
+test('N6: the token as hex, and as util.inspect prints a Buffer, is redacted', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(`hex ${Buffer.from(t).toString('hex')}`), { stderr: util.inspect(Buffer.from(t)) }));
+  const hex = Buffer.from(TOKEN).toString('hex');
+  const all = rendered(caught);
+  assert.equal(all.includes(hex), false);
+  assert.equal(all.includes(hex.slice(0, 40).replace(/(..)/g, '$1 ').trim()), false);
+});
+
+test('N6: base64 wrapped across lines (any column) is caught', async () => {
+  for (const col of [10, 12, 40, 76]) {
+    const { caught } = await failWith((t) => new Error(`Authorization: Basic ${b64(`x-access-token:${t}`).replace(new RegExp(`(.{${col}})`, 'g'), '$1\n')}`));
+    const squeezed = rendered(caught).replace(/\s+/g, '');
+    assert.equal(holdsToken(squeezed), false, `column ${col}`);
+    assert.equal(squeezed.includes(b64(`x-access-token:${TOKEN}`).slice(0, 40)), false, `column ${col}`);
+  }
+});
+
+test('N6: a huge single base64-looking run fails closed with the generic message', async () => {
+  const { caught } = await failWith(() => Object.assign(new Error('x'), { stderr: 'A'.repeat(12 * 1024 * 1024) }));
+  assert.equal(caught.message, GENERIC);
+});
