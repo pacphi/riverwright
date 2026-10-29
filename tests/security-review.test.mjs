@@ -304,6 +304,52 @@ test('F2: a launcher link is resolved after cd, pushd and a subshell cd, through
   for (const c of allowed) assert.equal(classify(c, opts).outward, false, c);
 });
 
+// R38 (Codex re-review, Important 2): the F2 fix resolved each cd against every directory seen so far, so three plain
+// cd's filled the 32-directory cap and an ordinary script with a variable argument was denied everywhere. A cd in a
+// sequence now replaces the directory the shell is in; only real branching (||, a subshell's end, popd, cd -, a cd
+// that may fail) keeps more than one, and the cap applies to that.
+test('R38: sequential cd\'s replace the directory, so an ordinary script after them is allowed', posixOnly, () => {
+  const ordinary = ['node build.mjs "$INPUT"', 'node ./shell.mjs "$INPUT"', 'python3 ./build.py "$INPUT"'];
+  for (const c of ordinary) assert.equal(classify(`cd scripts && cd lib && cd hooks && ${c}`, { cwd: ROOT }).outward, false, c);
+  // Ten nested folders, entered one relative cd at a time, joined by && or by ;.
+  const { base, links } = linkWorld();
+  const names = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h', 'i', 'j'];
+  const deep = path.join(base, ...names);
+  fs.mkdirSync(deep, { recursive: true });
+  const opts = { cwd: base, userInfo: () => ({ homedir: hermeticDir }) };
+  for (const join of [' && ', '; ']) {
+    const cds = names.map((n) => `cd ${n}`).join(join);
+    for (const c of ordinary) {
+      assert.equal(classify(`${cds}${join}${c}`, opts).outward, false, `${cds}${join}${c}`);
+      assert.deepEqual(classify(c, { ...opts, cwd: deep }), classify(`${cds}${join}${c}`, opts), c);
+    }
+  }
+  // The last cd lands in a folder holding a launcher link: denied.
+  fs.symlinkSync(path.join(ROOT, 'bin', 'riverwright'), path.join(deep, 'tool'));
+  for (const join of [' && ', '; ']) {
+    const c = `${names.map((n) => `cd ${n}`).join(join)}${join}./tool credential`;
+    assert.equal(classify(c, opts).rule, 'riverwright-credential', c);
+  }
+  // Branching still counts every directory the shell may be in.
+  fs.mkdirSync(path.join(base, 'other'));
+  for (const c of [
+    'cd nothere; cd links; ./tool credential setup',
+    'cd nothere || cd links; ./tool credential setup',
+    'false || cd links; ./tool credential setup',
+    'test -f x || cd links && ./tool credential setup',
+    'cd nothere && cd x || cd links && ./tool credential setup',
+    '(cd other); cd links; ./tool credential setup',
+    '(cd other) && (cd links && ./tool credential setup)',
+    'pushd other; popd; cd links; ./tool credential setup',
+    'cd other; cd -; cd links; ./tool credential setup',
+    'cd other && cd .. && cd links && ./tool credential',
+    'mkdir new && cd new && cd ../links && ./tool credential',
+    `sh -c 'cd other'; cd links; ./tool credential`,
+    'for i in 1 2; do cd links; done; ./tool credential',
+  ]) assert.equal(classify(c, opts).rule, 'riverwright-credential', c);
+  assert.equal(links, path.join(base, 'links'));
+});
+
 test('F2: ~ is the account home from the password database, and also HOME', posixOnly, () => {
   const { base, account } = linkWorld();
   const other = tmpDir('rw-f2-home-');

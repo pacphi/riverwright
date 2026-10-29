@@ -91,13 +91,27 @@ export function lex(src, { nul = 'segment' } = {}) {
     word = null;
     redirect = null;
   };
-  const endCommand = (nextStdin = null) => {
+  // What the classifier needs to follow cd (R38): a command's sep is the operator before it ('&&', '||', '|', '&', or
+  // ';' for ";" and a newline), close the number of subshell ")" between it and the command before, open the number of
+  // "(" (a "()" with nothing inside, as in f(), counts as neither).
+  let sep = null;
+  let opens = 0;
+  let closes = 0;
+  const endCommand = (nextStdin = null, op = null) => {
     endWord();
     if (redirect) incomplete = true;
     redirect = null;
     const done = cur;
     const kept = cur.words.length || cur.redirects.length || cur.herestrings.length || cur.stdin === 'heredoc';
-    if (kept) commands.push(cur);
+    if (kept) {
+      Object.assign(done, { sep, open: opens, close: closes });
+      commands.push(done);
+      sep = null;
+      opens = 0;
+      closes = 0;
+    }
+    // An operator ends the command before it; a newline or ";" after "&&" or "||" (a &&<newline> b) does not replace it.
+    if (op && (kept || !sep)) sep = op;
     cur = newCommand(nextStdin);
     if (nextStdin === 'pipe' && kept) cur.prev = done;
   };
@@ -249,18 +263,18 @@ export function lex(src, { nul = 'segment' } = {}) {
     if (c === '$') { i = readDollar(i, false); continue; }
     if (c === '`') { i = readBacktick(i); continue; }
     if (c === ' ' || c === '\t' || c === '\r' || c === '\f' || c === '\v') { endWord(); i += 1; continue; }
-    if (c === '\n') { endCommand(); i = readHeredocBodies(i + 1); continue; }
+    if (c === '\n') { endCommand(null, ';'); i = readHeredocBodies(i + 1); continue; }
     if (c === '#' && !word) { const j = text.indexOf('\n', i); i = j === -1 ? n : j; continue; }
-    if (c === ';') { endCommand(); i += text[i + 1] === ';' ? 2 : 1; continue; }
+    if (c === ';') { endCommand(null, ';'); i += text[i + 1] === ';' ? 2 : 1; continue; }
     if (c === '&') {
       if (text[i + 1] === '>') { endWord(); redirect = 'out'; i += text[i + 2] === '>' ? 3 : 2; continue; }
-      endCommand();
+      endCommand(null, text[i + 1] === '&' ? '&&' : '&');
       i += text[i + 1] === '&' ? 2 : 1;
       continue;
     }
     if (c === '|') {
-      if (text[i + 1] === '|') { endCommand(); i += 2; continue; }
-      endCommand('pipe');
+      if (text[i + 1] === '|') { endCommand(null, '||'); i += 2; continue; }
+      endCommand('pipe', '|');
       i += text[i + 1] === '&' ? 2 : 1;
       continue;
     }
@@ -280,6 +294,8 @@ export function lex(src, { nul = 'segment' } = {}) {
       // "rw (...)": fish and PowerShell pass the group's output as arguments, so the command records it.
       if (c === '(') cur.parenNext = true;
       endCommand();
+      if (c === '(') opens += 1;
+      else if (c === ')') { if (opens) opens -= 1; else closes += 1; }
       i += 1;
       continue;
     }

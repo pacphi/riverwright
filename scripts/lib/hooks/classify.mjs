@@ -53,7 +53,9 @@ export { hasUnresolved };
 //     named grep or sudo to the launcher is riverwright), and a path with a variable directory is not trusted at all.
 //     A relative path is resolved against every directory the command may be in (its own cd, pushd, chdir and
 //     Set-Location, in a subshell too, and CDPATH), "~" against the account home (password database) and HOME, and a
-//     glob or brace in the last segment counts when that directory holds a launcher link (F2).
+//     glob or brace in the last segment counts when that directory holds a launcher link (F2). A cd's own target is
+//     resolved from where the shell is at that point and replaces it, so a chain of cd's gives one directory; only
+//     real branching (||, a subshell's end, popd, cd -, a cd that may fail, CDPATH, "~") keeps several (R38).
 //   - Known non-executing tools: the arguments of grep, egrep, fgrep, echo, printf, cat, head, tail, wc, sort, uniq,
 //     diff, cmp, ls, stat, file, mount, umount, chmod, chown, cp, mv, ln, mkdir, rmdir, touch, cut, tr, curl, wget,
 //     jq, rg (no --pre, --hostname-bin or RIPGREP_CONFIG_PATH), sed (no e/w/W, no -f), awk (no system() or pipe, no
@@ -100,7 +102,8 @@ export { hasUnresolved };
 //     does not model (an unknown program's --cmd="$X" option, a python script that runs its arguments);
 //   - a renamed launcher that cannot be resolved by path: a plain copy or a hard link, a symlink reached by bare
 //     name through PATH or through a variable directory ("$D/tool", cd "$D" && ./tool, ~user/tool), or a link created
-//     by the same command;
+//     by the same command; a cd that an earlier failing && skips is assumed to run, a popd or cd - back to a directory
+//     from before the command is not followed, and a relative cd in a loop is followed for its first pass only (R38);
 //   - a tool on the non-executing list that runs something through its configuration (a curl config, an rg config
 //     already in the environment, a git pager, editor, external diff, hook or fsmonitor set in a config file);
 //   - a deliberate forger running as the same user, who can always reach the vault another way.
@@ -625,12 +628,19 @@ function formCouldBeRiverwright(form, dynamic) {
 }
 
 // F2 (Task 17): the working directories a relative path may be resolved against. The command's own cd, pushd, chdir
-// and Set-Location change it, in a subshell too, so every directory any of them names is kept (the set only grows: a
-// subshell's end, popd and "cd -" go back to a directory already in it). A cd later in the command counts as well
-// (classifyCommand reads the command again when the set grew, for loops). Past MAX_CWDS, a relative path fails closed.
+// and Set-Location change it, in a subshell too, so every directory the command may be in is kept in opts.cwds (the
+// set only grows), and a relative path is resolved against each. A cd later in the command counts as well
+// (classifyCommand reads the command again when the set grew, for loops).
+// R38 (Codex re-review): a cd's own target is resolved against opts.flow.cur, the directories the shell may be in at
+// that point, and replaces them, so a chain of cd's gives one directory, not a product of every directory seen. cur
+// holds more than one only where the shell really branches: a cd that may fail (its target is not an existing
+// directory: the shell then stays where it was, kept in flow.pending until the and-or list ends), the two sides of
+// "||", the end of a subshell (back to the directory it started in), popd and "cd -" (back to the one before), "~"
+// (each home) and CDPATH. Past MAX_CWDS directories in cur, or MAX_SEEN in cwds, a relative path fails closed.
 const MAX_CWDS = 32;
+const MAX_SEEN = 256;
 const MAX_DIR_ENTRIES = 1024;
-const CD_PROGRAMS = new Set(['cd', 'pushd', 'chdir', 'set-location', 'sl', 'push-location']);
+const CD_PROGRAMS = new Set(['cd', 'pushd', 'chdir', 'set-location', 'sl', 'push-location', 'popd', 'pop-location']);
 
 // The homes "~" may stand for: the account's home from the password database (os.userInfo, which the environment
 // cannot change) and the HOME the shell has. Both are checked.
@@ -657,28 +667,87 @@ function pathsOf(v, ctx) {
   return out;
 }
 
+// The directories the shell may be in before a command runs (R38), from the operators and subshells around it.
+function enterCommand(cmd, flow) {
+  for (let i = 0; i < (cmd.close ?? 0) && flow.frames.length; i += 1) Object.assign(flow, flow.frames.pop());
+  flow.skip = null;
+  if (cmd.sep === null || cmd.sep === undefined || cmd.sep === ';' || cmd.sep === '&') {
+    // A new and-or list: a cd that failed in the last one left the shell where it was.
+    flow.cur = union(flow.cur, flow.pending);
+    flow.pending = [];
+  } else if (cmd.sep === '||') {
+    // The right side of || runs after something on the left failed; when nothing failed, it does not run at all.
+    flow.skip = flow.cur;
+    flow.cur = union(flow.cur, flow.pending);
+  }
+  for (let i = 0; i < (cmd.open ?? 0); i += 1) {
+    flow.frames.push({ cur: flow.cur, pending: flow.pending, prev: flow.prev, pushed: [...flow.pushed] });
+    flow.pending = [];
+  }
+}
+
+function union(a, b) {
+  return b.length ? [...new Set([...a, ...b])] : a;
+}
+
+function isDir(d, ctx) {
+  const cache = ctx.opts.dirCache;
+  const key = `dir:${d}`;
+  if (!cache.has(key)) {
+    let hit = false;
+    try { hit = fs.statSync(d).isDirectory(); } catch { hit = false; }
+    cache.set(key, hit);
+  }
+  return cache.get(key);
+}
+
+// Where "cd v" may take the shell from each directory in `from`: next (it went there) and failed (it stayed).
+function cdTargets(v, from, ctx) {
+  const home = v === '~' || /^~[\\/]/.test(v);
+  const homes = home ? homesOf(ctx).map((h) => path.join(h, v.slice(1))) : [];
+  // CDPATH: an absolute entry that holds the target is where cd may go instead.
+  const cdpath = path.isAbsolute(v) || home ? [] : String(ctx.opts.env.CDPATH ?? '').split(path.delimiter).filter((d) => path.isAbsolute(d)).map((b) => path.resolve(b, v)).filter((d) => isDir(d, ctx));
+  const next = [];
+  const failed = [];
+  for (const c of from) {
+    const here = path.isAbsolute(v) ? [v] : [...homes, path.resolve(c, v), ...cdpath];
+    next.push(...here);
+    // A cd that may fail leaves the shell in c (only when c itself exists: a folder the command may create is
+    // followed, not every way it could fail).
+    if (!here.some((d) => isDir(d, ctx)) && isDir(c, ctx)) failed.push(c);
+  }
+  return { next: [...new Set(next)], failed };
+}
+
 function trackCd(cmd, ctx) {
+  const flow = ctx.opts.flow;
+  const cwds = ctx.opts.cwds;
   const ws = cmd.words;
   const k = programIndex(ws, ctx);
-  if (k >= ws.length || !CD_PROGRAMS.has(programName(ws[k]) ?? '')) return;
-  const args = ws.slice(k + 1);
-  const target = args.find((w) => { const t = nameOf(w); return t === '-' || !t.startsWith('-'); });
-  let v;
-  if (!target) v = '~';
-  else if (isDynamic(target)) {
+  const prog = k < ws.length ? programName(ws[k]) ?? '' : '';
+  if (cwds.overflow || !CD_PROGRAMS.has(prog)) return;
+  const before = flow.cur;
+  const target = ws.slice(k + 1).find((w) => { const t = nameOf(w); return t === '-' || !t.startsWith('-'); });
+  let v = target ? nameOf(target) : '~';
+  if (target && isDynamic(target)) {
     // $HOME, ${HOME} and $PWD are known; any other variable is a variable directory (a stated limit).
-    v = nameOf(target).replace(/^(?:\$HOME|\$\{HOME\})(?=$|[\\/])/, '~').replace(/^(?:\$PWD|\$\{PWD\})(?=$|[\\/])/, '.');
+    v = v.replace(/^(?:\$HOME|\$\{HOME\})(?=$|[\\/])/, '~').replace(/^(?:\$PWD|\$\{PWD\})(?=$|[\\/])/, '.');
     if (/[$`]/.test(v)) return;
-  } else v = nameOf(target);
-  if (v === '-') return;
-  const cwds = ctx.opts.cwds;
-  const bases = path.isAbsolute(v) || v === '~' || /^~[\\/]/.test(v) ? [] : String(ctx.opts.env.CDPATH ?? '').split(path.delimiter).filter((d) => path.isAbsolute(d));
-  const found = [...(pathsOf(v, ctx) ?? []), ...bases.map((b) => path.resolve(b, v))];
-  for (const d of found) {
-    if (cwds.includes(d)) continue;
-    if (cwds.length >= MAX_CWDS) { cwds.overflow = true; return; }
-    cwds.push(d);
   }
+  if (prog === 'popd' || prog === 'pop-location' || v === '-') {
+    // Back to the directory the matching pushd, or the last cd, left (one from before this command is not known).
+    const back = v === '-' ? flow.prev : flow.pushed.pop();
+    if (back) { flow.cur = back; flow.prev = before; }
+  } else {
+    const { next, failed } = cdTargets(v, before, ctx);
+    if (prog === 'pushd' || prog === 'push-location') flow.pushed.push(before);
+    flow.prev = before;
+    flow.cur = next;
+    flow.pending = union(flow.pending, failed);
+  }
+  if (flow.skip && !cmd.open) flow.cur = union(flow.cur, flow.skip);
+  for (const d of [...flow.cur, ...flow.pending]) if (!cwds.includes(d)) cwds.push(d);
+  if (flow.cur.length + flow.pending.length > MAX_CWDS || cwds.length > MAX_SEEN) cwds.overflow = true;
 }
 
 // Does any entry of this directory resolve to the launcher files? A glob or brace in the last segment of a path could
@@ -1718,11 +1787,18 @@ function classifyScript(text, ctx) {
   }
   const { commands, incomplete } = lex(s, ctx.opts.lex);
   let found = incomplete && ctx.strict ? unresolvable('the command has an unterminated quote, substitution or here-document') : null;
+  // Nested text (sh -c, eval, a substitution) starts where the outer command is; afterwards the outer command may be in
+  // any directory the text ended in too (eval and source run in the same shell). Text a tool only reads changes nothing.
+  const flow = ctx.opts.flow;
+  const outer = ctx.depth > 0 ? { ...flow } : null;
+  if (outer) { flow.frames = []; flow.pushed = [...flow.pushed]; }
   for (const cmd of commands) {
+    enterCommand(cmd, flow);
     found = prefer(found, classifySimple(cmd, ctx));
     if (isCredential(found)) return found;
-    trackCd(cmd, ctx);
+    if (ctx.cred) trackCd(cmd, ctx);
   }
+  if (outer) Object.assign(flow, outer, { cur: union(outer.cur, union(flow.cur, flow.pending)) });
   return found;
 }
 
@@ -1768,7 +1844,9 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
     // after a use, in a loop).
     for (let round = 0; round < 2; round += 1) {
       for (const [t, lexOpts] of readings) {
-        found = prefer(found, classifyScript(t, makeCtx(0, true, { used: 0 }, { ...opts, lex: lexOpts })));
+        // Each reading and round starts in the payload's directory (R38); cwds keeps every directory seen.
+        const flow = { cur: [cwds[0]], pending: [], prev: null, pushed: [], frames: [], skip: null };
+        found = prefer(found, classifyScript(t, makeCtx(0, true, { used: 0 }, { ...opts, lex: lexOpts, flow })));
         if (isCredential(found)) break;
       }
       if (isCredential(found) || cwds.length === 1) break;
