@@ -522,7 +522,7 @@ test('I1: a cause chain 6 deep keeps every message, cleaned, down to the root ca
   assert.deepEqual(caught.details.causes, ['level 4', 'level 3', 'level 2', 'level 1', 'level 0', 'deep [redacted]']);
 });
 
-test('I1: what helps the human is kept, cleaned: message, stack, stderr, stdout, the cause chain, a safe code and status', async () => {
+test('I1: what helps the human is kept, cleaned: message, stack, stderr, stdout, the cause chain, a safe code and status (bytes only by size, R13)', async () => {
   const { caught } = await failWith((t) => {
     const inner = Object.assign(new Error(`inner ${t}`), { code: 'ECONNRESET' });
     return Object.assign(new Error(`push failed for ${t}`, { cause: new AggregateError([inner, 'a string reason'], 'several') }), {
@@ -531,7 +531,7 @@ test('I1: what helps the human is kept, cleaned: message, stack, stderr, stdout,
   });
   assert.equal(caught.message, 'the action failed: push failed for [redacted]');
   assert.deepEqual([caught.details.code, caught.details.status], ['E_PUSH_REJECTED', 403]);
-  assert.equal(caught.details.stderr, 'fatal: [redacted]\n');
+  assert.equal(caught.details.stderr, `[${Buffer.byteLength(`fatal: ${TOKEN}\n`)} bytes omitted]`);
   assert.equal(caught.details.stdout, 'out [redacted]');
   assert.deepEqual(caught.details.causes, ['several', 'inner [redacted]', 'a string reason']);
   assert.match(caught.details.stack, /push failed for \[redacted\]/);
@@ -698,7 +698,7 @@ test('I1: an error from anywhere after the unlock (here the caller\'s sleep) is 
 });
 
 test('R11: upstream text kept in the error (a remote message in stderr, the message, a cause) cannot drive the terminal', async () => {
-  const { caught } = await failWith(() => Object.assign(new Error('remote: \u001b[2Jpush rejected‮', { cause: 'x\u009b31m' }), { stderr: Buffer.from('remote: \u001b]0;title\u0007 denied\r\nnext\tline\n') }));
+  const { caught } = await failWith(() => Object.assign(new Error('remote: \u001b[2Jpush rejected‮', { cause: 'x\u009b31m' }), { stderr: 'remote: \u001b]0;title\u0007 denied\r\nnext\tline\n' }));
   const all = [caught.message, caught.details.stack, caught.details.stderr, ...caught.details.causes].join('\n');
   assert.equal(/[\u001b\u009b‮\u0007\r]/.test(all), false, JSON.stringify(all));
   assert.match(caught.details.stderr, /denied\?\nnext\tline\n$/);
@@ -709,13 +709,13 @@ test('R11: upstream text kept in the error (a remote message in stderr, the mess
 const ALIGN = [['aligned', 0], ['at an odd byte offset', 1]];
 for (const [bom, bomBytes] of [['no BOM', []], ['a BOM', [0xff, 0xfe]]]) {
   for (const [where, pad] of ALIGN) {
-    test(`N1: a UTF-16LE stderr (${bom}, ${where}) holding the token is not shown`, async () => {
+    test(`N1: a UTF-16LE stderr (${bom}, ${where}) holding the token is not shown (R13: only its size is)`, async () => {
       const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: Buffer.concat([Buffer.alloc(pad, 0x20), Buffer.from(bomBytes), Buffer.from(`w ${t}`, 'utf16le')]) }));
       const all = rendered(caught);
       assert.equal(holdsToken(all), false, all);
       assert.equal(holdsToken(all.replace(/[?\0]/g, '')), false, all);
-      assert.equal(caught.message, GENERIC);
-      assert.equal(caught.details.stderr, undefined);
+      assert.equal(caught.message, 'the action failed: x');
+      assert.equal(caught.details.stderr, `[${pad + bomBytes.length + 2 * `w ${TOKEN}`.length} bytes omitted]`);
     });
   }
 }
@@ -723,6 +723,7 @@ for (const [bom, bomBytes] of [['no BOM', []], ['a BOM', [0xff, 0xfe]]]) {
 test('N1: a UTF-16LE Uint16Array view is covered too', async () => {
   const { caught } = await failWith((t) => Object.assign(new Error('x'), { stdout: new Uint16Array(Buffer.from(`${t}`, 'utf16le').buffer.slice(0, 82)) }));
   assert.equal(holdsToken(rendered(caught).replace(/[?\0]/g, '')), false);
+  assert.equal(caught.details.stdout, '[82 bytes omitted]');
 });
 
 test('N2: an attempt is not started after the window, even when the sleep ran long', async () => {
@@ -850,5 +851,162 @@ test('N6: base64 wrapped across lines (any column) is caught', async () => {
 
 test('N6: a huge single base64-looking run fails closed with the generic message', async () => {
   const { caught } = await failWith(() => Object.assign(new Error('x'), { stderr: 'A'.repeat(12 * 1024 * 1024) }));
+  assert.equal(caught.message, GENERIC);
+});
+
+// ---- Fix round 3 (R13, N7, hex case) ----
+
+const omitted = (n) => `[${n} bytes omitted]`;
+const BYTE_FIELDS = [
+  ['a Buffer', (t) => Buffer.from(`fatal: ${t}`), (t) => Buffer.byteLength(`fatal: ${t}`)],
+  ['a UTF-16LE Buffer', (t) => Buffer.from(`fatal: ${t}`, 'utf16le'), (t) => 2 * `fatal: ${t}`.length],
+  ['a UTF-16LE Buffer holding base64 of the token', (t) => Buffer.from(`Basic ${b64(`x:${t}`)}`, 'utf16le'), (t) => 2 * `Basic ${b64(`x:${t}`)}`.length],
+  ['a Uint8Array', (t) => new TextEncoder().encode(t), (t) => t.length],
+  ['a Uint16Array of code units', (t) => Uint16Array.from([...t].map((c) => c.charCodeAt(0))), (t) => 2 * t.length],
+  ['an Int32Array of code units', (t) => Int32Array.from([...t].map((c) => c.charCodeAt(0))), (t) => 4 * t.length],
+  ['an ArrayBuffer', (t) => new TextEncoder().encode(t).buffer, (t) => t.length],
+  ['a DataView', (t) => new DataView(new TextEncoder().encode(`xx${t}`).buffer, 2), (t) => t.length],
+  ['a SharedArrayBuffer', (t) => { const sab = new SharedArrayBuffer(t.length); new Uint8Array(sab).set(new TextEncoder().encode(t)); return sab; }, (t) => t.length],
+];
+
+for (const [name, make, size] of BYTE_FIELDS) {
+  test(`R13: ${name} in stderr or stdout is never decoded: it is replaced by a note of its size`, async () => {
+    const { caught } = await failWith((t) => Object.assign(new Error(`push failed for ${t}`), { stderr: make(t), stdout: make(t) }));
+    assert.equal(caught.message, 'the action failed: push failed for [redacted]');
+    assert.equal(caught.details.stderr, omitted(size(TOKEN)));
+    assert.equal(caught.details.stdout, omitted(size(TOKEN)));
+    const all = rendered(caught);
+    assert.equal(holdsToken(all), false, all);
+    assert.equal(holdsToken(all.replace(/[\s\0?]/g, '')), false, all);
+  });
+}
+
+test('R13: bytes as the message, as a cause, inside an AggregateError, or thrown on their own are replaced by the note', async () => {
+  const bytes = () => Buffer.from(TOKEN, 'utf16le');
+  const { caught } = await failWith(() => Object.assign(new Error('push failed', { cause: bytes() }), { errors: [] }));
+  assert.deepEqual(caught.details.causes, [omitted(2 * TOKEN.length)]);
+  const agg = await failWith(() => new AggregateError([bytes(), new Error('second')], 'several'));
+  assert.deepEqual(agg.caught.details.causes, [omitted(2 * TOKEN.length), 'second']);
+  const msg = await failWith(() => ({ message: bytes() }));
+  assert.equal(msg.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
+  const bare = await failWith(() => bytes());
+  assert.equal(bare.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
+  // On a real Error, V8 formats the stack from the message when it is first read, so the bytes come back as a
+  // NUL-interleaved string there: that string is caught by the N7 check and the error is generic.
+  const onError = await failWith(() => Object.assign(new Error('x'), { message: bytes() }));
+  assert.equal(onError.caught.message, GENERIC);
+  for (const c of [caught, agg.caught, msg.caught, bare.caught, onError.caught]) assert.equal(holdsToken(rendered(c).replace(/[\s\0?]/g, '')), false);
+});
+
+test('R13: a byte buffer is never read through its own accessors or a Proxy', async () => {
+  let calls = 0;
+  const { caught } = await failWith((t) => {
+    const b = Buffer.from(t);
+    Object.defineProperty(b, 'byteLength', { get: () => { calls += 1; return 1; } });
+    Object.defineProperty(b, 'toString', { value: () => { calls += 1; return t; } });
+    return Object.assign(new Error('x'), { stderr: b, stdout: new Proxy(Buffer.from(t), {}) });
+  });
+  assert.equal(calls, 0);
+  assert.equal(caught.details.stderr, omitted(TOKEN.length));
+  assert.equal(caught.details.stdout, undefined);
+  assert.equal(holdsToken(rendered(caught)), false);
+});
+
+const interleave = (text, gap) => [...text].join(gap);
+const NUL_SHAPES = [
+  ['UTF-16 text decoded as UTF-8 (one NUL between characters)', '\0'],
+  ['UTF-32 text decoded as UTF-8 (three NULs between characters)', '\0\0\0'],
+  ['a zero-width space between characters', '​'],
+  ['another control character between characters', '\u0001'],
+];
+const NUL_PLACES = [
+  ['the message', (text) => new Error(text)],
+  ['a custom stack', (text) => { const e = new Error('clean'); e.stack = `Error: clean\n    at ${text}`; return e; }],
+  ['a stderr string', (text) => Object.assign(new Error('clean'), { stderr: text })],
+  ['a cause message', (text) => new Error('clean', { cause: new Error(text) })],
+  ['a thrown string', (text) => text],
+];
+for (const [shape, gap] of NUL_SHAPES) {
+  for (const [place, make] of NUL_PLACES) {
+    test(`N7: ${shape}, in ${place}, gives the generic message`, async () => {
+      const { caught } = await failWith((t) => make(interleave(`x ${t}`, gap)));
+      assert.equal(caught.message, GENERIC);
+      const all = rendered(caught);
+      assert.equal(holdsToken(all.replace(/[\s\0?​\u0001]/g, '')), false, all);
+    });
+  }
+}
+
+test('N7: a NUL-interleaved half of the token is caught too', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: interleave(t.slice(0, 20), '\0') }));
+  assert.equal(caught.message, GENERIC);
+});
+
+test('N7: ordinary text with a NUL or a zero-width space in it is still kept', async () => {
+  const { caught } = await failWith(() => Object.assign(new Error('remote:\0 rejected​'), { stderr: 'a\0b' }));
+  assert.equal(caught.message, 'the action failed: remote:? rejected?');
+  assert.equal(caught.details.stderr, 'a?b');
+});
+
+const hexOf = (t) => Buffer.from(t).toString('hex');
+test('3a: the token as upper-case hex, plain or spaced, is redacted', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(`hex ${hexOf(t).toUpperCase()}`), { stderr: util.inspect(Buffer.from(t)).toUpperCase() }));
+  const all = rendered(caught);
+  const upper = hexOf(TOKEN).toUpperCase();
+  assert.equal(all.toLowerCase().includes(hexOf(TOKEN)), false, all);
+  assert.equal(all.includes(upper.slice(0, 40).replace(/(..)/g, '$1 ').trim()), false, all);
+  assert.match(caught.message, /^the action failed: hex \[redacted\]$/);
+});
+
+test('3a: the token as mixed-case hex, at an odd offset, or half of it in hex, is not shown', async () => {
+  let n = 0;
+  const mixed = (h) => h.replace(/[a-f]/g, (c) => ((n += 1) % 2 ? c.toUpperCase() : c));
+  for (const make of [
+    (t) => new Error(`hex ${mixed(hexOf(t))}`),
+    (t) => new Error(`hex 7${hexOf(t)}`),
+    (t) => Object.assign(new Error(`a ${hexOf(t.slice(0, 20)).toUpperCase()}`), { stderr: hexOf(t.slice(20)) }),
+    (t) => new Error(`wrapped ${hexOf(t).toUpperCase().replace(/(.{10})/g, '$1\n')}`),
+  ]) {
+    const { caught } = await failWith(make);
+    const all = rendered(caught).replace(/\s+/g, '').toLowerCase();
+    assert.equal(all.includes(hexOf(TOKEN).slice(0, 32)), false, all);
+    assert.equal(all.includes(hexOf(TOKEN).slice(-32)), false, all);
+  }
+});
+
+test('3a: a commit SHA, upper-case hex and a long hex blob that do not hold the token are left alone', async () => {
+  const blob = Buffer.from('nothing secret in this blob at all, really nothing').toString('hex').toUpperCase();
+  const { caught } = await failWith(() => new Error(`commit ${A} ${'C'.repeat(40)} blob ${blob}`));
+  assert.equal(caught.message, `the action failed: commit ${A} ${'C'.repeat(40)} blob ${blob}`);
+});
+
+test('N7: one control or zero-width character inside the token (which the scrub would cut around) gives the generic message', async () => {
+  for (const mark of ['\u001b', '​', '\0', '\n']) {
+    for (const make of [(t) => new Error(`tok ${t.slice(0, 10)}${mark}${t.slice(10)}`), (t) => Object.assign(new Error('x'), { stderr: `${t.slice(0, 35)}${mark}${t.slice(35)} and ${t}` })]) {
+      const { caught } = await failWith(make);
+      assert.equal(caught.message, GENERIC, JSON.stringify(mark));
+    }
+  }
+});
+
+test('N6: every character of a piece of 16 or more is redacted, not only the first 16', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(`a ${t.slice(0, 31)} b`), { stderr: `c ${t.slice(10)} d`, stdout: `e ${t.slice(0, 35)} f` }));
+  assert.equal(caught.message, 'the action failed: a [redacted] b');
+  assert.equal(caught.details.stderr, 'c [redacted] d');
+  assert.equal(caught.details.stdout, 'e [redacted] f');
+});
+
+test('3a: mixed-case hex of the token, at either alignment, is scrubbed in place by decoding the run', async () => {
+  let n = 0;
+  const mixed = (h) => h.replace(/[a-f]/g, (c) => ((n += 1) % 2 ? c.toUpperCase() : c));
+  const even = await failWith((t) => new Error(`hex ${mixed(hexOf(t))} end`));
+  assert.equal(even.caught.message, 'the action failed: hex [redacted] end');
+  const odd = await failWith((t) => Object.assign(new Error(`hex 7${mixed(hexOf(t))} end`), { stderr: `half F${mixed(hexOf(t.slice(0, 20)))}` }));
+  assert.equal(odd.caught.message, 'the action failed: hex [redacted] end');
+  assert.equal(odd.caught.details.stderr, 'half [redacted]');
+});
+
+test('N7: a Basic header with NULs between its characters (UTF-16 text read as UTF-8) gives the generic message', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: interleave(`Authorization: Basic ${b64(`x:${t}`)}`, '\0') }));
   assert.equal(caught.message, GENERIC);
 });

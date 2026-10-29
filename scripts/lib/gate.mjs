@@ -55,38 +55,61 @@ function checkLines(lines, { label, required }) {
 // The gate never rethrows what the action (or recompute) threw. It builds a new RiverwrightError from a short
 // allowlist of fields, each read once as an own data property, so no getter, Proxy trap, toString, toJSON or
 // util.inspect.custom on the original runs, and nothing else it holds (Map, Set, URL, Headers, symbol keys,
-// boxed strings, functions) is carried over. Every kept string is scrubbed of the token's raw, URL-encoded,
-// base64 and base64url forms, and of any base64-looking run that decodes to bytes holding it (an HTTP Basic
-// header, at any alignment). Then everything is checked again. If any form survives, or reading the error
-// throws, the error becomes the generic message, with nothing else attached (fail closed).
+// boxed strings, functions) is carried over.
 //
-// Redaction cannot find a token split across two fields, or encoded some other way. The action contract
-// (Plan 2b) is: never put the token in error text, argv or a file; it may go to one child's environment.
+// Raw bytes are never kept (ruling R13). A Buffer, typed array, DataView, ArrayBuffer or SharedArrayBuffer found
+// anywhere the walk reaches (the message, stack, stderr, stdout, a cause, an AggregateError entry, or the thrown
+// value itself) becomes the fixed text "[N bytes omitted]" and is never decoded. So no encoding of the bytes
+// (UTF-16, UTF-32, hex or base64 inside them) can carry the token out, and none has to be checked.
+//
+// Only strings are kept. Each is scrubbed of the token's raw, URL-encoded, base64, base64url and hex (lower or
+// upper case, plain or spaced) forms, of every 16-character piece of the raw token, and of any base64 or hex run
+// that decodes to bytes holding one. Then it is checked again, as is and with every white space, control and
+// format character taken out: the NULs of UTF-16 or UTF-32 text read as UTF-8, a zero-width space, a line wrap.
+// A form found only that way cannot be scrubbed in place. If any form survives, or reading the error throws, the
+// error becomes the generic message, with nothing else attached (fail closed).
+//
+// Accepted limits. The action contract (Plan 2b) is what covers them: never put the token in error text, argv or
+// a file; it may go to one child's environment.
+// - A token cut into pieces shorter than 16 characters, spread across fields or down the cause chain.
+// - A printable or combining character (not a space, control or format character) inside the token.
+// - A deliberately obfuscated token: a list of decimal bytes, "0x" or "\x" before each byte, reversed or
+//   doubled characters, or the token's bytes misread in another encoding (UTF-8 read as UTF-16 shows as CJK).
+// - Raw byte buffers are omitted by design: a tool that writes its stderr as bytes loses that detail here.
 
 const SAFE_CODE = /^[A-Z0-9_]{1,64}$/;
 const B64_RUN = /[A-Za-z0-9+/_-]{16,}={0,2}/g;
+const HEX_RUN = /[0-9A-Fa-f]{32,}/g;
+const SQUEEZE = /[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
 const CAUSE_DEPTH = 10;
 const CAUSE_COUNT = 20;
 const TEXT_MAX = 8192;
 // The built-in accessors, captured before any action runs: an Error's `stack` getter (an own accessor on every
-// Error in current V8) and the typed-array internals. Only these are ever called, never one the error defines.
+// Error in current V8) and the byte lengths of the byte containers. Only these are ever called, never one the
+// error defines.
 const NATIVE_STACK_GET = Object.getOwnPropertyDescriptor(new Error('probe'), 'stack')?.get;
-const TYPED = Object.getPrototypeOf(Uint8Array.prototype);
-const typedGet = (name) => Object.getOwnPropertyDescriptor(TYPED, name).get;
-const [TA_BUFFER, TA_OFFSET, TA_LENGTH] = ['buffer', 'byteOffset', 'byteLength'].map(typedGet);
-const isTypedArray = (v) => { try { TA_LENGTH.call(v); return true; } catch { return false; } };
+const lengthGetter = (proto) => Object.getOwnPropertyDescriptor(proto, 'byteLength').get;
+const BYTE_LENGTH = [
+  [util.types.isTypedArray, lengthGetter(Object.getPrototypeOf(Uint8Array.prototype))],
+  [util.types.isDataView, lengthGetter(DataView.prototype)],
+  [util.types.isArrayBuffer, lengthGetter(ArrayBuffer.prototype)],
+  [util.types.isSharedArrayBuffer, lengthGetter(SharedArrayBuffer.prototype)],
+];
 
-// The forms: `full` are whole-token encodings (raw, URL-encoded, base64, base64url, hex, and the spaced hex that
-// util.inspect(Buffer) prints). `windows` are the 16-character pieces of the raw token, so each half of a split
-// token and a cut-off token match too. A false hit on a 16-character piece of a random token is negligible.
+// The forms: `full` are whole-token encodings (raw, URL-encoded, base64, base64url, hex in either case, and the
+// spaced hex that util.inspect(Buffer) prints). `windows` are the 16-character pieces of the raw token, so each
+// half of a split token and a cut-off token match too. A false hit on a 16-character piece of a random token is
+// negligible.
 const WINDOW = 16;
 function formsOf(token) {
   const raw = Buffer.from(token);
   const hex = raw.toString('hex');
-  const full = [...new Set([token, encodeURIComponent(token), raw.toString('base64'), raw.toString('base64url'), raw.toString('base64').replace(/=+$/, ''), hex, hex.replace(/(..)/g, '$1 ').trim()])].filter((f) => f.length > 0).sort((a, b) => b.length - a.length);
+  const spaced = hex.replace(/(..)/g, '$1 ').trim();
+  const full = [...new Set([token, encodeURIComponent(token), raw.toString('base64'), raw.toString('base64url'), raw.toString('base64').replace(/=+$/, ''), hex, spaced, hex.toUpperCase(), spaced.toUpperCase()])].filter((f) => f.length > 0).sort((a, b) => b.length - a.length);
   const windows = [];
   for (let i = 0; token.length > WINDOW && i + WINDOW <= token.length; i += 1) windows.push(token.slice(i, i + WINDOW));
-  return { full, all: [...full, ...new Set(windows)] };
+  // The spaced hex holds spaces, so squeezing turns it into the plain hex; it is taken out before that check.
+  return { full, all: [...full, ...new Set(windows)], spaced: full.filter((f) => f.replace(SQUEEZE, '') !== f) };
 }
 const holdsForm = (text, list) => list.some((f) => text.includes(f));
 // A base64 (or base64url) run that decodes, at any of the four character alignments, to bytes holding a form.
@@ -94,14 +117,53 @@ const runHides = (run, forms) => {
   for (let k = 0; k < 4; k += 1) if (holdsForm(Buffer.from(run.slice(k), 'base64').toString('latin1'), forms.full)) return true;
   return false;
 };
-const hidesIn = (text, forms) => holdsForm(text, forms.all) || [...text.matchAll(B64_RUN)].some(([run]) => runHides(run, forms));
-// Also with all white space taken out, so a token or a base64 run wrapped across lines is found.
+// A hex run (either case) that decodes, at either character alignment, to bytes holding a form or a piece of one.
+const hexRunHides = (run, forms) => holdsForm(Buffer.from(run, 'hex').toString('latin1'), forms.all) || holdsForm(Buffer.from(run.slice(1), 'hex').toString('latin1'), forms.all);
+const hidesIn = (text, forms) => holdsForm(text, forms.all)
+  || [...text.matchAll(B64_RUN)].some(([run]) => runHides(run, forms))
+  || [...text.matchAll(HEX_RUN)].some(([run]) => hexRunHides(run, forms));
+// Also with every space, control and format character taken out, so a token or a run wrapped across lines, or
+// with NULs between its characters (UTF-16 or UTF-32 text read as UTF-8), is found.
 const hides = (text, forms) => {
   if (hidesIn(text, forms)) return true;
-  const squeezed = text.replace(/\s+/g, '');
+  const squeezed = text.replace(SQUEEZE, '');
   return squeezed !== text && hidesIn(squeezed, forms);
 };
-const scrub = (text, forms) => forms.all.reduce((t, f) => t.split(f).join(REDACTED), text).replace(B64_RUN, (run) => (runHides(run, forms) ? REDACTED : run));
+// Every character covered by any form or piece is redacted, overlapping matches merged into one "[redacted]", so
+// a piece of 16 characters or more is removed whole, not cut down to a tail of up to 15.
+function scrubForms(text, list) {
+  let covered = null;
+  for (const f of list) {
+    let end = 0;
+    for (let i = text.indexOf(f); i !== -1; i = text.indexOf(f, i + 1)) {
+      covered ??= new Uint8Array(text.length);
+      covered.fill(1, Math.max(i, end), i + f.length);
+      end = i + f.length;
+    }
+  }
+  if (covered === null) return text;
+  let out = '';
+  for (let i = 0; i < text.length;) {
+    const stop = covered.indexOf(covered[i] ? 0 : 1, i);
+    const next = stop === -1 ? text.length : stop;
+    out += covered[i] ? REDACTED : text.slice(i, next);
+    i = next;
+  }
+  return out;
+}
+const scrub = (text, forms) => scrubForms(text, forms.all)
+  .replace(B64_RUN, (run) => (runHides(run, forms) ? REDACTED : run))
+  .replace(HEX_RUN, (run) => (hexRunHides(run, forms) ? REDACTED : run));
+// Overlapping occurrences of `f` in `text`.
+const count = (text, f) => { let n = 0; for (let i = text.indexOf(f); i !== -1; i = text.indexOf(f, i + 1)) n += 1; return n; };
+// A form that appears only once space, control and format characters are taken out spans one of them, so it
+// cannot be scrubbed in place. Once the spaced hex is redacted, no form holds such a character, so squeezing keeps
+// every occurrence the text already had, and any extra one crosses a removed character.
+const crossesSqueezed = (text, forms) => {
+  const base = scrubForms(text, forms.spaced);
+  const squeezed = base.replace(SQUEEZE, '');
+  return squeezed !== base && forms.all.some((f) => squeezed.includes(f) && count(squeezed, f) > count(base, f));
+};
 const cut = (text) => (text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}... [cut]` : text);
 
 class Unclean extends Error {}
@@ -120,29 +182,36 @@ function ownStack(o) {
 }
 const isObj = (v) => v !== null && (typeof v === 'object' || typeof v === 'function');
 
+// R13: a byte container is named by its size and never read. util.types checks the internal type, so no code the
+// error defines runs; a Proxy is not a byte container here (it is dropped or refused by the caller).
+function bytesNote(v) {
+  if (!isObj(v) || util.types.isProxy(v)) return undefined;
+  for (const [is, length] of BYTE_LENGTH) if (is(v)) return `[${length.call(v)} bytes omitted]`;
+  return undefined;
+}
+
 function cleanText(value, forms) {
-  let text;
-  if (typeof value === 'string') text = value;
-  else if (isObj(value) && !util.types.isProxy(value) && isTypedArray(value)) {
-    const bytes = Buffer.from(TA_BUFFER.call(value), TA_OFFSET.call(value), TA_LENGTH.call(value));
-    text = bytes.toString('utf8');
-    // Belt and braces: no other decoding of the bytes may hold a form. UTF-16LE (a Windows tool's stderr), at both
-    // byte alignments, is refused outright: its text would read "g?h?p?_?...".
-    if (hides(bytes.toString('latin1'), forms) && !hides(text, forms)) throw new Unclean();
-    if (holdsForm(bytes.toString('utf16le'), forms.all) || holdsForm(bytes.subarray(1).toString('utf16le'), forms.all)) throw new Unclean();
-  } else return undefined;
+  const note = bytesNote(value);
+  if (note !== undefined) return note;
+  if (typeof value !== 'string') return undefined;
+  if (crossesSqueezed(value, forms)) throw new Unclean();
+  const scrubbed = scrub(value, forms);
+  // Checked before terminal cleaning too, which turns a NUL or a zero-width space into "?" and would hide the
+  // token from the squeezed check.
+  if (hides(scrubbed, forms)) throw new Unclean();
   // R11: what is kept is upstream text (a remote's stderr, an API message), so it cannot drive a terminal.
-  const clean = printableLines(scrub(text, forms));
-  if (hides(clean, forms)) throw new Unclean();
+  const clean = printableLines(scrubbed);
+  // Again when terminal cleaning changed something: a "?" put in place of a control can complete a token holding "?".
+  if (clean !== scrubbed && hides(clean, forms)) throw new Unclean();
   return cut(clean);
 }
 
-// The message of one entry in the cause chain: a string, or an object's own string `message`.
+// The message of one entry in the cause chain: a string, a byte container's note, or an object's own `message`.
 function messageOf(v, forms) {
   if (typeof v === 'string') return cleanText(v, forms);
   if (!isObj(v)) return undefined;
   if (util.types.isProxy(v)) throw new Unclean();
-  return cleanText(own(v, 'message'), forms);
+  return bytesNote(v) ?? cleanText(own(v, 'message'), forms);
 }
 
 // The cause chain and AggregateError `errors`, breadth first, as plain strings, to a fixed depth and count.
@@ -196,7 +265,7 @@ function sanitize(error, token, { code, what, transient = false }) {
   try {
     const details = {};
     let message;
-    if (typeof error === 'string') message = cleanText(error, forms);
+    if (typeof error === 'string' || bytesNote(error) !== undefined) message = cleanText(error, forms);
     else if (isObj(error)) {
       if (util.types.isProxy(error)) return generic();
       message = cleanText(own(error, 'message'), forms);
