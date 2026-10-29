@@ -24,7 +24,11 @@ export function parsePushKey(text) {
   return { type };
 }
 
-// The path ends up inside double quotes in GIT_SSH_COMMAND, which git hands to a shell.
+// The path ends up inside double quotes in GIT_SSH_COMMAND. Git runs that string through its own POSIX sh
+// (also on Windows, where it is Git for Windows' sh), so the quoting is POSIX-sh quoting only: it is not safe
+// for cmd.exe or PowerShell. Characters that are special inside POSIX double quotes ($ ` \ and ") are refused,
+// as are % and control or format characters. Space, ', ;, ! and # are accepted on purpose: they are literal
+// inside double quotes in sh, so do not tighten or loosen this list without a test.
 function assertQuotable(p) {
   if (typeof p !== 'string' || !(path.posix.isAbsolute(p) || path.win32.isAbsolute(p))) throw new RiverwrightError('UNSAFE_PATH', 'the key path must be absolute');
   const posix = path.posix.isAbsolute(p);
@@ -74,13 +78,48 @@ export function readPushKey(home) {
   return { schema: v.schema, publicKeyFile: v.publicKeyFile, privateKeyFile: v.privateKeyFile, type: v.type };
 }
 
+// The config file is plain data, so it is not trusted for the key type. The public file is re-read and
+// re-parsed, and the private file must sit next to it. Fails closed with BAD_PUSHKEY, so a forged config
+// that points at an ordinary ssh key cannot pass as a hardware key. null means "no hardware key set".
+export function verifiedPushKey(home) {
+  const k = readPushKey(home);
+  if (!k) return null;
+  const bad = (why) => new RiverwrightError('BAD_PUSHKEY', `the push key ${shown(k.publicKeyFile, 80)} is not usable (${why}); run "riverwright credential push-key set" again`);
+  let text;
+  try { text = readBounded(k.publicKeyFile, CAP); } catch { throw bad('the public key file is not a readable regular file'); }
+  if (text === null) throw bad('the public key file is missing');
+  let type;
+  try { ({ type } = parsePushKey(text)); } catch { throw bad('it is not a security-key public key'); }
+  if (type !== k.type) throw bad('the key type no longer matches the saved one');
+  let st = null;
+  try { st = fs.statSync(k.privateKeyFile); } catch { /* reported below */ }
+  if (!st?.isFile()) throw bad('the private key file is missing');
+  return k;
+}
+
 export function clearPushKey(home) {
   fs.rmSync(pushKeyFile(home), { force: true });
 }
 
 // The environment for one git push that must use only the security key. null means "no hardware key set".
-export function sshPushEnv(home) {
-  const k = readPushKey(home);
+// The command isolates ssh from the user's and the system's ssh configuration (ADR-0010 item 6: the push uses
+// only the hardware key). A config file could add other identities, a ProxyCommand or a PKCS11 provider, and
+// IdentitiesOnly still offers IdentityFile lines from it. Ignoring a file is not editing it, so ADR-0008 is
+// respected. Cost: the owner's host aliases, ports and ProxyJump do not apply to this push, which goes
+// straight to the git host. The platform is a parameter so both -F values can be tested.
+export function sshPushEnv(home, { platform = process.platform } = {}) {
+  const k = verifiedPushKey(home);
   if (!k) return null;
-  return { GIT_SSH_COMMAND: `ssh -i "${k.privateKeyFile.replace(/\\/g, '/')}" -o IdentitiesOnly=yes -o IdentityAgent=none` };
+  const none = platform === 'win32' ? 'NUL' : '/dev/null';
+  const opts = [
+    '-o IdentityFile=none',
+    `-i "${k.privateKeyFile.replace(/\\/g, '/')}"`,
+    '-o IdentitiesOnly=yes',
+    '-o IdentityAgent=none',
+    '-o CertificateFile=none',
+    '-o PKCS11Provider=none',
+    '-o ProxyCommand=none',
+    `-o PubkeyAcceptedAlgorithms=${SK_TYPES.join(',')}`,
+  ];
+  return { GIT_SSH_COMMAND: `ssh -F ${none} ${opts.join(' ')}` };
 }

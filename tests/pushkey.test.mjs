@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { parsePushKey, readPushKey, savePushKey, clearPushKey, sshPushEnv, pushKeyFile, PUSHKEY_SCHEMA } from '../scripts/lib/pushkey.mjs';
+import { parsePushKey, readPushKey, savePushKey, clearPushKey, sshPushEnv, verifiedPushKey, pushKeyFile, PUSHKEY_SCHEMA } from '../scripts/lib/pushkey.mjs';
 import { callMain, tmpDir } from './helpers.mjs';
 
 const SK = 'sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIA me@laptop';
@@ -133,4 +133,56 @@ test('show prints a tampered path without control characters', async () => {
   const r = await callMain(['credential', 'push-key', 'show'], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
   assert.equal((r.stdout + r.stderr).includes('\x1b'), false);
   assert.equal(r.code, 1);
+});
+
+test('the ssh command ignores the user and system ssh config and offers only a security key', () => {
+  const home = tmpDir();
+  const k = keyFiles();
+  savePushKey(home, { publicKeyFile: k.pub });
+  const q = `-i "${k.priv.replace(/\\/g, '/')}"`;
+  const posix = sshPushEnv(home, { platform: 'linux' }).GIT_SSH_COMMAND;
+  const win = sshPushEnv(home, { platform: 'win32' }).GIT_SSH_COMMAND;
+  assert.ok(posix.startsWith('ssh -F /dev/null '), posix);
+  assert.ok(win.startsWith('ssh -F NUL '), win);
+  for (const cmd of [posix, win]) {
+    assert.ok(cmd.indexOf('-o IdentityFile=none') !== -1 && cmd.indexOf('-o IdentityFile=none') < cmd.indexOf(q), cmd);
+    for (const o of ['IdentitiesOnly=yes', 'IdentityAgent=none', 'CertificateFile=none', 'PKCS11Provider=none', 'ProxyCommand=none', 'PubkeyAcceptedAlgorithms=sk-ssh-ed25519@openssh.com,sk-ecdsa-sha2-nistp256@openssh.com']) {
+      assert.ok(cmd.includes(`-o ${o}`), `${o} missing from ${cmd}`);
+    }
+  }
+});
+
+test('a config pointing at a plain ssh key, or a missing or changed public key, is refused (no silent downgrade)', async () => {
+  const home = tmpDir();
+  const dir = tmpDir();
+  const pub = path.join(dir, 'id_ed25519.pub');
+  fs.writeFileSync(pub, `${PLAIN}\n`);
+  fs.writeFileSync(path.join(dir, 'id_ed25519'), 'x');
+  fs.mkdirSync(path.dirname(pushKeyFile(home)), { recursive: true });
+  const forged = { schema: PUSHKEY_SCHEMA, publicKeyFile: pub, privateKeyFile: path.join(dir, 'id_ed25519'), type: 'sk-ssh-ed25519@openssh.com' };
+  fs.writeFileSync(pushKeyFile(home), JSON.stringify(forged));
+  assert.throws(() => sshPushEnv(home), (e) => e.code === 'BAD_PUSHKEY');
+  assert.throws(() => verifiedPushKey(home), (e) => e.code === 'BAD_PUSHKEY');
+  const r = await callMain(['credential', 'push-key', 'show'], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  assert.equal(r.code, 1);
+  // Valid at set time, then the public file changes type, vanishes, or loses its private file.
+  const home2 = tmpDir();
+  const k = keyFiles();
+  savePushKey(home2, { publicKeyFile: k.pub });
+  assert.ok(sshPushEnv(home2));
+  fs.writeFileSync(k.pub, 'sk-ecdsa-sha2-nistp256@openssh.com AAAA x\n');
+  assert.throws(() => sshPushEnv(home2), (e) => e.code === 'BAD_PUSHKEY');
+  fs.writeFileSync(k.pub, `${SK}\n`);
+  fs.rmSync(k.priv);
+  assert.throws(() => sshPushEnv(home2), (e) => e.code === 'BAD_PUSHKEY');
+  fs.rmSync(k.pub);
+  assert.throws(() => sshPushEnv(home2), (e) => e.code === 'BAD_PUSHKEY');
+});
+
+test('the set message does not promise a touch the code cannot confirm', async () => {
+  const home = tmpDir();
+  const k = keyFiles();
+  const r = await callMain(['credential', 'push-key', 'set', k.pub], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  assert.match(r.stdout, /only if the key was made to require one/);
+  assert.doesNotMatch(r.stdout, /Each push will need a touch/);
 });
