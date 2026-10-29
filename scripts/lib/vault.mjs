@@ -23,49 +23,93 @@ const LIMITS = {
   scrypt: { N: [2 ** 10, 2 ** 20], r: [1, 16], p: [1, 4] },
 };
 
+// Bounds and the memory cap handed to scrypt must agree, or a legal-looking vault fails inside Node.
+const SCRYPT_MAXMEM = 256 * 1024 * 1024;
+const scryptBytes = (kdf) => 128 * kdf.r * (kdf.N + kdf.p + 2);
+
+// The weakest kdf sealVault will create (OWASP Password Storage cheat sheet). Opening accepts less, for old files and tests.
+const FLOOR = {
+  argon2id: { memory: 46 * 1024, passes: 1, parallelism: 1 },
+  scrypt: { N: 2 ** 17, r: 8, p: 1 },
+};
+
+const OWN = (v, k) => Object.prototype.hasOwnProperty.call(v, k);
+
 function checkKdf(kdf) {
-  const limits = LIMITS[kdf?.name];
-  if (!limits) throw new RiverwrightError('BAD_VAULT', `unsupported kdf "${kdf?.name}" in the vault`);
+  const limits = OWN(LIMITS, kdf?.name) ? LIMITS[kdf.name] : null;
+  if (!limits) throw new RiverwrightError('BAD_VAULT', 'unsupported kdf in the vault');
   for (const [key, [lo, hi]] of Object.entries(limits)) {
     if (!Number.isInteger(kdf[key]) || kdf[key] < lo || kdf[key] > hi) {
       throw new RiverwrightError('BAD_VAULT', `kdf parameters out of range in the vault (${key})`);
     }
   }
+  if (kdf.name === 'scrypt' && scryptBytes(kdf) > SCRYPT_MAXMEM) {
+    throw new RiverwrightError('BAD_VAULT', 'kdf parameters out of range in the vault (scrypt memory)');
+  }
 }
+
+function checkFloor(kdf) {
+  for (const [key, min] of Object.entries(FLOOR[kdf.name])) {
+    if (kdf[key] < min) throw new RiverwrightError('WEAK_KDF', `the key derivation is weaker than the minimum (${key})`);
+  }
+}
+
+const causeOf = (e) => (typeof e?.code === 'string' && /^[A-Z0-9_]{1,64}$/.test(e.code) ? e.code : (e?.constructor?.name ?? 'Error'));
 
 export function deriveKey(passphrase, kdf, salt) {
   checkKdf(kdf);
   const message = Buffer.from(String(passphrase).normalize('NFKC'), 'utf8');
-  if (kdf.name === 'argon2id') {
-    return crypto.argon2Sync('argon2id', { message, nonce: salt, parallelism: kdf.parallelism, tagLength: 32, memory: kdf.memory, passes: kdf.passes });
+  try {
+    if (kdf.name === 'argon2id') {
+      if (typeof crypto.argon2Sync !== 'function') {
+        throw new RiverwrightError('VAULT_KDF_UNAVAILABLE', 'this vault uses argon2id, which needs Node 24.7 or newer; the passphrase was not tried');
+      }
+      return crypto.argon2Sync('argon2id', { message, nonce: salt, parallelism: kdf.parallelism, tagLength: 32, memory: kdf.memory, passes: kdf.passes });
+    }
+    return crypto.scryptSync(message, salt, 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: SCRYPT_MAXMEM });
+  } catch (e) {
+    if (e instanceof RiverwrightError) throw e;
+    throw new RiverwrightError('VAULT_KDF_UNAVAILABLE', `the key derivation could not run (${causeOf(e)}); the passphrase was not tried`);
   }
-  return crypto.scryptSync(message, salt, 32, { N: kdf.N, r: kdf.r, p: kdf.p, maxmem: 256 * 1024 * 1024 });
 }
 
+const canonical = (x) => (x && typeof x === 'object' && !Array.isArray(x)
+  ? `{${Object.keys(x).sort().map((k) => `${JSON.stringify(k)}:${canonical(x[k])}`).join(',')}}`
+  : JSON.stringify(x));
+
 // The header is authenticated: changing the kdf, the salt or the public key makes decryption fail.
-const aadOf = (v) => Buffer.from(JSON.stringify({ schema: v.schema, kdf: v.kdf, publicKey: v.publicKey }), 'utf8');
+// Keys are sorted, so the file may be re-serialised in any key order.
+const aadOf = (v) => Buffer.from(canonical({ schema: v.schema, kdf: v.kdf, publicKey: v.publicKey }), 'utf8');
+
+const SALT_LEN = 16;
+const NONCE_LEN = 12;
+const TAG_LEN = 16;
 
 export function fingerprint(publicKeyPem) {
   const der = crypto.createPublicKey(publicKeyPem).export({ type: 'spki', format: 'der' });
   return `sha256:${crypto.createHash('sha256').update(der).digest('hex')}`;
 }
 
-export function sealVault({ token, passphrase, kdf = defaultKdf(), now = null }) {
+// allowWeakKdfForTests lets tests use small parameters. The command line must never pass it.
+export function sealVault({ token, passphrase, kdf = defaultKdf(), now = null, allowWeakKdfForTests = false }) {
   if (typeof passphrase !== 'string' || [...passphrase.normalize('NFKC')].length < MIN_PASSPHRASE) {
     throw new RiverwrightError('WEAK_PASSPHRASE', `the passphrase must be at least ${MIN_PASSPHRASE} characters`);
   }
   if (typeof token !== 'string' || !/^[!-~]{8,4096}$/.test(token)) {
     throw new RiverwrightError('BAD_TOKEN', 'the token must be 8 to 4096 printable characters with no spaces');
   }
-  const salt = crypto.randomBytes(16);
+  checkKdf(kdf);
+  if (allowWeakKdfForTests !== true) checkFloor(kdf);
+  const salt = crypto.randomBytes(SALT_LEN);
   const { publicKey, privateKey } = crypto.generateKeyPairSync('ed25519');
   const header = {
     schema: VAULT_SCHEMA,
     kdf: { ...kdf, salt: salt.toString('base64') },
     publicKey: publicKey.export({ type: 'spki', format: 'pem' }),
   };
-  const nonce = crypto.randomBytes(12);
-  const cipher = crypto.createCipheriv('aes-256-gcm', deriveKey(passphrase, header.kdf, salt), nonce);
+  const nonce = crypto.randomBytes(NONCE_LEN);
+  const key = deriveKey(passphrase, header.kdf, salt);
+  const cipher = crypto.createCipheriv('aes-256-gcm', key, nonce, { authTagLength: TAG_LEN });
   cipher.setAAD(aadOf(header));
   const plain = JSON.stringify({ token, privateKey: privateKey.export({ type: 'pkcs8', format: 'pem' }) });
   const ciphertext = Buffer.concat([cipher.update(plain, 'utf8'), cipher.final()]);
@@ -81,15 +125,15 @@ export function sealVault({ token, passphrase, kdf = defaultKdf(), now = null })
 
 export function openVault(vault, passphrase) {
   validateVault(vault);
-  const salt = Buffer.from(vault.kdf.salt, 'base64');
+  // Key derivation is outside the try: only a GCM authentication failure may mean "wrong passphrase".
+  const key = deriveKey(passphrase, vault.kdf, Buffer.from(vault.kdf.salt, 'base64'));
   let plain;
   try {
-    const decipher = crypto.createDecipheriv('aes-256-gcm', deriveKey(passphrase, vault.kdf, salt), Buffer.from(vault.nonce, 'base64'));
+    const decipher = crypto.createDecipheriv('aes-256-gcm', key, Buffer.from(vault.nonce, 'base64'), { authTagLength: TAG_LEN });
     decipher.setAAD(aadOf(vault));
     decipher.setAuthTag(Buffer.from(vault.tag, 'base64'));
     plain = Buffer.concat([decipher.update(Buffer.from(vault.ciphertext, 'base64')), decipher.final()]).toString('utf8');
-  } catch (e) {
-    if (e instanceof RiverwrightError) throw e;
+  } catch {
     throw new RiverwrightError('BAD_PASSPHRASE', 'the passphrase did not open the vault');
   }
   const { token, privateKey } = JSON.parse(plain);
@@ -103,6 +147,12 @@ export function validateVault(v) {
   }
   if (v.cipher !== 'aes-256-gcm') throw new RiverwrightError('BAD_VAULT', 'unsupported cipher in the vault');
   if (typeof v.kdf?.salt !== 'string') throw new RiverwrightError('BAD_VAULT', 'the vault is missing its salt');
+  for (const [label, value, min, exact] of [['salt', v.kdf.salt, SALT_LEN, false], ['nonce', v.nonce, NONCE_LEN, true], ['tag', v.tag, TAG_LEN, true]]) {
+    const raw = Buffer.from(value, 'base64');
+    if (raw.toString('base64') !== value || (exact ? raw.length !== min : raw.length < min)) {
+      throw new RiverwrightError('BAD_VAULT', `the vault has a malformed ${label}`);
+    }
+  }
   checkKdf(v.kdf);
   return v;
 }
