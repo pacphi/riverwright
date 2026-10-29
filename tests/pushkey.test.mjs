@@ -1,12 +1,24 @@
-import { test } from 'node:test';
+import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { parsePushKey, readPushKey, savePushKey, clearPushKey, sshPushEnv, verifiedPushKey, pushKeyFile, PUSHKEY_SCHEMA } from '../scripts/lib/pushkey.mjs';
 import { callMain, tmpDir } from './helpers.mjs';
 
 const SK = 'sk-ssh-ed25519@openssh.com AAAAGnNrLXNzaC1lZDI1NTE5QG9wZW5zc2guY29tAAAAIA me@laptop';
 const PLAIN = 'ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA me@laptop';
+
+// R42: the push key lives in <account home>/.riverwright/vault, the same folder as the vault, so the CLI finds the
+// home from the password database (io.testing.userInfo here). RIVERWRIGHT_HOME points elsewhere on purpose.
+const realUserInfo = os.userInfo;
+before(() => { os.userInfo = () => { throw new Error('a test read the real account home (os.userInfo) without the seam'); }; });
+after(() => { os.userInfo = realUserInfo; });
+function account() {
+  const dir = tmpDir('rw-account-');
+  return { dir, home: path.join(dir, '.riverwright'), userInfo: () => ({ homedir: dir }) };
+}
+const cli = (a, args, extra = {}) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: tmpDir('rw-other-'), PATH: '' }, testing: { userInfo: a.userInfo, ...extra.testing } });
 
 function keyFiles() {
   const dir = tmpDir('rw-sshkey-');
@@ -107,9 +119,10 @@ test('a tampered push-key file is refused rather than turned into a command', ()
 });
 
 test('credential push-key set, show and clear work from the command line and store no secret', async () => {
-  const home = tmpDir();
+  const a = account();
+  const home = a.home;
   const k = keyFiles();
-  const run = (args) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  const run = (args) => cli(a, args);
   const set = await run(['push-key', 'set', k.pub]);
   assert.equal(set.code, 0, set.stderr);
   assert.match(set.stdout, /touch/i);
@@ -124,13 +137,14 @@ test('credential push-key set, show and clear work from the command line and sto
 });
 
 test('show prints a tampered path without control characters', async () => {
-  const home = tmpDir();
+  const a = account();
+  const home = a.home;
   const k = keyFiles();
   savePushKey(home, { publicKeyFile: k.pub });
   const v = JSON.parse(fs.readFileSync(pushKeyFile(home), 'utf8'));
   v.publicKeyFile = `${k.pub}\x1b[2J`;
   fs.writeFileSync(pushKeyFile(home), JSON.stringify(v));
-  const r = await callMain(['credential', 'push-key', 'show'], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  const r = await cli(a, ['push-key', 'show']);
   assert.equal((r.stdout + r.stderr).includes('\x1b'), false);
   assert.equal(r.code, 1);
 });
@@ -153,7 +167,8 @@ test('the ssh command ignores the user and system ssh config and offers only a s
 });
 
 test('a config pointing at a plain ssh key, or a missing or changed public key, is refused (no silent downgrade)', async () => {
-  const home = tmpDir();
+  const a = account();
+  const home = a.home;
   const dir = tmpDir();
   const pub = path.join(dir, 'id_ed25519.pub');
   fs.writeFileSync(pub, `${PLAIN}\n`);
@@ -163,7 +178,7 @@ test('a config pointing at a plain ssh key, or a missing or changed public key, 
   fs.writeFileSync(pushKeyFile(home), JSON.stringify(forged));
   assert.throws(() => sshPushEnv(home), (e) => e.code === 'BAD_PUSHKEY');
   assert.throws(() => verifiedPushKey(home), (e) => e.code === 'BAD_PUSHKEY');
-  const r = await callMain(['credential', 'push-key', 'show'], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  const r = await cli(a, ['push-key', 'show']);
   assert.equal(r.code, 1);
   // Valid at set time, then the public file changes type, vanishes, or loses its private file.
   const home2 = tmpDir();
@@ -180,9 +195,54 @@ test('a config pointing at a plain ssh key, or a missing or changed public key, 
 });
 
 test('the set message does not promise a touch the code cannot confirm', async () => {
-  const home = tmpDir();
+  const a = account();
   const k = keyFiles();
-  const r = await callMain(['credential', 'push-key', 'set', k.pub], { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+  const r = await cli(a, ['push-key', 'set', k.pub]);
   assert.match(r.stdout, /only if the key was made to require one/);
   assert.doesNotMatch(r.stdout, /Each push will need a touch/);
+});
+
+test('R42: push-key set, show and clear use the account home vault folder, never RIVERWRIGHT_HOME, HOME or USERPROFILE', async () => {
+  const a = account();
+  const decoy = tmpDir('rw-decoy-');
+  const k = keyFiles();
+  const env = { RIVERWRIGHT_HOME: decoy, HOME: decoy, USERPROFILE: decoy, PATH: '' };
+  const run = (args) => callMain(['credential', ...args], { env, testing: { userInfo: a.userInfo } });
+  assert.equal((await run(['push-key', 'set', k.pub])).code, 0);
+  assert.equal(fs.existsSync(pushKeyFile(a.home)), true);
+  assert.equal(path.dirname(pushKeyFile(a.home)), path.dirname(path.join(a.home, 'vault', 'vault.json')));
+  assert.equal(fs.existsSync(path.join(decoy, 'vault')), false);
+  assert.equal(fs.existsSync(path.join(decoy, '.riverwright')), false);
+  assert.match((await run(['push-key', 'show'])).stdout, /id_ed25519_sk/);
+  // A key file planted in the decoy home is not seen.
+  fs.mkdirSync(path.join(decoy, 'vault'), { recursive: true });
+  assert.equal((await run(['push-key', 'clear'])).code, 0);
+  assert.equal(fs.existsSync(pushKeyFile(a.home)), false);
+  assert.match((await run(['push-key', 'show'])).stdout, /No hardware push key/);
+});
+
+test('R42: --home on push-key is refused from real argv (BAD_FLAG, nothing written) and honoured only through the seam', async () => {
+  const a = account();
+  const target = tmpDir('rw-target-');
+  const k = keyFiles();
+  for (const args of [['push-key', 'set', k.pub, '--home', target], ['push-key', 'show', '--home', target], ['push-key', 'clear', '--home', target], ['push-key', '--home', target, 'show']]) {
+    const r = await cli(a, args);
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.stderr, /BAD_FLAG|--home/, args.join(' '));
+    assert.equal(fs.existsSync(pushKeyFile(target)), false);
+    assert.equal(fs.existsSync(pushKeyFile(a.home)), false);
+  }
+  const r = await cli(a, ['push-key', 'set', k.pub, '--home', target], { testing: { allowHomeOverride: true } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(pushKeyFile(target)), true);
+  assert.equal(fs.existsSync(pushKeyFile(a.home)), false);
+});
+
+test('R42: when the account home cannot be found the push key command fails with NO_HOME and writes nothing', async () => {
+  const k = keyFiles();
+  const decoy = tmpDir('rw-decoy-');
+  const r = await callMain(['credential', 'push-key', 'set', k.pub], { env: { RIVERWRIGHT_HOME: decoy, PATH: '' }, testing: { userInfo: () => { throw new Error('no passwd entry'); } } });
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /NO_HOME|home directory/);
+  assert.equal(fs.existsSync(path.join(decoy, 'vault')), false);
 });
