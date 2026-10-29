@@ -10,8 +10,9 @@ import { nowIso } from '../clock.mjs';
 import { confirmTyped, openTerminal, readSecret } from '../tty.mjs';
 import { checkPassphrase, checkToken, defaultKdf, fingerprint, readVault, sealVault, vaultFile, writeVault } from '../vault.mjs';
 import { auditAmbient } from '../ambient.mjs';
+import { clearPushKey, readPushKey, savePushKey } from '../pushkey.mjs';
 
-const USAGE = 'usage: riverwright credential <setup [--replace] | status | remove>';
+const USAGE = 'usage: riverwright credential <setup [--replace] | status | remove | push-key <set <file.pub> | show | clear>>';
 
 import { printable } from '../printable.mjs';
 export { printable };
@@ -68,6 +69,23 @@ async function setup(values, io, home) {
   }
 }
 
+function pushKey(rest, io, home) {
+  const [action, ...more] = rest;
+  const arity = { set: 1, show: 0, clear: 0 }[action];
+  if (arity === undefined || more.length !== arity) throw new RiverwrightError('USAGE', USAGE);
+  if (action === 'set') {
+    savePushKey(home, { publicKeyFile: more[0] });
+    io.stdout.write(`Hardware push key set: ${printable(more[0])}\nEach push will need a touch on the security key. Pull requests and comments still use the sealed token.\n`);
+  } else if (action === 'show') {
+    const k = readPushKey(home);
+    io.stdout.write(k ? `Hardware push key: ${printable(k.publicKeyFile)} (${printable(k.type)})\n` : 'No hardware push key is set.\n');
+  } else {
+    clearPushKey(home);
+    io.stdout.write('Hardware push key cleared.\n');
+  }
+  return 0;
+}
+
 async function status(io, home) {
   let vault = null;
   try {
@@ -100,6 +118,7 @@ async function remove(io, home) {
 
 export async function run(args, io) {
   const [sub, ...rest] = args;
+  if (sub === 'push-key') return pushKey(rest, io, riverwrightHome(io.env));
   const values = parseFlags(rest, sub === 'setup');
   // A person runs this command, so RIVERWRIGHT_HOME is honored.
   const home = riverwrightHome(io.env);
