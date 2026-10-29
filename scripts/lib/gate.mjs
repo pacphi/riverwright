@@ -76,6 +76,12 @@ function checkLines(lines, { label, required }) {
 //
 // Accepted limits. The action contract (Plan 2b) is what covers them: never put the token in error text, argv or
 // a file; it may go to one child's environment.
+// - Limits of the stack hook: an Error from another realm (vm) shows no stack; a frozen or non-configurable
+//   Error.prepareStackTrace makes every action error generic (fail closed).
+// - An action that replaces globalThis.Error with an accessor gets that getter run while the hook is in place,
+//   and errors Node formats itself (ERR_REQUIRE_ESM and similar) skip the hook. Both are outside what the gate
+//   controls; their output is still cut to frame lines and scrubbed.
+// - A field over 1 MiB is read only in part; the gate drops the last 64 characters of what it shows.
 // - A token cut into pieces shorter than 16 characters, spread across fields or down the cause chain.
 // - A printable or combining character (not a space, control or format character) inside the token.
 // - A deliberately obfuscated token: a list of decimal bytes, "0x" or "\x" before each byte, reversed or
@@ -100,6 +106,26 @@ const SCAN_MAX = 1024 * 1024;
 // Error in current V8) and the byte lengths of the byte containers. Only these are ever called, never one the
 // error defines.
 const NATIVE_STACK_GET = Object.getOwnPropertyDescriptor(new Error('probe'), 'stack')?.get;
+// DOMException (an AbortSignal.timeout or fetch abort) keeps `name` and `message` in prototype getters that
+// check the object's internal slot: called on anything else they throw, and they run no user code.
+const DOM_GET = (key) => Object.getOwnPropertyDescriptor(DOMException.prototype, key)?.get;
+const DOM_NAME = DOM_GET('name');
+const DOM_MESSAGE = DOM_GET('message');
+const domField = (getter, o) => { try { return getter?.call(o); } catch { return undefined; } };
+const NAME_OK = /^[A-Za-z][A-Za-z0-9_]{0,63}$/;
+// The class name for the stack header (m2): a DOMException's built-in name, else the first `name` found as a DATA
+// property on the error or up its prototype chain (depth-limited; a Proxy stops the walk). No accessor is called.
+function className(o) {
+  const dom = domField(DOM_NAME, o);
+  if (typeof dom === 'string') return NAME_OK.test(dom) ? dom : undefined;
+  let at = o;
+  for (let depth = 0; depth < 8 && isObj(at) && !util.types.isProxy(at); depth += 1) {
+    const d = Object.getOwnPropertyDescriptor(at, 'name');
+    if (d) return 'value' in d && typeof d.value === 'string' && NAME_OK.test(d.value) ? d.value : undefined;
+    at = Object.getPrototypeOf(at);
+  }
+  return undefined;
+}
 const lengthGetter = (proto) => Object.getOwnPropertyDescriptor(proto, 'byteLength').get;
 const BYTE_LENGTH = [
   [util.types.isTypedArray, lengthGetter(Object.getPrototypeOf(Uint8Array.prototype))],
@@ -188,6 +214,9 @@ const crossesSqueezed = (text, forms) => {
   const squeezed = base.replace(SQUEEZE, '');
   return squeezed !== base && forms.all.some((f) => squeezed.includes(f) && count(squeezed, f) > count(base, f));
 };
+// A field read only in part shows nothing from its last 64 characters (m1): a token crossing the 1 MiB cut is
+// only partly in the text, so it was not scrubbed there, and its pieces must not reach the screen.
+const SCAN_TAIL = 64;
 const cut = (text, longer) => (longer || text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}... [cut]` : text);
 
 class Unclean extends Error {}
@@ -251,7 +280,7 @@ function cleanText(value, forms) {
   const clean = printableLines(scrubbed);
   // Again when terminal cleaning changed something: a "?" put in place of a control can complete a token holding "?".
   if (clean !== scrubbed && hides(clean, forms)) throw new Unclean();
-  return cut(clean, longer);
+  return cut(longer ? clean.slice(0, Math.max(0, clean.length - SCAN_TAIL)) : clean, longer);
 }
 
 // The message of one entry in the cause chain: a string, a byte container's note, or an object's own `message`.
@@ -316,7 +345,7 @@ function sanitize(error, token, { code, what, transient = false }) {
     if (typeof error === 'string' || bytesNote(error) !== undefined) message = cleanText(error, forms);
     else if (isObj(error)) {
       if (util.types.isProxy(error)) return generic();
-      message = cleanText(own(error, 'message'), forms);
+      message = cleanText(own(error, 'message') ?? domField(DOM_MESSAGE, error), forms);
       const errCode = own(error, 'code');
       if (typeof errCode === 'string' && SAFE_CODE.test(errCode)) details.code = errCode;
       const status = own(error, 'status');
@@ -325,7 +354,9 @@ function sanitize(error, token, { code, what, transient = false }) {
       // once and the original's header is never read (N8).
       const frames = cleanText(frameLines(error), forms);
       if (frames !== undefined) {
-        const stack = message === undefined ? frames : `${message}\n${frames}`;
+        const name = cleanText(className(error), forms);
+        const header = name === undefined ? message : `${name}: ${message ?? ''}`.trimEnd();
+        const stack = header === undefined ? frames : `${header}\n${frames}`;
         if (hides(stack, forms)) throw new Unclean();
         details.stack = stack;
       }

@@ -549,7 +549,7 @@ test('I1: a code that is not a plain constant, or a status that is not an intege
 test('I1: the stack the action already formatted is cleaned (stack scrubbing is exercised)', async () => {
   // Since N8 only the frame lines are taken from the original stack; its first line is the gate's own message.
   const { caught } = await failWith((t) => { const e = new Error('clean'); e.stack = `Error: tok ${t}\n    at ${t} (file.js:1:1)`; return e; });
-  assert.equal(caught.details.stack, 'clean\n    at [redacted] (file.js:1:1)');
+  assert.equal(caught.details.stack, 'Error: clean\n    at [redacted] (file.js:1:1)');
   assert.equal(holdsToken(rendered(caught)), false);
 });
 
@@ -897,7 +897,7 @@ test('R13: bytes as the message, as a cause, inside an AggregateError, or thrown
   // frames from it and puts its own note on top.
   const onError = await failWith(() => Object.assign(new Error('x'), { message: bytes() }));
   assert.equal(onError.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
-  assert.match(onError.caught.details.stack, new RegExp(`^\\[${2 * TOKEN.length} bytes omitted\\]\\n {4}at `));
+  assert.match(onError.caught.details.stack, new RegExp(`^Error: \\[${2 * TOKEN.length} bytes omitted\\]\\n {4}at `));
   for (const c of [caught, agg.caught, msg.caught, bare.caught, onError.caught]) assert.equal(holdsToken(rendered(c).replace(/[\s\0?]/g, '')), false);
 });
 
@@ -1085,11 +1085,11 @@ test('N8: the stack keeps the action\'s frames under the gate\'s own cleaned mes
     return e;
   });
   assert.equal(caught.message, 'the action failed: changed later');
-  assert.match(caught.details.stack, /^changed later\n {4}at /);
+  assert.match(caught.details.stack, /^Error: changed later\n {4}at /);
   assert.equal(caught.details.stack.includes('tok'), false);
   // A frame that holds the token (a function named after it) is scrubbed.
   const named = await failWith((t) => ({ [t]: () => new Error('from a named function') })[t]());
-  assert.match(named.caught.details.stack, /^from a named function\n {4}at .*\[redacted\]/);
+  assert.match(named.caught.details.stack, /^Error: from a named function\n {4}at .*\[redacted\]/);
   assert.equal(holdsToken(rendered(named.caught)), false);
 });
 
@@ -1153,9 +1153,11 @@ test('M1: only the first 1 MiB of a field is scanned; what lies past it is never
   // Within the first 1 MiB it is still caught, even far past the 8 KiB that is shown.
   const near = await failWith((t) => new Error(`${'x'.repeat(1024 * 1024 - 200)}${interleave(t, '\0')}`));
   assert.equal(near.caught.message, GENERIC);
-  // A field that shrinks when scrubbed below 8 KiB is still marked cut when its tail was not read.
-  const shrunk = await failWith((t) => Object.assign(new Error('x'), { stderr: `${b64(`x:${t}${'z'.repeat(800_000)}`)} tail` }));
-  assert.equal(shrunk.caught.details.stderr, '[redacted]... [cut]');
+  // A field that shrinks when scrubbed below 8 KiB is still marked cut when its tail was not read. The last 64
+  // characters of what was scrubbed are not shown (m1).
+  const lead = 'abc '.repeat(25);
+  const shrunk = await failWith((t) => Object.assign(new Error('x'), { stderr: `${lead}${b64(`x:${t}${'z'.repeat(800_000)}`)} tail` }));
+  assert.equal(shrunk.caught.details.stderr, `${`${lead}[redacted]`.slice(0, lead.length + 10 - 64)}... [cut]`);
 });
 
 test('N8: the global Error.prepareStackTrace is put back after the gate reads a stack, whether it was set or not', async () => {
@@ -1167,7 +1169,7 @@ test('N8: the global Error.prepareStackTrace is put back after the gate reads a 
     Error.prepareStackTrace = mine;
     const { caught } = await failWith(() => new Error('plain failure'));
     assert.equal(Error.prepareStackTrace, mine);
-    assert.match(caught.details.stack, /^plain failure\n {4}at /);
+    assert.match(caught.details.stack, /^Error: plain failure\n {4}at /);
   } finally {
     if (before) Object.defineProperty(Error, 'prepareStackTrace', before);
     else delete Error.prepareStackTrace;
@@ -1177,4 +1179,106 @@ test('N8: the global Error.prepareStackTrace is put back after the gate reads a 
 test('N8, R13: a stack that is a byte buffer is named by its size under the gate\'s message, never decoded', async () => {
   const { caught } = await failWith((t) => { const o = { message: 'x' }; Object.defineProperty(o, 'stack', { value: Buffer.from(t) }); return o; });
   assert.equal(caught.details.stack, `x\n${omitted(TOKEN.length)}`);
+});
+
+// ---- Fix round 5 (m1, m2, m3) ----
+
+// A filler that scrubs down to "[redacted]": one base64 run holding the token, cut so that `piece` ends exactly at
+// the gate's 1 MiB scan cut.
+const SCAN_MAX = 1024 * 1024;
+const fieldWithPieceAtCut = (t, piece) => {
+  const run = b64(`x:${t}${'z'.repeat(900_000)}`).slice(0, SCAN_MAX - piece.length - 1);
+  return `${run} ${piece} more text after the cut`;
+};
+
+test('m1: a token that crosses the gate\'s own 1 MiB scan cut does not show a piece, alone or across three fields', async () => {
+  const pieces = (t) => [t.slice(0, 15), t.slice(15, 30), t.slice(30)];
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), {
+    stderr: fieldWithPieceAtCut(t, pieces(t)[0]), stdout: fieldWithPieceAtCut(t, pieces(t)[1]),
+    cause: new Error(fieldWithPieceAtCut(t, pieces(t)[2])),
+  }));
+  const shown = [caught.details.stderr, caught.details.stdout, ...caught.details.causes];
+  assert.equal(shown.length, 3);
+  for (const text of shown) {
+    assert.ok(text.endsWith('... [cut]'));
+    for (const p of pieces(TOKEN)) assert.equal(text.includes(p.slice(0, 6)), false, text);
+  }
+  // A token straddling the old cut position shows no piece of itself either.
+  const straddle = await failWith((t) => Object.assign(new Error('x'), { stderr: fieldWithPieceAtCut(t, t.slice(0, 10)) }));
+  assert.equal(straddle.caught.details.stderr.includes(TOKEN.slice(0, 6)), false);
+});
+
+test('m2: the class name stays in the stack header, a DOMException keeps its name and message, and no name getter runs', async () => {
+  const type = await failWith(() => new TypeError('bad input'));
+  assert.match(type.caught.details.stack, /^TypeError: bad input\n {4}at /);
+  class Custom extends Error {}
+  Custom.prototype.name = 'CustomFailure';
+  const custom = await failWith(() => new Custom('boom'));
+  assert.match(custom.caught.details.stack, /^CustomFailure: boom\n {4}at /);
+  for (const reason of [new DOMException('The operation was aborted due to timeout', 'TimeoutError'), new DOMException('stopped by the user', 'AbortError')]) {
+    const { caught } = await failWith(() => reason);
+    assert.equal(caught.message, `the action failed: ${reason.message}`);
+    assert.equal(caught.details.stack === undefined || caught.details.stack.startsWith(`${reason.name}: ${reason.message}`), true);
+  }
+  const dom = await failWith(() => { const e = new DOMException('late', 'AbortError'); e.stack = 'x\n    at somewhere (f.js:1:1)'; return e; });
+  assert.equal(dom.caught.details.stack, 'AbortError: late\n    at somewhere (f.js:1:1)');
+  // A name that is not a plain identifier, or that holds the token, is not shown; an accessor is never called.
+  const calls = [];
+  const getter = new Error('quiet');
+  Object.defineProperty(getter, 'name', { get() { calls.push('own'); return 'Sneaky'; } });
+  const proto = Object.create({ get name() { calls.push('proto'); return 'Sneaky'; } });
+  const viaProto = Object.assign(proto, { message: 'quiet too', stack: 'x\n    at a (b.js:1:1)' });
+  const odd = new Error('odd'); odd.name = 'not a name!';
+  const named = await failWith((t) => Object.assign(new Error('tok'), { name: t }));
+  const results = [await failWith(() => getter), await failWith(() => viaProto), await failWith(() => odd), named];
+  assert.deepEqual(calls, []);
+  for (const { caught } of results) assert.doesNotMatch(caught.details.stack ?? '', /Sneaky|not a name/);
+  assert.equal(holdsToken(rendered(named.caught)), false);
+});
+
+test('m3: the original Error.prepareStackTrace is put back when formatting the frames throws', async () => {
+  const before = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+  const mine = () => 'mine';
+  Error.prepareStackTrace = mine;
+  const map = Array.prototype.map;
+  // Throws only for the array of CallSites that the gate's hook maps.
+  Array.prototype.map = function poisoned(...args) { // eslint-disable-line no-extend-native
+    if (typeof this[0]?.getFileName === 'function') throw new Error('formatting failed');
+    return Reflect.apply(map, this, args);
+  };
+  let caught;
+  try { ({ caught } = await failWith(() => new Error('plain'))); } finally {
+    Array.prototype.map = map; // eslint-disable-line no-extend-native
+  }
+  const after = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+  if (before) Object.defineProperty(Error, 'prepareStackTrace', before); else delete Error.prepareStackTrace;
+  assert.equal(after.value, mine);
+  assert.equal(caught.message, GENERIC);
+});
+
+test('m3: Error.prepareStackTrace is put back exactly when it was an accessor or a non-writable property', async () => {
+  const before = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+  const mine = () => 'mine';
+  const writes = [];
+  const shapes = [
+    { get: () => mine, set: (v) => { writes.push(v); }, configurable: true },
+    { value: mine, writable: false, configurable: true },
+  ];
+  try {
+    for (const shape of shapes) {
+      Object.defineProperty(Error, 'prepareStackTrace', shape);
+      await failWith(() => new Error('plain'));
+      assert.deepEqual(Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace'), { enumerable: false, ...shape });
+    }
+    assert.deepEqual(writes, []);
+  } finally {
+    Object.defineProperty(Error, 'prepareStackTrace', { configurable: true, writable: true, value: undefined });
+    if (before) Object.defineProperty(Error, 'prepareStackTrace', before); else delete Error.prepareStackTrace;
+  }
+});
+
+test('m3: only lines that start with four spaces and "at " are kept as frames', async () => {
+  const stack = ['Error: header', '    at kept (a.js:1:1)', '  at two (b.js:1:1)', ' at one (c.js:1:1)', '    atx (d.js:1:1)', '\tat tab (e.js:1:1)', 'x    at inline (f.js:1:1)', '    at also (g.js:1:1)'].join('\n');
+  const { caught } = await failWith(() => ({ message: 'm', stack }));
+  assert.equal(caught.details.stack, 'm\n    at kept (a.js:1:1)\n    at also (g.js:1:1)');
 });
