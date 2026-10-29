@@ -34,10 +34,15 @@ export { hasUnresolved };
 //     A variable, substitution, glob or brace that could produce one counts only where a program stands: in program
 //     position (after env, sudo, nice, nohup, timeout, time, command, exec and the other modelled wrappers), anywhere
 //     in the arguments of an exec wrapper (script, xvfb-run, rlwrap, firejail, gdb, chroot, pkexec, runuser,
-//     systemd-run, faketime, winpty, valgrind, unshare, chrt, taskset, watch, flock, xargs, parallel, ...), of a git
-//     subcommand that runs commands, or of text about to be run (a pipe into a shell), as the script of node or bun,
-//     or as the package of npx, pnpm dlx, npm exec and the other runners. It is never one in an ordinary argument of
-//     an unknown program, so rm "$A" "$B" and node build.js "$IN" "$OUT" are allowed.
+//     systemd-run, faketime, winpty, valgrind, unshare, chrt, taskset, watch, flock, xargs, parallel, arch,
+//     sandbox-exec, nsenter, sg, prlimit, numactl, cpulimit, entr, direnv, dotenv, cross-env, ...), of a git
+//     subcommand that runs commands, or of text about to be run (a pipe into a shell), as the script of node, bun,
+//     tsx, ts-node or nodemon, as the first operand of a shell or interpreter (bash "$S", python "$S"), as the
+//     package or program of npx, uvx, pnpm dlx, npm exec, yarn, pnpm, deno, uv run, poetry run, bundle exec, mise exec,
+//     op run, doppler run and the other runners. A plain word right after an option that may take a value (npx -p
+//     cowsay, node -r ./h.cjs, deno run --config f) may be that value, so the search for the operand goes on past it.
+//     It is never one in an ordinary argument of an unknown program, so rm "$A" "$B" and node build.js "$IN" "$OUT"
+//     are allowed.
 //   - A path-shaped program word is resolved against the launcher files before any list trusts its name (a link
 //     named grep or sudo to the launcher is riverwright), and a path with a variable directory is not trusted at all.
 //   - Known non-executing tools: the arguments of grep, egrep, fgrep, echo, printf, cat, head, tail, wc, sort, uniq,
@@ -52,14 +57,20 @@ export { hasUnresolved };
 //     their includes; GIT_CONFIG_COUNT). The configs are only read, never written; one that cannot be read makes
 //     git unknown. git's -c values, command-running option values and "!" aliases are always read as commands.
 //   - Every other program fails closed: its literal riverwright words are checked, and its quoted arguments,
-//     here-documents and here-strings are lexed as commands. Nested payloads are lexed and checked the same way:
+//     here-documents and here-strings are lexed as commands. sed with an option after its script (GNU sed reads
+//     options anywhere) is unknown too. Nested payloads are lexed and checked the same way:
 //     sh/bash/zsh/dash/pwsh/cmd -c, eval, env -S, su -c, expect -c, script, tmux, screen, watch (their joined
 //     arguments), ssh (the remote command line, and -o ProxyCommand, LocalCommand, KnownHostsCommand and
 //     RemoteCommand), git -c alias.*=!... and other -c values, command substitutions, code piped or fed to a shell,
 //     and assignments (EDITOR="...", x="..."; $x).
 //   - A program that runs commands read from stdin (at, batch, crontab, expect, and ssh, su, runuser and script with
-//     no command of their own) fed by a pipe: text the classifier can reproduce exactly is judged as a command;
-//     anything else is denied (cat cmds.txt | at now).
+//     no command of their own, or with a bare shell or interpreter as it, past wrappers: ssh host sudo bash) fed by a
+//     pipe: text the classifier can reproduce exactly is judged as a command; anything else is denied (cat cmds.txt |
+//     at now). A file operand of -, /dev/stdin or /dev/fd/0 is stdin.
+//   - The git files it reads (.git, commondir, config files and includes) are read only as regular files of bounded
+//     size, opened without blocking; a FIFO, device, socket, directory or oversized file makes git unknown. Past the
+//     work budget, nested text is denied when it mentions "credential" or has a variable, glob or brace after a
+//     riverwright word.
 //   - Structural checks kept from earlier rounds: xargs, parallel, find -exec and rg --pre feeding riverwright;
 //     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, a sed e command,
 //     an awk system(), ...) that names it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
@@ -79,7 +90,14 @@ export { hasUnresolved };
 //   - a deliberate forger running as the same user, who can always reach the vault another way.
 // It over-blocks on purpose where a program may run its arguments: "$A" "$B" after an exec wrapper (xvfb-run cp
 // "$A" "$B") is denied, as are quoted arguments of an unknown program, or of a git subcommand off the allowlist, that
-// mention both (gh pr create --title 'rw credential fix', git stash push -m 'rw credential setup').
+// mention both (gh pr create --title 'rw credential fix', git stash push -m 'rw credential setup'). Because a
+// variable that comes before the first plain operand of a runtime, runner, shell or interpreter stands where a program
+// does (R29), these are denied machine-wide as well: node "$S" "$A", node --test "$A" "$B", node --require "$R" "$S",
+// for f in *.mjs; do node "$f" "$out"; done, bun "$S" "$A", deno run -A "$S" "$A", npx "$TOOL" "$ARG",
+// tsx "$S" "$A", bash "$S" "$A", python3 "$S" "$C", uv run "$X" "$Y"; and, past an option that may take a value,
+// node --some-option x.mjs "$A" "$B" (options known to take none, such as -y, --test or --no-warnings, do not count).
+// node --test "$A", node --test tests/*.test.mjs, npx vitest run "$A" "$B" and bash scripts/test.sh "$A" "$B" stay
+// allowed.
 
 const MAX_INPUT = 256 * 1024;
 const MAX_DEPTH = 8;
@@ -110,6 +128,9 @@ const INTERPRETERS = [
   { test: /^(lua|luajit|osascript|rscript)$/, code: ['-e'], values: [] },
   { test: /^deno$/, code: [], values: [], subcode: 'eval' },
 ];
+
+// A file operand that is stdin itself.
+const isStdinPath = (t) => t === '-' || t === '/dev/stdin' || t === '/dev/fd/0';
 
 export function base(tok) {
   return String(tok).split(/[\\/]/).pop().toLowerCase().replace(/\.(exe|cmd|bat|com|ps1)$/, '');
@@ -238,7 +259,7 @@ function classifyShell(prog, args, cmd, ctx) {
       }
       continue;
     }
-    if (t === '-') break;
+    if (isStdinPath(t)) break;
     stdin = false;
     break;
   }
@@ -309,7 +330,7 @@ function classifyInterpreter(prog, spec, args, cmd, ctx) {
     }
     if (spec.module && t === spec.module) return null;
     if (spec.values.includes(t)) { i += 1; continue; }
-    if (t === '-') break;
+    if (isStdinPath(t)) break;
     if (t.startsWith('-')) continue;
     return null;
   }
@@ -715,6 +736,10 @@ function sedScripts(args) {
       continue;
     }
     if (t === '' && suffixMaybe) continue;
+    // GNU sed reads options anywhere (getopt permutes), so an option after the first operand (sed s/a/b/ f -e '1e ...')
+    // could add a script: sed is then unknown.
+    const end = args.findIndex((w, j) => j > i && nameOf(w) === '--');
+    if (args.slice(i + 1, end === -1 ? undefined : end).some((w) => { const u = nameOf(w); return u.startsWith('-') && u !== '-'; })) return null;
     if (!scripts.length) {
       scripts.push(t);
       // Read as BSD sed would (the word after -i was its suffix). BSD sed has no e command, and a w file write in the
@@ -800,22 +825,62 @@ function gitTier(args, ctx, pre) {
 // git configuration, read (never written) only to find aliases: the repository's config (found from the working
 // directory or -C, through a linked worktree's commondir), the user's global config, the system config, included
 // files, and GIT_CONFIG_COUNT / GIT_CONFIG_PARAMETERS. Returns a Map of alias name to body, or null when a file
-// cannot be read (then git is not trusted). Cached per directory for one command.
+// cannot be read (then git is not trusted). The user's and system's part is read once per command; the repository's
+// part is cached per directory.
 const GIT_CONFIG_MAX = 1024 * 1024;
+const GIT_POINTER_MAX = 64 * 1024;
+
+// Every file the classifier reads goes through here. The file must be a regular file (a symlink to one is fine) of at
+// most `cap` bytes, checked before it is opened and again on the open descriptor; it is opened without blocking (a FIFO
+// opened by mistake does not wait for a writer) and read for at most `cap` bytes. Returns the text, or null when it
+// does not exist. Anything else (a FIFO, a device, a socket, a directory, an oversized file) throws, and the caller
+// treats the file as unreadable: git is then not trusted, which fails closed and never waits.
+function readBounded(file, cap) {
+  let st;
+  try { st = fs.statSync(file); } catch (err) { if (err.code === 'ENOENT' || err.code === 'ENOTDIR') return null; throw err; }
+  const regular = (s) => s.isFile() && s.size <= cap;
+  if (!regular(st)) throw new Error(`not a regular file of at most ${cap} bytes: ${file}`);
+  const fd = fs.openSync(file, fs.constants.O_RDONLY | (fs.constants.O_NONBLOCK ?? 0) | (fs.constants.O_NOCTTY ?? 0));
+  try {
+    if (!regular(fs.fstatSync(fd))) throw new Error(`not a regular file of at most ${cap} bytes: ${file}`);
+    const buf = Buffer.alloc(cap + 1);
+    let n = 0;
+    for (let got = 1; got > 0 && n <= cap; n += got) got = fs.readSync(fd, buf, n, cap + 1 - n, null);
+    if (n > cap) throw new Error(`larger than ${cap} bytes: ${file}`);
+    return buf.toString('utf8', 0, n);
+  } finally {
+    fs.closeSync(fd);
+  }
+}
 
 function gitAliases(ctx, dir) {
   const cache = ctx.opts.gitCache;
   if (cache.has(dir)) return cache.get(dir);
-  let out = new Map();
-  try {
-    const env = ctx.opts.env;
-    const seen = new Set();
-    for (const f of [...gitRepoConfigs(dir, env), ...gitUserConfigs(env, ctx.opts.platform)]) {
-      if (!readGitConfig(f, out, env, 0, seen)) { out = null; break; }
+  const env = ctx.opts.env;
+  if (ctx.opts.gitShared === undefined) {
+    // The user's global config, the system config, their includes and GIT_CONFIG_COUNT: the same for every directory.
+    let shared = new Map();
+    try {
+      const seen = new Set();
+      for (const f of gitUserConfigs(env, ctx.opts.platform)) {
+        if (!readGitConfig(f, shared, env, 0, seen)) { shared = null; break; }
+      }
+      if (shared && !gitEnvAliases(env, shared, seen)) shared = null;
+    } catch {
+      shared = null;
     }
-    if (out && !gitEnvAliases(env, out, seen)) out = null;
-  } catch {
-    out = null;
+    ctx.opts.gitShared = shared;
+  }
+  let out = ctx.opts.gitShared && new Map(ctx.opts.gitShared);
+  if (out) {
+    try {
+      const seen = new Set();
+      for (const f of gitRepoConfigs(dir, env)) {
+        if (!readGitConfig(f, out, env, 0, seen)) { out = null; break; }
+      }
+    } catch {
+      out = null;
+    }
   }
   cache.set(dir, out);
   return out;
@@ -829,8 +894,9 @@ function gitRepoConfigs(dir, env) {
     let st = null;
     try { st = fs.statSync(dotgit); } catch (err) { if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err; }
     if (st?.isDirectory()) return gitDirConfigs(dotgit);
-    if (st?.isFile()) {
-      const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotgit, 'utf8').slice(0, 4096));
+    if (st) {
+      // A .git file names the git directory; anything else there (a FIFO, a device) is unreadable.
+      const m = /^gitdir:\s*(.+?)\s*$/m.exec(readBounded(dotgit, GIT_POINTER_MAX) ?? '');
       if (!m) throw new Error('a .git file that names no git directory');
       return gitDirConfigs(path.resolve(d, m[1]));
     }
@@ -842,13 +908,9 @@ function gitRepoConfigs(dir, env) {
 }
 
 function gitDirConfigs(gitDir) {
-  let common = gitDir;
-  try {
-    common = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
-  } catch (err) {
-    if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err;
-  }
-  return [path.join(common, 'config'), path.join(gitDir, 'config.worktree')];
+  const common = readBounded(path.join(gitDir, 'commondir'), GIT_POINTER_MAX);
+  const shared = common === null ? gitDir : path.resolve(gitDir, common.trim());
+  return [path.join(shared, 'config'), path.join(gitDir, 'config.worktree')];
 }
 
 const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? '').trim());
@@ -876,7 +938,7 @@ function gitUserConfigs(env, platform) {
 const gitUnquote = (v) => String(v).replace(/\s+[#;].*$/, '').trim().replace(/^"([\s\S]*)"$/, '$1').replace(/\\(.)/g, '$1');
 
 // Reads one config file's aliases into `out` and follows its includes (every includeIf is followed, whatever its
-// condition). A missing file is fine; any other failure returns false.
+// condition). A missing file is fine; any other failure (including a file that is not a regular file) returns false.
 function readGitConfig(file, out, env, depth, seen) {
   if (depth > 10 || seen.size > 64) return false;
   const abs = path.resolve(file);
@@ -884,13 +946,11 @@ function readGitConfig(file, out, env, depth, seen) {
   seen.add(abs);
   let text;
   try {
-    const st = fs.statSync(abs);
-    if (!st.isFile()) return true;
-    if (st.size > GIT_CONFIG_MAX) return false;
-    text = fs.readFileSync(abs, 'utf8');
-  } catch (err) {
-    return err.code === 'ENOENT' || err.code === 'ENOTDIR';
+    text = readBounded(abs, GIT_CONFIG_MAX);
+  } catch {
+    return false;
   }
+  if (text === null) return true;
   let section = '';
   let sub = null;
   for (const raw of text.split(/\r?\n/)) {
@@ -1066,35 +1126,78 @@ function gitPayloads(args, ctx) {
 // R28: programs that run a program named among their arguments. sudo, env, nice, nohup, timeout and the other
 // modelled wrappers are looked through (programIndex), so the program they run is in program position; for the
 // others every variable, glob or brace word in their arguments may be that program.
-const EXEC_WRAPPERS = new Set(['script', 'xvfb-run', 'rlwrap', 'firejail', 'gdb', 'chroot', 'pkexec', 'runuser', 'systemd-run', 'faketime', 'winpty', 'valgrind', 'unshare', 'nohup', 'timeout', 'stdbuf', 'setsid', 'flock', 'sudo', 'doas', 'env', 'nice', 'ionice', 'chrt', 'taskset', 'strace', 'ltrace', 'time', 'watch', 'xargs', 'parallel']);
-// JavaScript runtimes run a script operand and package runners run a package: that word stands where a program does.
-const JS_RUNTIMES = new Set(['node', 'nodejs', 'bun']);
-const PACKAGE_RUNNERS = new Set(['npx', 'bunx', 'pnpx']);
-const RUNNER_SUBCOMMANDS = { npm: ['exec', 'x'], pnpm: ['exec', 'dlx'], yarn: ['dlx', 'exec'], bun: ['x', 'run', 'exec'], deno: ['run', 'x'] };
+const EXEC_WRAPPERS = new Set(['script', 'xvfb-run', 'rlwrap', 'firejail', 'gdb', 'chroot', 'pkexec', 'runuser', 'systemd-run', 'faketime', 'winpty', 'valgrind', 'unshare', 'nohup', 'timeout', 'stdbuf', 'setsid', 'flock', 'sudo', 'doas', 'env', 'nice', 'ionice', 'chrt', 'taskset', 'strace', 'ltrace', 'time', 'watch', 'xargs', 'parallel',
+  'arch', 'sandbox-exec', 'nsenter', 'sg', 'prlimit', 'numactl', 'cpulimit', 'entr', 'direnv', 'dotenv', 'cross-env']);
+// JavaScript runtimes (and the script runners like them) run a script operand and package runners run a package: that
+// word stands where a program does. So does the first operand of a shell or an interpreter (bash "$S", python "$S").
+const JS_RUNTIMES = new Set(['node', 'nodejs', 'bun', 'tsx', 'ts-node', 'nodemon']);
+const PACKAGE_RUNNERS = new Set(['npx', 'bunx', 'pnpx', 'uvx']);
+// Programs whose subcommand runs the program named after it (npm exec, uv run, bundle exec, op run, mise exec, ...).
+const RUNNER_SUBCOMMANDS = {
+  npm: ['exec', 'x'], pnpm: ['exec', 'dlx', 'run'], yarn: ['dlx', 'exec', 'run'], bun: ['x', 'run', 'exec'], deno: ['run', 'x'],
+  uv: ['run'], poetry: ['run'], bundle: ['exec'], mise: ['exec', 'x'], op: ['run'], doppler: ['run'],
+};
+// yarn, pnpm and deno also run a bin or script named as their first operand (yarn "$X"), so a first operand that is not
+// one of their subcommands stands where a program does.
+const BARE_RUNNERS = new Set(['yarn', 'pnpm', 'deno']);
+// Options known to take no value, so the plain word after one is the operand (npx -y prettier "$A" "$B").
+const FLAG_OPTIONS = new Set(['-y', '--yes', '-q', '--quiet', '-s', '--silent', '-r', '--recursive', '-A', '--allow-all', '--no-warnings', '--test', '--watch', '--enable-source-maps', '--bun']);
 const isPlainWord = (w) => !isDynamic(w) && !/[*?[{}]/.test(shapeOf(w)) && !EXTGLOB.test(shapeOf(w));
 
-// The arguments (indices) that stand where a program does for a JavaScript runtime or package runner: every
-// variable, glob or brace word up to the first plain operand, that operand, and the word after "--".
+// Does this option word end the search for a program operand (it gives inline code or names the program itself)?
+// 'code': stop; 'next': the next word is the program (python -m, pwsh -File); 'value': the next plain word may be its
+// value; 'flag': it takes no value.
+function optionKind(prog, spec, t) {
+  if (SHELLS.has(prog)) {
+    if (prog === 'pwsh' || prog === 'powershell') {
+      if (/^-(c|co|com|comm|comma|comman|command|e|ec|en|enc\w*)$/i.test(t)) return 'code';
+      if (/^-(f|fi|fil|file)$/i.test(t)) return 'next';
+      return t.includes(':') ? 'flag' : 'value';
+    }
+    if (/^-[A-Za-z]*c[A-Za-z]*$/.test(t)) return 'code';
+    return /^--(rcfile|init-file)$/.test(t) || /^[-+][oO]$/.test(t) ? 'value' : 'flag';
+  }
+  if (spec) {
+    if (spec.code.some((f) => t === f || (f.startsWith('--') ? t.startsWith(`${f}=`) : t.startsWith(f) && f.length === 2))) return 'code';
+    if (spec.module && t === spec.module) return 'next';
+    if (spec.values.includes(t)) return 'value';
+    if (/^-[A-Za-z]+$/.test(t)) return 'flag';
+  }
+  if (t.includes('=') || FLAG_OPTIONS.has(t)) return 'flag';
+  return 'value';
+}
+
+// The arguments (indices) that stand where a program does for a JavaScript runtime, a package runner, a shell or an
+// interpreter: every variable, glob or brace word up to the first plain operand, that operand, and the word after "--".
+// A plain word right after an option that may take a value (npx -p cowsay, node -r ./h.cjs, deno run --config f) may be
+// that value, so it is marked and the search goes on to the next plain word.
 function programOperands(prog, args) {
   const out = new Set();
+  const spec = INTERPRETERS.find((s) => s.test.test(prog) && !s.subcode);
   let start = null;
-  if (JS_RUNTIMES.has(prog) || PACKAGE_RUNNERS.has(prog)) start = 0;
+  if (JS_RUNTIMES.has(prog) || PACKAGE_RUNNERS.has(prog) || SHELLS.has(prog) || spec) start = 0;
   if (Object.hasOwn(RUNNER_SUBCOMMANDS, prog)) {
     const s = args.findIndex((w) => !nameOf(w).startsWith('-'));
     if (s !== -1 && RUNNER_SUBCOMMANDS[prog].includes(nameOf(args[s]).toLowerCase())) start = s + 1;
+    else if (BARE_RUNNERS.has(prog)) start = 0;
   }
   if (start === null) return out;
+  let afterValueOption = false;
   for (let j = start; j < args.length; j += 1) {
     const w = args[j];
     const t = nameOf(w);
     if (t === '--') { if (j + 1 < args.length) out.add(j + 1); break; }
-    if (!isPlainWord(w)) { out.add(j); continue; }
-    if (t.startsWith('-')) {
-      if (JS_RUNTIMES.has(prog) && /^(-e|-p|--eval|--print)(=|$)/.test(t)) break;
+    if (!isPlainWord(w)) { out.add(j); afterValueOption = false; continue; }
+    if (t.startsWith('-') && t !== '-') {
+      const kind = optionKind(prog, spec, t);
+      if (kind === 'code') break;
+      if (kind === 'next') { if (j + 1 < args.length) out.add(j + 1); break; }
+      afterValueOption = kind === 'value';
       continue;
     }
     out.add(j);
-    break;
+    if (!afterValueOption) break;
+    afterValueOption = false;
   }
   return out;
 }
@@ -1212,6 +1315,20 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
 // Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
 // they are given no command of their own.
 const STDIN_RUNNERS = new Set(['at', 'batch', 'crontab', 'ssh', 'su', 'runuser', 'script', 'expect']);
+
+// A command line that runs a shell or an interpreter reading its program from stdin, past any wrappers (sh, bash -s,
+// sudo bash, nice -n 5 sh -s, python -, node /dev/stdin).
+function bareStdinCommand(words, ctx) {
+  const ws = words.slice(programIndex(words, ctx));
+  const p = programName(ws[0]);
+  if (p === null) return false;
+  const rest = ws.slice(1).map(nameOf);
+  const operands = rest.filter((t) => !(t.startsWith('-') && t !== '-'));
+  const fromStdin = !operands.length || isStdinPath(operands[0]);
+  if (SHELLS.has(p)) return fromStdin && !rest.some((t) => /^-[a-zA-Z]*c/.test(t));
+  const spec = INTERPRETERS.find((x) => x.test.test(p));
+  return Boolean(spec) && fromStdin && !rest.some((t) => spec.code.some((f) => t === f || t.startsWith(f)));
+}
 const SSH_VALUE_OPTS = new Set('bcDEeFIiJLlmOopQRSWwB'.split(''));
 
 // ssh's own options (with their values), its host and the remote command words. -o values come as [key, value].
@@ -1240,18 +1357,22 @@ function sshParts(args) {
 const SSH_COMMAND_OPTIONS = new Set(['proxycommand', 'localcommand', 'knownhostscommand', 'remotecommand']);
 
 // Does this stdin runner read commands from stdin (rather than from a file, or passing stdin to a command)?
-function readsCommandsFromStdin(prog, args) {
+function readsCommandsFromStdin(prog, args, ctx) {
   const ts = args.map(nameOf);
-  if (prog === 'at' || prog === 'batch') return !ts.some((t) => /^-[a-zA-Z]*f/.test(t));
+  if (prog === 'at' || prog === 'batch') {
+    // -f FILE reads the job from a file, which may be stdin itself (-f /dev/stdin).
+    const k = ts.findIndex((t) => /^-[a-zA-Z]*f/.test(t));
+    return k === -1 || isStdinPath(ts[k].slice(ts[k].indexOf('f') + 1) || ts[k + 1] || '');
+  }
   if (prog === 'crontab') {
     if (ts.some((t) => /^-[a-zA-Z]*[lre]/.test(t))) return false;
     const files = ts.filter((t, i) => !(t.startsWith('-') && t !== '-') && ts[i - 1] !== '-u');
-    return !files.length || files.includes('-');
+    return !files.length || files.some(isStdinPath);
   }
   if (prog === 'expect') {
     if (ts.some((t) => /^-[a-zA-Z]*c/.test(t))) return false;
     const files = ts.filter((t) => !(t.startsWith('-') && t !== '-'));
-    return !files.length || files[0] === '-' || ts.includes('-f') && ts[ts.indexOf('-f') + 1] === '-';
+    return !files.length || isStdinPath(files[0]) || (ts.includes('-f') && isStdinPath(ts[ts.indexOf('-f') + 1] ?? ''));
   }
   if (prog === 'su' || prog === 'runuser') return !ts.some((t) => /^--(command|session-command)(=|$)/.test(t) || /^-[a-zA-Z]*c/.test(t));
   if (prog === 'script') {
@@ -1262,19 +1383,15 @@ function readsCommandsFromStdin(prog, args) {
       if (ts[i].startsWith('-') && ts[i] !== '-') continue;
       positionals.push(i);
     }
-    return positionals.length < 2;
+    // BSD script FILE COMMAND...: a bare shell or interpreter as the command reads the piped text.
+    return positionals.length < 2 || bareStdinCommand(args.slice(positionals[1]), ctx);
   }
   if (prog === 'ssh') {
     const { remote } = sshParts(args);
     if (!remote.length) return true;
     // A remote shell or interpreter with no script reads the commands from stdin too (ssh host sh, ssh host 'bash -s').
     const first = lex(remote.map(nameOf).join(' ')).commands[0];
-    const ws = first ? first.words : [];
-    const p = programName(ws[0]);
-    if (p === null) return false;
-    const rest = ws.slice(1).map(nameOf);
-    if (SHELLS.has(p)) return rest.every((t) => t.startsWith('-') && !/^-[a-zA-Z]*c/.test(t));
-    return INTERPRETERS.some((x) => x.test.test(p)) && rest.every((t) => t === '-');
+    return Boolean(first) && bareStdinCommand(first.words, ctx);
   }
   return false;
 }
@@ -1290,7 +1407,7 @@ function pipedCredential(prev, ctx) {
 function stdinRunnerCredential(cmd, ctx) {
   const k = programIndex(cmd.words, ctx);
   const p = k < cmd.words.length && !isLauncherPath(cmd.words[k], ctx) ? programName(cmd.words[k]) : null;
-  if (!STDIN_RUNNERS.has(p) || !readsCommandsFromStdin(p, cmd.words.slice(k + 1))) return null;
+  if (!STDIN_RUNNERS.has(p) || !readsCommandsFromStdin(p, cmd.words.slice(k + 1), ctx)) return null;
   const text = pipedText(cmd.prev);
   if (text === null) return pipedCredential(cmd.prev, ctx) ?? credentialVerdict(`${p} runs commands piped in from another command, and the classifier cannot read them exactly`);
   const v = classifyScript(text, ctx.deeper(true));
@@ -1364,6 +1481,10 @@ function classifyScript(text, ctx) {
   ctx.budget.used += s.length;
   if (ctx.depth > MAX_DEPTH || ctx.budget.used > MAX_WORK) {
     if (ctx.cred && mentionsCredential(s)) return credentialVerdict('the command nests too deeply to check, and it mentions "credential"');
+    // Past the budget the text is not lexed, so a riverwright word with a variable, substitution, glob or brace after it
+    // (rw "$C" setup) is denied too: that later word could be "credential".
+    const rw = ctx.cred ? RIVERWRIGHT_TEXT.exec(s) : null;
+    if (rw && /[$`*?[{}%@]/.test(s.slice(rw.index + rw[0].length))) return credentialVerdict('the command is too large to check, and it runs riverwright with a word that could be "credential"');
     return ctx.strict ? unresolvable('the command nests too deeply to check') : null;
   }
   const { commands, incomplete } = lex(s);

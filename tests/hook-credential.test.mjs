@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { callMain, tmpDir, ROOT } from './helpers.mjs';
+import { spawnSync } from 'node:child_process';
+import { callMain, tmpDir, ROOT, RIVERWRIGHT } from './helpers.mjs';
 import { createState, saveState } from '../scripts/lib/state.mjs';
 import { readLedger, ledgerFile } from '../scripts/lib/ledger.mjs';
 import { classifyCommand } from '../scripts/lib/hooks/classify.mjs';
@@ -441,6 +442,95 @@ const ALLOWED_STDIN = [
   'cat f | crontab jobs.txt',
 ];
 
+// Fix round 5. A plain word right after an option with no "=" may be that option's value, so it does not end the search
+// for the script or package a runtime or runner runs; the launchers below run the program they are given; a shell's or
+// interpreter's first operand is its program; sed with an option after its script is unknown; and stdin spelled as a
+// file (/dev/stdin, /dev/fd/0, -) or a bare shell behind script or a wrapper on ssh reads commands from stdin.
+const DENIED_R5 = [
+  'npx -p cowsay "$X" credential setup',
+  'npx --package cowsay "$X" credential',
+  'npx -y -p cowsay -- "$X" credential',
+  'npm exec --package cowsay -- "$X" credential',
+  'npm exec -p cowsay "$X" credential',
+  'yarn dlx -p cowsay "$X" credential',
+  'node -r ./hook.cjs "$S" credential setup',
+  'node --require ./hook.cjs "$S" credential',
+  'node --import ./x.mjs "$S" credential',
+  'node --env-file .env "$S" credential',
+  'node -C dev "$S" credential',
+  'deno run --config deno.json "$S" credential',
+  'deno run -A --config deno.json "$S" credential',
+  'bun --cwd /tmp "$S" credential',
+  'arch -arm64 "$X" credential setup',
+  "sandbox-exec -p '(version 1)(allow default)' \"$X\" credential",
+  'nsenter -t 1 -m "$X" credential',
+  'sg grp -c "$X credential"',
+  'prlimit --nofile=10 "$X" credential',
+  'numactl -N 0 "$X" credential',
+  'cpulimit -l 50 -- "$X" credential',
+  'echo f | entr "$X" credential',
+  'nodemon "$S" credential',
+  'tsx "$S" credential',
+  'ts-node "$S" credential',
+  'deno "$S" credential',
+  'uv run "$X" credential',
+  'poetry run "$X" credential',
+  'bundle exec "$X" credential',
+  'yarn "$X" credential',
+  'yarn run "$X" credential',
+  'pnpm "$X" credential',
+  'mise exec -- "$X" credential',
+  'mise x -- "$X" credential',
+  'op run -- "$X" credential',
+  'doppler run -- "$X" credential',
+  'direnv exec . "$X" credential',
+  'dotenv -- "$X" credential',
+  'cross-env A=1 "$X" credential',
+  'bash "$S" credential',
+  'sh -e "$S" credential setup',
+  'bash -o pipefail "$S" credential',
+  'python "$S" credential',
+  'python3 -u "$S" credential',
+  'ruby "$S" credential',
+  "sed s/a/b/ -e '1e rw credential setup' f",
+  "sed -n p f -e 'e rw credential setup'",
+  "sed -e s/a/b/ f -e '1e rw credential setup'",
+  "sed s/a/b/ --expression='1e rw credential setup' f",
+  'cat f | at -f /dev/stdin now',
+  'cat f | batch -f /dev/fd/0',
+  'cat f | crontab /dev/stdin',
+  'cat f | expect -f -',
+  'cat f | expect /dev/fd/0',
+  'cat f | script -q /dev/null bash',
+  'cat f | script -q /dev/null sh -s',
+  'cat f | ssh host sudo bash',
+  'cat f | ssh host nice -n 5 sh -s',
+  'echo rw credential setup | bash /dev/stdin',
+];
+const ALLOWED_R5 = [
+  'npx tsc -p "$DIR"',
+  'npx vitest run "$A" "$B"',
+  'npx -y prettier --write "$A" "$B"',
+  'node build.js "$IN" "$OUT"',
+  'node --no-warnings build.js "$IN" "$OUT"',
+  'node --test x.mjs "$A" "$B"',
+  'bash scripts/test.sh "$A" "$B"',
+  'bash -x scripts/test.sh "$A" "$B"',
+  'python3 -u tool.py "$A" "$B"',
+  'python -m pytest "$A" "$B"',
+  'yarn test "$A" "$B"',
+  'pnpm test -- "$A" "$B"',
+  'deno task build "$A" "$B"',
+  'uv pip install "$A" "$B"',
+  'op item get "$A" "$B"',
+  'bun run build "$A" "$B"',
+  "sed -i.bak 's/a/b/' rw",
+  'sed -n "${A},${B}p" "$F"',
+  "cat f | script -q /dev/null bash -c 'echo hi'",
+  "tar cz . | ssh host 'tar xz'",
+  'echo uptime | at -f /dev/stdin now',
+];
+
 // The list tests read no real git config: a scratch working directory and HOME, and no system config.
 const hermeticDir = tmpDir('rw-hermetic-');
 const HERMETIC = { cwd: hermeticDir, env: { HOME: hermeticDir, GIT_CONFIG_NOSYSTEM: '1' } };
@@ -524,6 +614,113 @@ test('item 5: a program that runs commands from stdin, fed by a pipe the classif
   assert.deepEqual(missed, []);
   const wrong = ALLOWED_STDIN.map((c) => [c, classify(c)]).filter(([, v]) => v.rule === 'riverwright-credential').map(([c]) => c);
   assert.deepEqual(wrong, []);
+});
+
+test('round 5: option values, more launchers, shell and interpreter operands, sed options and stdin spellings', () => {
+  const missed = DENIED_R5.map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(missed, []);
+  const wrong = ALLOWED_R5.map((c) => [c, classify(c)]).filter(([, v]) => v.rule === 'riverwright-credential').map(([c]) => c);
+  assert.deepEqual(wrong, []);
+  // A shell reading an unreadable pipe through /dev/stdin is the same as one reading the pipe directly.
+  assert.equal(classify('cat f | sh /dev/stdin').rule, classify('cat f | sh').rule);
+});
+
+// NEW-1: the files the git alias check reads (.git, commondir, config files and their includes) are read only when
+// they are regular files of a bounded size. A FIFO, a device, a directory or an oversized file is unreadable, so git
+// is not trusted (the check fails closed) and the hook never waits on it.
+const gitRepo = (configText = '[core]\n\tbare = false\n') => {
+  const repo = tmpDir('rw-git-odd-');
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.writeFileSync(path.join(repo, '.git', 'config'), configText);
+  return repo;
+};
+const fwd = (p) => p.split(path.sep).join('/');
+
+test('NEW-1: an oversized or non-regular git file makes git unknown instead of being read', () => {
+  const plain = gitRepo();
+  assert.equal(classify(`git -C ${fwd(plain)} log rw credential`).outward, false);
+  const big = gitRepo(`[core]\n${'\t# padding\n'.repeat(110000)}`);
+  assert.equal(classify(`git -C ${fwd(big)} log rw credential`).rule, 'riverwright-credential');
+  const dirConfig = tmpDir('rw-git-odd-');
+  fs.mkdirSync(path.join(dirConfig, '.git', 'config'), { recursive: true });
+  assert.equal(classify(`git -C ${fwd(dirConfig)} log rw credential`).rule, 'riverwright-credential');
+  const dirCommon = gitRepo();
+  fs.mkdirSync(path.join(dirCommon, '.git', 'commondir'));
+  assert.equal(classify(`git -C ${fwd(dirCommon)} log rw credential`).rule, 'riverwright-credential');
+});
+
+test('NEW-1: a FIFO or device at a git file the hook reads never hangs the real hook', posixOnly, () => {
+  const fifoCommon = gitRepo();
+  assert.equal(spawnSync('mkfifo', [path.join(fifoCommon, '.git', 'commondir')]).status, 0);
+  const fifoConfig = tmpDir('rw-git-odd-');
+  fs.mkdirSync(path.join(fifoConfig, '.git'));
+  assert.equal(spawnSync('mkfifo', [path.join(fifoConfig, '.git', 'config')]).status, 0);
+  const zeroCommon = gitRepo();
+  fs.symlinkSync('/dev/zero', path.join(zeroCommon, '.git', 'commondir'));
+  const zeroConfig = tmpDir('rw-git-odd-');
+  fs.mkdirSync(path.join(zeroConfig, '.git'));
+  fs.symlinkSync('/dev/zero', path.join(zeroConfig, '.git', 'config'));
+  const fifoHome = tmpDir('rw-git-home-');
+  assert.equal(spawnSync('mkfifo', [path.join(fifoHome, '.gitconfig')]).status, 0);
+  const hookHome = tmpDir('riverwright-home-');
+  fs.mkdirSync(path.join(hookHome, 'o', 'r', 'worktrees'), { recursive: true });
+  const cases = [];
+  for (const repo of [fifoCommon, fifoConfig, zeroCommon, zeroConfig]) {
+    cases.push([`git -C ${repo} status`, 0, HERMETIC.env]);
+    cases.push([`git -C ${repo} status; rw credential setup`, 2, HERMETIC.env]);
+    cases.push([`git -C ${repo} log rw credential`, 2, HERMETIC.env]);
+  }
+  cases.push(['git log rw credential', 2, { HOME: fifoHome, GIT_CONFIG_NOSYSTEM: '1' }]);
+  for (const [command, code, env] of cases) {
+    const r = spawnSync(process.execPath, [RIVERWRIGHT, 'hook', 'claude-code', '--home', hookHome], {
+      input: JSON.stringify({ hook_event_name: 'PreToolUse', tool_name: 'Bash', tool_input: { command }, cwd: hermeticDir }),
+      env: { PATH: process.env.PATH, ...env }, cwd: hermeticDir, encoding: 'utf8', timeout: 5000,
+    });
+    assert.equal(r.error?.code, undefined, `${command}: the hook did not return`);
+    assert.equal(r.status, code, command);
+    if (code === 2) assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, command);
+    // The classifier itself answers well inside a second.
+    const t0 = performance.now();
+    classifyCommand(command, { cwd: hermeticDir, env });
+    assert.ok(performance.now() - t0 < 1000, command);
+  }
+});
+
+// NEW-2: past the work budget, nested text that runs riverwright with a variable or "credential" is denied.
+test('NEW-2: a nested payload after a prefix that uses up the work budget is still denied', () => {
+  const nest = (core) => { let s = core; for (let i = 0; i < 8; i += 1) s = `sh -c ${JSON.stringify(s)}`; return s; };
+  const prefix = nest('x '.repeat(25000));
+  assert.ok(prefix.length < 64 * 1024);
+  assert.notEqual(classify(prefix).rule, 'riverwright-credential');
+  const tail = "; C=$(printf cred)ential bash -c 'rw \"$C\" setup --replace'";
+  assert.equal(classify(tail.slice(2)).rule, 'riverwright-credential');
+  assert.equal(classify(prefix + tail).rule, 'riverwright-credential');
+  assert.equal(classify(`${prefix}; bash -c 'rw credential setup'`).rule, 'riverwright-credential');
+});
+
+// NEW-5: the user and system git configs are read once per command, not once per directory.
+test('NEW-5: the shared git config is read once per classified command', () => {
+  const h = tmpDir('rw-git-home-');
+  const config = path.join(h, '.gitconfig');
+  fs.writeFileSync(config, '[alias]\n\tlg = log --oneline\n');
+  const dirs = Array.from({ length: 20 }, () => fwd(tmpDir('rw-git-dir-')));
+  const touches = (command) => {
+    let n = 0;
+    const saved = {};
+    for (const name of ['statSync', 'lstatSync', 'openSync', 'readFileSync']) {
+      saved[name] = fs[name];
+      fs[name] = function counted(p, ...rest) { if (String(p) === config) n += 1; return saved[name].call(this, p, ...rest); };
+    }
+    try {
+      classify(command, { env: { HOME: h, GIT_CONFIG_NOSYSTEM: '1' } });
+    } finally {
+      Object.assign(fs, saved);
+    }
+    return n;
+  };
+  const one = touches(`git -C ${dirs[0]} status`);
+  assert.ok(one > 0);
+  assert.equal(touches(dirs.map((d) => `git -C ${d} status`).join('; ')), one);
 });
 
 test('item 3: a path-shaped program word is checked against the launcher before any list trusts its name', posixOnly, () => {
