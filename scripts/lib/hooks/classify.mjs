@@ -45,6 +45,9 @@ export { hasUnresolved };
 //     cowsay, node -r ./h.cjs, deno run --config f) may be that value, so the search for the operand goes on past it.
 //     It is never one in an ordinary argument of an unknown program, so rm "$A" "$B" and node build.js "$IN" "$OUT"
 //     are allowed.
+//   - node, bun and deno running riverwright from stdin (node - ... < riverwright.mjs, cat riverwright.mjs | node -) or
+//     preloading it (--import, --require, -r, --loader, --experimental-loader, --preload, or the same in NODE_OPTIONS)
+//     shift its arguments: every word after the script operand is then a slot (F1).
 //   - A path-shaped program word is resolved against the launcher files before any list trusts its name (a link
 //     named grep or sudo to the launcher is riverwright), and a path with a variable directory is not trusted at all.
 //   - Known non-executing tools: the arguments of grep, egrep, fgrep, echo, printf, cat, head, tail, wc, sort, uniq,
@@ -1294,6 +1297,76 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
   return null;
 }
 
+// F1 (Task 17): node, bun and deno can run riverwright with its arguments shifted. A script read from stdin (node -
+// ... < riverwright.mjs, node /dev/stdin ..., cat riverwright.mjs | node - ...) and a launcher loaded before the
+// script (--import, --require, -r, --loader, --experimental-loader, bun's --preload, or the same in NODE_OPTIONS)
+// see the words after the script operand as their arguments. So when the code riverwright runs comes from such a
+// place, every word after the script operand is a slot: one that is, or could be, "credential" is denied.
+const STDIN_RUNTIMES = new Set(['node', 'nodejs', 'bun', 'deno']);
+const PRELOAD_OPTS = new Set(['--import', '--require', '-r', '--loader', '--experimental-loader', '--preload']);
+const PRELOAD_ATTACHED = /^(?:--(?:import|require|loader|experimental-loader|preload)=|-r(?=.))([\s\S]*)$/;
+const RUNTIME_CODE = new Set(['-e', '--eval', '-p', '--print']);
+
+// A file a runtime reads code from: its name, a path that resolves to the launcher files (a bare name is a file here,
+// not a PATH lookup), or a variable or pattern that could be either.
+function codeFileIsRiverwright(w, ctx) {
+  if (!w) return false;
+  if (isDynamic(w) || !isPlainWord(w)) return mayBeRiverwright(w, ctx);
+  const v = nameOf(w);
+  if (formCouldBeRiverwright(shapeOf(w), false)) return true;
+  return resolvesToLauncher(/[\\/]/.test(v) || path.isAbsolute(v) ? v : `./${v}`, ctx);
+}
+
+// A NODE_OPTIONS value that preloads a riverwright file (or is a variable that could).
+function nodeOptionsPreload(w, ctx) {
+  if (isDynamic(w)) return true;
+  const toks = nameOf(w).slice(nameOf(w).indexOf('=') + 1).split(/\s+/).filter(Boolean);
+  for (let i = 0; i < toks.length; i += 1) {
+    const m = PRELOAD_ATTACHED.exec(toks[i]);
+    const value = m ? m[1] : PRELOAD_OPTS.has(toks[i]) ? toks[i + 1] : null;
+    if (value && codeFileIsRiverwright({ value: value.replace(/^["']|["']$/g, ''), shape: value.replace(/^["']|["']$/g, ''), dynamic: false, subs: [] }, ctx)) return true;
+  }
+  return false;
+}
+
+function runtimeCredential(cmd, ctx) {
+  const ws = cmd.words;
+  const k = programIndex(ws, ctx);
+  if (k >= ws.length || isLauncherPath(ws[k], ctx)) return null;
+  const prog = programName(ws[k]);
+  if (!STDIN_RUNTIMES.has(prog)) return null;
+  const args = ws.slice(k + 1);
+  const spec = INTERPRETERS.find((s) => s.test.test(prog));
+  let loads = ws.slice(0, k).some((w) => /^NODE_OPTIONS=/.test(nameOf(w)) && nodeOptionsPreload(w, ctx));
+  let j = 0;
+  if (prog === 'deno' || prog === 'bun') {
+    const s = args.findIndex((w) => !nameOf(w).startsWith('-'));
+    if (s !== -1 && nameOf(args[s]) === 'run') j = s + 1;
+  }
+  let script = -1;
+  for (; j < args.length; j += 1) {
+    const w = args[j];
+    const t = nameOf(w);
+    if (t === '--') { script = j + 1 < args.length ? j + 1 : -1; break; }
+    if (t === '-' || !t.startsWith('-')) { script = j; break; }
+    const m = PRELOAD_ATTACHED.exec(t);
+    if (m) { if (codeFileIsRiverwright({ ...w, value: m[1], shape: shapeOf(w).slice(t.length - m[1].length) }, ctx)) loads = true; continue; }
+    if (PRELOAD_OPTS.has(t)) { if (codeFileIsRiverwright(args[j + 1], ctx)) loads = true; j += 1; continue; }
+    // Inline code: its arguments start after the code word.
+    if (RUNTIME_CODE.has(t)) { script = j + 1 < args.length ? j + 1 : -1; break; }
+    if (spec?.values.includes(t)) { j += 1; continue; }
+  }
+  const fromStdin = script === -1 || isStdinPath(nameOf(args[script]));
+  const stdinIsRiverwright = fromStdin && (cmd.inputs.some((w) => codeFileIsRiverwright(w, ctx))
+    || (cmd.stdin === 'pipe' && Boolean(cmd.prev?.words.slice(1).some((w) => codeFileIsRiverwright(w, ctx)))));
+  if (!loads && !stdinIsRiverwright) return null;
+  const rest = script === -1 ? [] : args.slice(script + 1);
+  if (rest.some((w) => couldBeCredential(w))) {
+    return credentialVerdict(`${prog} runs riverwright from ${loads ? 'a preloaded module' : 'its standard input'}, so the words after the script operand are its arguments (one is, or could be, "credential")`);
+  }
+  return null;
+}
+
 // Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
 // they are given no command of their own.
 const STDIN_RUNNERS = new Set(['at', 'batch', 'crontab', 'ssh', 'su', 'runuser', 'script', 'expect']);
@@ -1417,6 +1490,7 @@ function classifySimple(cmd, ctx) {
   }
   // The riverwright-credential rule (R26) runs before any other rule can settle the verdict.
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
+  if (ctx.cred && take(runtimeCredential(cmd, ctx))) return found;
   if (ctx.cred && cmd.stdin === 'pipe' && take(stdinRunnerCredential(cmd, ctx))) return found;
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo

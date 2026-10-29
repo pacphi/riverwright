@@ -185,3 +185,64 @@ test('C3/F4: the real hook returns promptly with a FIFO at state.json, and denie
   assert.equal(u.error?.code, undefined, 'the hook blocked on the FIFO');
   assert.equal(u.status, 2);
 });
+
+// F1 (Claude): node can shift riverwright's argv. A script read from stdin (node - ... < riverwright.mjs) and a
+// launcher loaded by --import, --require, -r or --loader run riverwright with the words after the script operand as
+// its arguments, so the subcommand slot is the first operand after "-", not the word after the riverwright word.
+const SCRIPTS = path.join(ROOT, 'scripts');
+const LAUNCHER_MJS = path.join(SCRIPTS, 'riverwright.mjs');
+const F1_DENIED = [
+  `cd ${SCRIPTS} && node - credential setup < riverwright.mjs`,
+  `cd ${SCRIPTS} && node --input-type=module - credential setup < riverwright.mjs`,
+  `cd ${SCRIPTS} && node --input-type module - credential setup < riverwright.mjs`,
+  `cd ${SCRIPTS} && node --import=./riverwright.mjs - credential setup < /dev/null`,
+  `cd ${SCRIPTS} && bun - credential setup < riverwright.mjs`,
+  'node -r ./riverwright.mjs - credential setup',
+  'node -r./riverwright.mjs - credential setup',
+  'node --require ./riverwright.mjs - credential setup',
+  'node --require=./riverwright.mjs - credential setup',
+  'node --import ./riverwright.mjs - credential setup',
+  'node --loader ./riverwright.mjs - credential setup',
+  'node --experimental-loader=./riverwright.mjs - credential setup',
+  `node --import=${LAUNCHER_MJS} app.mjs credential setup`,
+  'node --import=./riverwright.mjs -e 1 x credential',
+  'bun --preload ./riverwright.mjs - credential setup',
+  'node /dev/stdin credential setup < riverwright.mjs',
+  `node - credential setup < ${LAUNCHER_MJS}`,
+  'node < riverwright.mjs - credential setup',
+  'deno run - credential setup < riverwright.mjs',
+  'cat riverwright.mjs | node - credential setup',
+  'node - "$SUB" < riverwright.mjs',
+  'NODE_OPTIONS=--import=./riverwright.mjs node - credential setup',
+  'env NODE_OPTIONS="--require ./riverwright.mjs" node app.mjs credential',
+];
+const F1_ALLOWED = [
+  'node - version < riverwright.mjs',
+  `node --import=${LAUNCHER_MJS} - version < /dev/null`,
+  'node - credential setup < other.mjs',
+  'node --import ./setup.mjs app.mjs credential',
+  'node --input-type=module - < build.mjs',
+  'node --test tests/a.test.mjs',
+];
+
+test('F1: a riverwright script read from stdin or preloaded by node, bun or deno has its slot after the script operand', () => {
+  for (const c of F1_DENIED) assert.equal(classify(c, { cwd: SCRIPTS }).rule, 'riverwright-credential', c);
+  for (const c of F1_ALLOWED) assert.equal(classify(c, { cwd: SCRIPTS }).outward, false, c);
+});
+
+test('F1: a renamed launcher fed to node through a redirect or a preload is riverwright', posixOnly, () => {
+  const dir = tmpDir('rw-links-');
+  fs.symlinkSync(LAUNCHER_MJS, path.join(dir, 'tool.mjs'));
+  fs.symlinkSync(LAUNCHER_MJS, path.join(dir, 'tool'));
+  for (const c of ['node - credential setup < tool', 'node --import=./tool.mjs - credential setup', 'node - credential < ./tool']) {
+    assert.equal(classify(c, { cwd: dir }).rule, 'riverwright-credential', c);
+  }
+});
+
+test('F1: the real hook denies node reading riverwright from stdin or preloading it (exit 2)', () => {
+  for (const c of ['node - credential setup < riverwright.mjs', 'node --import=./riverwright.mjs - credential setup < /dev/null']) {
+    const r = realHook(c, { cwd: SCRIPTS });
+    assert.equal(r.status, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
+  }
+});

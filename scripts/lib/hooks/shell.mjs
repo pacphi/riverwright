@@ -12,7 +12,8 @@ const SPECIAL_PARAM = /[0-9@*#?$!-]/;
 const ANSI_C = { a: '\x07', b: '\b', e: '\x1b', E: '\x1b', f: '\f', n: '\n', r: '\r', t: '\t', v: '\v', '\\': '\\', "'": "'", '"': '"', '?': '?' };
 
 function newCommand(stdin = null) {
-  return { words: [], redirects: [], heredocs: [], herestrings: [], stdin };
+  // inputs: the targets of input redirects (<, <&, <>), also listed in redirects.
+  return { words: [], redirects: [], inputs: [], heredocs: [], herestrings: [], stdin };
 }
 
 // Finds the ")" closing a "$(" or "<(" that starts at `start`, skipping quotes and escapes.
@@ -68,6 +69,7 @@ export function lex(src, { nul = 'segment' } = {}) {
       cur.stdin = 'herestring';
     } else if (redirect) {
       cur.redirects.push(word);
+      if (redirect === 'in') cur.inputs.push(word);
       if (redirect === 'in' && !cur.stdin) cur.stdin = 'file';
     } else {
       cur.words.push(word);
