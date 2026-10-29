@@ -15,12 +15,22 @@ const realUserInfo = os.userInfo;
 before(() => { os.userInfo = () => { throw new Error('a test read the real account home (os.userInfo) without the seam'); }; });
 after(() => { os.userInfo = realUserInfo; });
 const scratchAccount = () => ({ homedir: tmpDir('rw-account-') });
-const cred = (home, args, opts = {}) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: home, PATH: '' }, testing: { now: '2026-10-02T14:03:11.000Z', kdf: FAST_KDF, userInfo: scratchAccount }, ...opts });
+// R41: the vault always lives in the account home, <account>/.riverwright. newHome() makes a scratch account and returns
+// its workspace; RIVERWRIGHT_HOME points somewhere else on purpose, so any code that follows it writes the wrong place.
+const accounts = new Map();
+const newHome = () => {
+  const account = tmpDir('rw-account-');
+  const home = path.join(account, '.riverwright');
+  accounts.set(home, account);
+  return home;
+};
+const acct = (home) => () => ({ homedir: accounts.get(home) });
+const cred = (home, args, opts = {}) => callMain(['credential', ...args], { env: { RIVERWRIGHT_HOME: tmpDir('rw-other-'), PATH: '' }, testing: { now: '2026-10-02T14:03:11.000Z', kdf: FAST_KDF, userInfo: acct(home) }, ...opts });
 const noTerminal = () => { throw new RiverwrightError('NO_TTY', 'Terminal approval needs a real terminal.'); };
 const leaks = (r, t) => [TOKEN, PASSPHRASE].some((s) => r.stdout.includes(s) || r.stderr.includes(s) || (t?.written ?? []).join('').includes(s));
 
 test('credential setup seals the token and prints only the public-key fingerprint', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const t = fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]);
   const r = await cred(home, ['setup'], { terminal: t });
   assert.equal(r.code, 0, r.stderr);
@@ -33,7 +43,7 @@ test('credential setup seals the token and prints only the public-key fingerprin
 });
 
 test('setup refuses mismatched or short passphrases and writes nothing, leaking nothing', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const t1 = fakeSecretTerminal([TOKEN, PASSPHRASE, `${PASSPHRASE}x`]);
   const mismatch = await cred(home, ['setup'], { terminal: t1 });
   assert.equal(mismatch.code, 1);
@@ -48,7 +58,7 @@ test('setup refuses mismatched or short passphrases and writes nothing, leaking 
 });
 
 test('setup refuses a malformed token without echoing it', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const bad = 'has a space in it';
   const t = fakeSecretTerminal([bad, PASSPHRASE, PASSPHRASE]);
   const r = await cred(home, ['setup'], { terminal: t });
@@ -58,7 +68,7 @@ test('setup refuses a malformed token without echoing it', async () => {
 });
 
 test('setup needs a real terminal and takes no secret from arguments or the environment', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const none = await cred(home, ['setup'], { terminal: noTerminal });
   assert.equal(none.code, 1);
   assert.match(none.stderr, /real terminal/);
@@ -68,14 +78,14 @@ test('setup needs a real terminal and takes no secret from arguments or the envi
   const viaPositional = await cred(home, ['setup', TOKEN], { terminal: fakeSecretTerminal([]) });
   assert.equal(viaPositional.code, 1);
   assert.equal(leaks(viaPositional), false);
-  const viaEnv = await callMain(['credential', 'setup'], { env: { RIVERWRIGHT_HOME: home, GH_TOKEN: TOKEN, RIVERWRIGHT_PASSPHRASE: PASSPHRASE }, testing: { kdf: FAST_KDF }, terminal: noTerminal });
+  const viaEnv = await callMain(['credential', 'setup'], { env: { RIVERWRIGHT_HOME: tmpDir('rw-other-'), GH_TOKEN: TOKEN, RIVERWRIGHT_PASSPHRASE: PASSPHRASE }, testing: { kdf: FAST_KDF, userInfo: acct(home) }, terminal: noTerminal });
   assert.equal(viaEnv.code, 1);
   assert.equal(leaks(viaEnv), false);
   assert.equal(fs.existsSync(vaultFile(home)), false);
 });
 
 test('setup refuses a terminal that cannot hide typing', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const t = fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]);
   t.noEcho = false;
   const r = await cred(home, ['setup'], { terminal: t });
@@ -85,8 +95,8 @@ test('setup refuses a terminal that cannot hide typing', async () => {
 });
 
 test('without the test seam, setup seals with the production key-derivation floor', async () => {
-  const home = tmpDir();
-  const r = await callMain(['credential', 'setup'], { env: { RIVERWRIGHT_HOME: home, PATH: '' }, terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
+  const home = newHome();
+  const r = await callMain(['credential', 'setup'], { env: { RIVERWRIGHT_HOME: tmpDir('rw-other-'), PATH: '' }, testing: { userInfo: acct(home) }, terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
   assert.equal(r.code, 0, r.stderr);
   const { kdf } = readVault(home);
   if (kdf.name === 'argon2id') assert.ok(kdf.memory >= 47104);
@@ -94,7 +104,7 @@ test('without the test seam, setup seals with the production key-derivation floo
 });
 
 test('an existing vault is not replaced without --replace, and the refusal comes before any prompt', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
   const before = fs.readFileSync(vaultFile(home), 'utf8');
   const t = fakeSecretTerminal([]);
@@ -109,7 +119,7 @@ test('an existing vault is not replaced without --replace, and the refusal comes
 });
 
 test('a failed --replace leaves the old vault untouched', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
   const before = fs.readFileSync(vaultFile(home), 'utf8');
   const r = await cred(home, ['setup', '--replace'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, 'different passphrase']) });
@@ -118,7 +128,7 @@ test('a failed --replace leaves the old vault untouched', async () => {
 });
 
 test('credential status shows the fingerprint and no secret, and says so when there is no vault', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const none = await cred(home, ['status']);
   assert.equal(none.code, 0);
   assert.match(none.stdout, /No sealed credential/);
@@ -131,8 +141,8 @@ test('credential status shows the fingerprint and no secret, and says so when th
 });
 
 test('credential status lists ambient credential routes and never their values', async () => {
-  const home = tmpDir();
-  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: home, GH_TOKEN: TOKEN, PATH: '' }, testing: { kdf: FAST_KDF, userInfo: scratchAccount } });
+  const home = newHome();
+  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: tmpDir('rw-other-'), GH_TOKEN: TOKEN, PATH: '' }, testing: { kdf: FAST_KDF, userInfo: scratchAccount } });
   assert.equal(r.code, 0, r.stderr);
   assert.match(r.stdout, /GH_TOKEN/);
   assert.match(r.stdout, /without Riverwright/);
@@ -149,7 +159,7 @@ test('test hygiene: credential status audits the account home the userInfo seam 
 });
 
 test('credential remove deletes the vault only after "remove" is typed at the terminal', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
   const wrong = await cred(home, ['remove'], { terminal: fakeSecretTerminal(['no']) });
   assert.equal(wrong.code, 1);
@@ -163,7 +173,7 @@ test('credential remove deletes the vault only after "remove" is typed at the te
 });
 
 test('credential remove with no vault, and unknown subcommands, exit 1', async () => {
-  const home = tmpDir();
+  const home = newHome();
   assert.equal((await cred(home, ['remove'], { terminal: fakeSecretTerminal(['remove']) })).code, 1);
   assert.equal((await cred(home, ['bogus'])).code, 1);
   assert.equal((await cred(home, [])).code, 1);
@@ -176,7 +186,7 @@ const tamper = (home, edit) => { const f = vaultFile(home); const v = JSON.parse
 const RAW_CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
 
 test('I1: a vault with escape sequences and a forged fingerprint cannot spoof status output', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   const real = fingerprint(readVault(home).publicKey);
   tamper(home, (v) => { v.createdAt = 'x\x1b[2J\x1b[1;1H\x9bFingerprint: sha256:deadbeef'; });
@@ -191,7 +201,7 @@ test('I1: a vault with escape sequences and a forged fingerprint cannot spoof st
 });
 
 test('I1: the real fingerprint is the last line of status', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   const real = fingerprint(readVault(home).publicKey);
   const r = await cred(home, ['status']);
@@ -202,7 +212,7 @@ test('I1: the real fingerprint is the last line of status', async () => {
 });
 
 test('I1: createdAt must be a strict ISO-8601 UTC string', () => {
-  const home = tmpDir();
+  const home = newHome();
   return setupVault(home).then(() => {
     for (const bad of ['yesterday', '2026-10-02 14:03:11', '2026-10-02T14:03:11+02:00', 5]) {
       tamper(home, (v) => { v.createdAt = bad; });
@@ -214,7 +224,7 @@ test('I1: createdAt must be a strict ISO-8601 UTC string', () => {
 });
 
 test('M1: a malformed publicKey gives a Riverwright error, not a stack trace', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   tamper(home, (v) => { v.publicKey = 'garbage'; });
   const r = await cred(home, ['status']);
@@ -224,7 +234,7 @@ test('M1: a malformed publicKey gives a Riverwright error, not a stack trace', a
 });
 
 test('M2: a bad token is refused before the passphrase is asked for', async () => {
-  const home = tmpDir();
+  const home = newHome();
   const t = fakeSecretTerminal(['has a space in it', PASSPHRASE, PASSPHRASE]);
   const r = await cred(home, ['setup'], { terminal: t });
   assert.equal(r.code, 1);
@@ -237,13 +247,13 @@ test('M2: a bad token is refused before the passphrase is asked for', async () =
 });
 
 test('M3: --replace shows the fingerprint of the vault being replaced, sanitized', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   const old = fingerprint(readVault(home).publicKey);
   const r = await cred(home, ['setup', '--replace'], { terminal: fakeSecretTerminal(['ghp_anotherTokenValue0123456789', PASSPHRASE, PASSPHRASE]) });
   assert.equal(r.code, 0, r.stderr);
   assert.ok(r.stdout.includes(`Replacing the sealed credential with fingerprint ${old}`));
-  const home2 = tmpDir();
+  const home2 = newHome();
   await setupVault(home2);
   tamper(home2, (v) => { v.publicKey = 'garbage\x1b[2J'; });
   const r2 = await cred(home2, ['setup', '--replace'], { terminal: fakeSecretTerminal(['ghp_anotherTokenValue0123456789', PASSPHRASE, PASSPHRASE]) });
@@ -252,7 +262,7 @@ test('M3: --replace shows the fingerprint of the vault being replaced, sanitized
 });
 
 test('M5: flags that do not belong to the subcommand get the fixed usage message', async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   for (const args of [['status', '--replace'], ['remove', '--replace'], ['status', 'extra']]) {
     const r = await cred(home, args, { terminal: fakeSecretTerminal(['remove']) });
@@ -263,7 +273,7 @@ test('M5: flags that do not belong to the subcommand get the fixed usage message
 });
 
 test('M7: vault file is 0600, its directory 0700, and no temp file is left behind', { skip: process.platform === 'win32' }, async () => {
-  const home = tmpDir();
+  const home = newHome();
   await setupVault(home);
   const dir = path.dirname(vaultFile(home));
   assert.equal(fs.statSync(vaultFile(home)).mode & 0o777, 0o600);
@@ -276,11 +286,71 @@ test('M7: vault file is 0600, its directory 0700, and no temp file is left behin
 // The hook's subcommand-slot rule (R26) rests on this: the CLI dispatches on its first argument only, so an option
 // before "credential" makes the command unknown and nothing runs.
 test('an option before the subcommand is an unknown command, so "rw --home x credential" never reaches credential', async () => {
-  const home = tmpDir();
+  const home = newHome();
   for (const argv of [['--home', home, 'credential', 'status'], ['--home=/x', 'credential', 'setup'], ['--run', 'r', 'credential', 'remove']]) {
     const r = await callMain(argv, { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
     assert.equal(r.code, 2, argv.join(' '));
     assert.match(r.stderr, /unknown command/, argv.join(' '));
   }
+  assert.equal(fs.existsSync(vaultFile(home)), false);
+});
+
+test('R41: setup writes the vault to the account home, not to RIVERWRIGHT_HOME, HOME or USERPROFILE', async () => {
+  const home = newHome();
+  const elsewhere = tmpDir('rw-elsewhere-');
+  const env = { RIVERWRIGHT_HOME: elsewhere, HOME: elsewhere, USERPROFILE: elsewhere, PATH: '' };
+  const r = await callMain(['credential', 'setup'], { env, testing: { kdf: FAST_KDF, userInfo: acct(home) }, terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(vaultFile(home)), true);
+  assert.equal(fs.existsSync(vaultFile(elsewhere)), false);
+  assert.equal(fs.existsSync(path.join(elsewhere, 'vault')), false);
+});
+
+test('R41: status reads the account home vault and ignores a vault in RIVERWRIGHT_HOME', async () => {
+  const home = newHome();
+  const decoy = tmpDir('rw-decoy-');
+  fs.mkdirSync(path.dirname(vaultFile(decoy)), { recursive: true });
+  fs.writeFileSync(vaultFile(decoy), '{"not":"a vault"}');
+  const none = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: decoy, PATH: '' }, testing: { userInfo: acct(home) } });
+  assert.equal(none.code, 0, none.stderr);
+  assert.match(none.stdout, /No sealed credential/);
+  await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
+  const r = await callMain(['credential', 'status'], { env: { RIVERWRIGHT_HOME: decoy, PATH: '' }, testing: { userInfo: acct(home) } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.stdout.includes(fingerprint(readVault(home).publicKey)));
+});
+
+test('R41: remove deletes only the account home vault', async () => {
+  const home = newHome();
+  const other = tmpDir('rw-other-');
+  fs.mkdirSync(path.dirname(vaultFile(other)), { recursive: true });
+  fs.writeFileSync(vaultFile(other), '{}');
+  await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) });
+  const r = await callMain(['credential', 'remove'], { env: { RIVERWRIGHT_HOME: other, PATH: '' }, testing: { userInfo: acct(home) }, terminal: fakeSecretTerminal(['remove']) });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(vaultFile(home)), false);
+  assert.equal(fs.existsSync(vaultFile(other)), true);
+});
+
+test('R41: --home is refused from real argv for setup, status and remove, and nothing is written', async () => {
+  const home = newHome();
+  const target = tmpDir('rw-target-');
+  for (const sub of ['setup', 'status', 'remove']) {
+    const t = fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]);
+    const r = await cred(home, [sub, '--home', target], { terminal: t });
+    assert.equal(r.code, 1, sub);
+    assert.match(r.stderr, /BAD_FLAG|--home/, sub);
+    assert.equal(t.written.join('').includes('GitHub token'), false, sub);
+    assert.equal(fs.existsSync(vaultFile(target)), false, sub);
+    assert.equal(fs.existsSync(vaultFile(home)), false, sub);
+  }
+});
+
+test('R41: --home is honoured only through the io.testing seam', async () => {
+  const home = newHome();
+  const target = tmpDir('rw-target-');
+  const r = await cred(home, ['setup', '--home', target], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]), testing: { kdf: FAST_KDF, allowHomeOverride: true, userInfo: acct(home) } });
+  assert.equal(r.code, 0, r.stderr);
+  assert.equal(fs.existsSync(vaultFile(target)), true);
   assert.equal(fs.existsSync(vaultFile(home)), false);
 });

@@ -5,7 +5,7 @@ import fs from 'node:fs';
 import os from 'node:os';
 import { parseArgs } from 'node:util';
 import { RiverwrightError } from '../errors.mjs';
-import { riverwrightHome } from '../paths.mjs';
+import { riverwrightHome, workspaceHomeFromArg } from '../paths.mjs';
 import { nowIso } from '../clock.mjs';
 import { confirmTyped, openTerminal, readSecret } from '../tty.mjs';
 import { checkPassphrase, checkToken, defaultKdf, fingerprint, readVault, sealVault, vaultFile, writeVault } from '../vault.mjs';
@@ -23,7 +23,7 @@ const terminalOf = (io) => (io.openTerminal ? io.openTerminal() : openTerminal({
 // So its message is never shown; the usage line is.
 function parseFlags(rest, allowReplace) {
   try {
-    const options = allowReplace ? { replace: { type: 'boolean', default: false } } : {};
+    const options = { home: { type: 'string' }, ...(allowReplace ? { replace: { type: 'boolean', default: false } } : {}) };
     const { values, positionals } = parseArgs({ args: rest, options, allowPositionals: true });
     if (positionals.length > 0) throw new Error('positional');
     return values;
@@ -122,8 +122,20 @@ export async function run(args, io) {
   const [sub, ...rest] = args;
   if (sub === 'push-key') return pushKey(rest, io, riverwrightHome(io.env));
   const values = parseFlags(rest, sub === 'setup');
-  // A person runs this command, so RIVERWRIGHT_HOME is honored.
-  const home = riverwrightHome(io.env);
+  // The vault always lives in the account's own home (owner decision 2026-10-29, ruling R41): the home comes from the
+  // password database, never from RIVERWRIGHT_HOME, HOME or USERPROFILE. --home is honored only through the in-process
+  // test seam (io.testing, never set by scripts/riverwright.mjs); from real argv it is refused before anything happens.
+  const testHome = io.testing?.allowHomeOverride === true ? values.home : undefined;
+  if (values.home !== undefined && testHome === undefined) {
+    throw new RiverwrightError('BAD_FLAG', `"--home" is not accepted here: the sealed credential always lives in your account's own Riverwright workspace. ${USAGE}`);
+  }
+  let home;
+  try {
+    home = workspaceHomeFromArg(testHome, { userInfo: io.testing?.userInfo ?? os.userInfo });
+  } catch (e) {
+    if (e.code !== 'NO_HOME') throw e;
+    throw new RiverwrightError('NO_HOME', 'cannot find your account\'s home directory, so the vault cannot be located; run this as the user who owns the Riverwright workspace');
+  }
   switch (sub) {
     case 'setup': await setup(values, io, home); return 0;
     case 'status': return status(io, home);
