@@ -268,3 +268,40 @@ test('the guard finds the run with the environment git gives a pre-push hook in 
   assert.notEqual(other.code, 0);
   assert.match(other.stderr, /not the approved commit/);
 });
+
+// R16(a): until Task 14 binds the fork into the signed receipt (R16(b)), the guard refuses the upstream
+// repository named by the receipt's signed run, in every URL form git can hand the hook.
+test('the upstream repository named by the signed run is refused in every URL form, even when state.json names it as the fork', () => {
+  const forms = [
+    'https://github.com/ruvnet/ruflo', 'https://github.com/ruvnet/ruflo.git', 'https://github.com/ruvnet/ruflo/', 'https://github.com/ruvnet/ruflo.git/',
+    'HTTPS://GitHub.com/RuvNet/RuFlo.GIT', 'https://user:tok@github.com/ruvnet/ruflo.git', 'https://tok@github.com:443/ruvnet/ruflo',
+    'http://github.com/ruvnet/ruflo.git', 'git://github.com/ruvnet/ruflo.git', 'git@github.com:ruvnet/ruflo.git', 'git@github.com:ruvnet/ruflo',
+    'github.com:ruvnet/ruflo.git', 'ssh://git@github.com/ruvnet/ruflo.git', 'ssh://git@github.com:22/ruvnet/ruflo', 'ssh://github.com/ruvnet/ruflo.git',
+    'ssh://git@github.com:2222/ruvnet/ruflo.git', 'ssh://other@github.com/ruvnet/ruflo.git', 'git@ghe.example.com:ruvnet/ruflo.git',
+    'git@github.com:/ruvnet/ruflo.git', 'https://github.com//ruvnet/ruflo.git', 'https://github.com/ruvnet/./ruflo.git', 'https://github.com/%72uvnet/ru%66lo.git',
+  ];
+  for (const remoteUrl of forms) {
+    const d = decidePrePush({ remoteUrl, updates: parsePrePushLines(line(A)), forkUrl: remoteUrl, approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
+    assert.equal(d.allow, false, remoteUrl);
+    assert.match(d.reason, /upstream repository/, remoteUrl);
+  }
+  const fork = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
+  assert.equal(fork.allow, true);
+  const sibling = decidePrePush({ remoteUrl: 'https://github.com/ruvnet/ruflo-extras.git', updates: parsePrePushLines(line(A)), forkUrl: 'https://github.com/ruvnet/ruflo-extras.git', approvedSha: A, approvedBranch: 'riverwright/3509-codex', upstream: 'ruvnet/ruflo#3509' });
+  assert.equal(sibling.allow, true);
+});
+
+test('parsePrePushLines wants exactly four fields, tolerates CRLF and normalises SHAs', () => {
+  const ok = parsePrePushLines(`refs/heads/x ${A.toUpperCase()} refs/heads/y ${ZERO}\r\nrefs/heads/x ${B} refs/heads/y ${B}\r\n\r\n`);
+  assert.deepEqual(ok.map((u) => [u.localSha, u.remoteSha]), [[A, ZERO], [B, B]]);
+  for (const bad of [`refs/heads/x ${A} refs/heads/y\n`, `refs/heads/x\n`, `refs/heads/x ${A} refs/heads/y ${ZERO} extra\n`, `refs/heads/x ${A} refs/heads/y\n`,
+    `refs/heads/x abc123 refs/heads/y ${ZERO}\n`, `refs/heads/x ${A} refs/heads/y zz\n`, `refs/heads/x ${'g'.repeat(40)} refs/heads/y ${ZERO}\n`]) {
+    assert.throws(() => parsePrePushLines(bad), /push line/, JSON.stringify(bad));
+  }
+  assert.deepEqual(parsePrePushLines(''), []);
+});
+
+test('a refusal for nothing unlocked carries a code, not just text', () => {
+  const d = decidePrePush({ remoteUrl: FORK, updates: parsePrePushLines(line(A)), forkUrl: FORK, approvedSha: null });
+  assert.equal(d.code, 'NOTHING_UNLOCKED');
+});

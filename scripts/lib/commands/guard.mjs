@@ -36,43 +36,43 @@ async function runFromRepository(io, home) {
 }
 
 const GATE = 'submit-gate';
-const NOTHING_UNLOCKED = 'Nothing has been unlocked';
 const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e);
 
-// Consent for a push is a signed, unused, current submit-gate receipt for this run in the ledger (ADR-0010,
-// spec §7.1), verified against the vault's public key. state.json is not consulted: an agent can write it.
+// Consent for a push is the NEWEST submit-gate receipt for this run in the ledger, if it is signed, anchored,
+// unused and current, verified against the vault's public key (ADR-0010, spec §7.1; ruling R17). state.json is
+// not consulted: an agent can write it. A newer unlock supersedes every older receipt, so an older receipt no
+// longer authorizes its commit or branch, and a used or expired newest receipt is not replaced by an older one.
 // The gate writes the receipt before it runs `git push` and records the outcome only afterwards (ruling R12),
 // so during the gate's own push the receipt is unused; once an outcome or a claim is recorded it is used.
 //
-// The binding looked up is the commit being pushed, never one read from the ledger, so only a receipt the
-// human signed for that exact commit can authorize it. When there is none, the newest submit-gate receipt for
-// this run is checked for its own commit, so the refusal can name the commit that was unlocked; decidePrePush
-// refuses every update whose SHA differs from it, so that receipt can let through only a push that updates
-// nothing (git runs the hook with no lines when everything is up to date).
+// The receipt only says which commit and branch are unlocked; decidePrePush refuses every update that differs
+// from them, using the SHAs git sends on stdin. A receipt can therefore let through only the approved commit on
+// the approved branch, or a push that updates nothing (git runs the hook with no lines when everything is up
+// to date).
 // Returns { receipt } or { receipt: null, why }. Every failure, including an unreadable vault or ledger, denies.
-function unlockedReceipt({ home, dir, run, updates, nowMs }) {
+function unlockedReceipt({ home, dir, run, nowMs }) {
   try {
     const ledgerDir = ledgerDirFor(dir);
     const { publicKey } = readVault(home);
-    const look = (value) => findValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: { kind: 'sha', value } });
-    const pushed = typeof updates[0]?.localSha === 'string' ? updates[0].localSha.toLowerCase() : null;
-    let why = null;
-    if (pushed) {
-      const exact = look(pushed);
-      if (exact.ok) return { receipt: exact.receipt };
-      why = exact.reason;
-    }
     const newest = readEvents(ledgerDir)
       .filter((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.gate === GATE && e.data.receipt.run === run)
-      .at(-1)?.data.receipt.binding;
-    if (newest?.kind === 'sha' && typeof newest.value === 'string' && newest.value !== pushed) {
-      const other = look(newest.value);
-      if (other.ok) return { receipt: other.receipt };
-      why = other.reason;
-    }
-    return { receipt: null, why: why ?? 'no receipt for this gate and run: unlock through "riverwright submit"' };
+      .at(-1)?.data.receipt;
+    if (!newest) return { receipt: null, why: 'no receipt for this gate and run: unlock through "riverwright submit"' };
+    if (newest.binding?.kind !== 'sha' || typeof newest.binding.value !== 'string') return { receipt: null, why: 'the newest receipt is not bound to a commit' };
+    const found = findValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: newest.binding, nonce: newest.nonce });
+    return found.ok ? { receipt: found.receipt } : { receipt: null, why: found.reason };
   } catch (e) {
     return { receipt: null, why: e instanceof RiverwrightError ? e.message : 'the receipt could not be checked' };
+  }
+}
+
+// The guard's own ledger record. If it cannot be written the push is still refused, with one clean line.
+function record(dir, event) {
+  try {
+    appendEvent(dir, event);
+    return null;
+  } catch (e) {
+    return e instanceof RiverwrightError ? e.message : 'the guard could not write its record to the ledger';
   }
 }
 
@@ -85,7 +85,14 @@ export async function run(args, io) {
   const { values, positionals } = parseArgs({ args: rest, allowPositionals: true, options: { home: { type: 'string' } } });
   const [remoteName, remoteUrl] = positionals;
   const home = workspaceHomeFromArg(values.home);
-  const updates = parsePrePushLines(await readAll(io.stdin));
+  let updates;
+  try {
+    updates = parsePrePushLines(await readAll(io.stdin));
+  } catch (e) {
+    if (!(e instanceof RiverwrightError)) throw e;
+    io.stderr.write(`Riverwright blocked this push: ${printable(e.message)}\n`);
+    return 1;
+  }
   let located = null;
   if (io.testing?.allowRunDirOverride) {
     const dir = await testRunDir(io);
@@ -102,20 +109,26 @@ export async function run(args, io) {
   const at = nowIso(io);
   if (located.runId && state.runId !== located.runId) {
     const reason = `The run record at ${dir} belongs to ${state.runId}, not ${located.runId}.`;
-    appendEvent(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });
-    io.stderr.write(`Riverwright blocked this push: ${printable(reason)}\n`);
+    const failed = record(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });
+    io.stderr.write(`Riverwright blocked this push: ${printable(failed ? `${reason} (${failed})` : reason)}\n`);
     return 1;
   }
   // The run is the one the repository path names; only the in-process test seam leaves it to state.json.
-  const { receipt, why } = unlockedReceipt({ home, dir, run: located.runId ?? state.runId, updates, nowMs: Date.parse(at) });
+  const run = located.runId ?? state.runId;
+  const { receipt, why } = unlockedReceipt({ home, dir, run, nowMs: Date.parse(at) });
   const decision = decidePrePush({
     remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null,
     approvedSha: receipt ? receipt.binding.value : null,
     approvedBranch: receipt ? receipt.branch : null,
+    upstream: run,
   });
   // The receipt's reason explains only the "nothing unlocked" refusal, not a wrong destination or a missing fork.
-  if (!decision.allow && !receipt && why && decision.reason.startsWith(NOTHING_UNLOCKED)) decision.reason = `${decision.reason} (${why})`;
-  appendEvent(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
+  if (!decision.allow && decision.code === 'NOTHING_UNLOCKED' && why) decision.reason = `${decision.reason} (${why})`;
+  const failed = record(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
+  if (failed) {
+    io.stderr.write(`Riverwright blocked this push: ${printable(`the guard could not write its record, so the push is refused (${failed})`)}\n`);
+    return 1;
+  }
   if (!decision.allow) {
     io.stderr.write(`Riverwright blocked this push: ${printable(decision.reason)}\n`);
     return 1;

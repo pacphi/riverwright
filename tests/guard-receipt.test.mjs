@@ -264,15 +264,39 @@ test('during the gate\'s push the guard allows; once the outcome is recorded it 
   }
 });
 
-test('a newer unlock for a new commit authorizes that commit, and the older receipt still only its own', async () => {
+test('only the newest receipt authorizes: a newer unlock for a new commit supersedes the older one (R17)', async () => {
   const w = await workspace();
   const keys = armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const older = await push(w, A);
+  assert.equal(older.code, 0, older.stderr);
   issueReceipt({ runDir: w.runDir, keys, sha: C, at: new Date().toISOString() });
   const r = await push(w, C);
   assert.equal(r.code, 0, r.stderr);
-  const older = await push(w, A);
-  assert.equal(older.code, 0, older.stderr);
+  const stale = await push(w, A);
+  assert.notEqual(stale.code, 0);
+  assert.match(stale.stderr, /not the approved commit cccccccccccc/);
   assert.notEqual((await push(w, B)).code, 0);
+});
+
+test('two receipts for one commit on two branches: only the newest branch is allowed (R17)', async () => {
+  const w = await workspace();
+  const keys = armRun({ home: w.home, runDir: w.runDir, sha: A });
+  issueReceipt({ runDir: w.runDir, keys, sha: A, branch: 'riverwright/3509-other', at: new Date().toISOString() });
+  const first = await push(w, A);
+  assert.notEqual(first.code, 0);
+  assert.match(first.stderr, /approved branch riverwright\/3509-other/);
+  const newest = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A, 'refs/heads/riverwright/3509-other'), cwd: w.worktree });
+  assert.equal(newest.code, 0, newest.stderr);
+});
+
+test('a used newest receipt is not replaced by an older unused one for the same commit (R17)', async () => {
+  const w = await workspace();
+  const keys = armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const newer = issueReceipt({ runDir: w.runDir, keys, sha: A, branch: 'riverwright/3509-other', at: new Date().toISOString() });
+  markConsumed({ ledgerDir: ledgerDirFor(w.runDir), nonce: newer.record.data.receipt.nonce, outcome: 'succeeded', at: new Date().toISOString() });
+  const r = await push(w, A);
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /already used/);
 });
 
 test('two refs in one push: the newest receipt never lets the unapproved one through', async () => {
@@ -291,4 +315,89 @@ test('a refusal for the wrong destination does not carry the receipt reason', as
   assert.notEqual(r.code, 0);
   assert.match(r.stderr, /not your fork/);
   assert.doesNotMatch(r.stderr, /sealed credential/);
+});
+
+// R16(a): the receipt's signed run names the upstream; a forged state.json fork.url cannot point the push there.
+test('a forged fork.url naming the upstream does not let the approved commit go upstream, in any URL form', async () => {
+  for (const url of ['git@github.com:ruvnet/ruflo.git', 'ssh://git@github.com/RuvNet/Ruflo', 'git://github.com/ruvnet/ruflo.git', 'https://x:y@github.com/ruvnet/ruflo/']) {
+    const w = await workspace();
+    const forged = setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK);
+    forged.fork = { ...forged.fork, url };
+    saveState(w.runDir, forged);
+    armRun({ home: w.home, runDir: w.runDir, sha: A });
+    const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', url], { stdin: line(A), cwd: w.worktree });
+    assert.notEqual(r.code, 0, url);
+    assert.match(r.stderr, /upstream repository/, url);
+  }
+});
+
+test('git hands the hook the rewritten URL: pushInsteadOf and pushurl onto the upstream are refused before any network', { skip: process.platform === 'win32' }, async () => {
+  const { spawnSync } = await import('node:child_process');
+  const { renderPrePushHook } = await import('../scripts/lib/guard.mjs');
+  const { RIVERWRIGHT } = await import('./helpers.mjs');
+  // A relative path to a local bare repository named like the upstream: git can push to it with no network,
+  // and its owner/repo path is what the guard compares.
+  const upstream = 'ruvnet/ruflo.git';
+  for (const mode of ['pushInsteadOf', 'pushurl']) {
+    const w = await workspace();
+    const git = (...a) => spawnSync('git', a, { cwd: w.worktree, encoding: 'utf8', env: { ...process.env, GIT_TERMINAL_PROMPT: '0' } });
+    git('config', 'user.email', 'a@b.c');
+    git('config', 'user.name', 'a');
+    fs.writeFileSync(path.join(w.worktree, 'f'), 'x');
+    git('add', 'f');
+    git('commit', '-q', '-m', 'x');
+    const sha = git('rev-parse', 'HEAD').stdout.trim();
+    armRun({ home: w.home, runDir: w.runDir, sha });
+    const decoy = path.join(w.home, 'decoy.git');
+    fs.mkdirSync(path.join(w.worktree, 'ruvnet'), { recursive: true });
+    git('init', '-q', '--bare', path.join(w.worktree, upstream));
+    git('remote', 'add', 'fork', decoy);
+    if (mode === 'pushurl') git('config', 'remote.fork.pushurl', upstream);
+    else git('config', `url.${upstream}.pushInsteadOf`, decoy);
+    const hook = path.join(w.worktree, '.git', 'hooks', 'pre-push');
+    fs.mkdirSync(path.dirname(hook), { recursive: true });
+    fs.writeFileSync(hook, renderPrePushHook(RIVERWRIGHT, { home: w.home }), { mode: 0o755 });
+    const out = git('push', 'fork', `HEAD:refs/heads/${BRANCH}`);
+    assert.notEqual(out.status, 0, mode);
+    assert.match(out.stderr, /upstream repository/, `${mode}: ${out.stderr}`);
+  }
+});
+
+test('a short or uppercase SHA gets a plain message, and uppercase is the same commit', async () => {
+  const w = await workspace();
+  armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const short = await push(w, 'aaaaaaaaaaaa');
+  assert.notEqual(short.code, 0);
+  assert.match(short.stderr, /not a full commit SHA/);
+  assert.doesNotMatch(short.stderr, /is not the approved commit/);
+  const upper = await push(w, A.toUpperCase());
+  assert.equal(upper.code, 0, upper.stderr);
+  const crlf = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: line(A).replace('\n', '\r\n'), cwd: w.worktree });
+  assert.equal(crlf.code, 0, crlf.stderr);
+  const bad = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: `refs/heads/x ${A}\n`, cwd: w.worktree });
+  assert.notEqual(bad.code, 0);
+  assert.match(bad.stderr, /push line/);
+});
+
+test('if the guard cannot write its own ledger record it still refuses cleanly, with no stack trace', { skip: process.platform === 'win32' }, async () => {
+  const w = await workspace();
+  armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const ledgerDir = ledgerDirFor(w.runDir);
+  const file = path.join(ledgerDir, 'events.ndjson');
+  const orig = fs.readFileSync(file);
+  try {
+    fs.chmodSync(ledgerDir, 0o500);
+    fs.chmodSync(file, 0o400);
+    // Every write path must fail; skip if this account ignores permissions (root).
+    try { fs.appendFileSync(file, ''); return; } catch { /* expected */ }
+    const r = await push(w, A);
+    assert.equal(r.code, 1, r.stderr);
+    assert.match(r.stderr, /^Riverwright blocked this push: /);
+    assert.equal(r.stderr.trim().split('\n').length, 1, r.stderr);
+    assert.doesNotMatch(r.stderr, /unexpected error|\bat .*\.mjs/);
+  } finally {
+    fs.chmodSync(ledgerDir, 0o700);
+    fs.chmodSync(file, 0o600);
+  }
+  assert.deepEqual(fs.readFileSync(file), orig);
 });

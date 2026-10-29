@@ -2,31 +2,48 @@ import fs from 'node:fs';
 import path from 'node:path';
 import { RiverwrightError } from './errors.mjs';
 import { toLf } from './fsx.mjs';
-import { normalizeRemoteUrl } from './giturl.mjs';
+import { normalizeRemoteUrl, namesRepository } from './giturl.mjs';
 
 const ZERO = /^0+$/;
-const deny = (reason) => ({ allow: false, reason });
+const deny = (reason, code) => ({ allow: false, reason, ...(code ? { code } : {}) });
+const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
+// One line per ref git is about to push: "<local ref> <local sha> <remote ref> <remote sha>". Exactly four
+// fields, each SHA 40 or 64 hex digits (lowercased), CRLF tolerated. Anything else is refused, so later code
+// (Task 14 reads remoteSha for its fast-forward check) never sees a field that was not there.
 export function parsePrePushLines(text) {
-  return toLf(text).split('\n').filter((l) => l.trim()).map((l) => {
-    const [localRef, localSha, remoteRef, remoteSha] = l.trim().split(/\s+/);
-    return { localRef, localSha, remoteRef, remoteSha };
+  return toLf(text).split('\n').filter((l) => l.trim()).map((l, i) => {
+    const f = l.trim().split(/\s+/);
+    if (f.length !== 4) throw new RiverwrightError('BAD_PUSH_LINE', `push line ${i + 1} must have four fields (local ref, local sha, remote ref, remote sha)`);
+    const [localRef, localSha, remoteRef, remoteSha] = f;
+    for (const sha of [localSha, remoteSha]) {
+      if (!SHA.test(sha.toLowerCase())) throw new RiverwrightError('BAD_PUSH_LINE', `push line ${i + 1}: "${sha}" is not a full commit SHA (40 or 64 hex digits)`);
+    }
+    return { localRef, localSha: localSha.toLowerCase(), remoteRef, remoteSha: remoteSha.toLowerCase() };
   });
 }
 
-export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approvedBranch = null }) {
+// `upstream` is the receipt's signed run ("owner/repo#n"). The fork URL still comes from state.json, which an
+// agent can write, so a push to the upstream repository is refused from signed data (R16(a)). Binding the
+// fork's own identity into the signed receipt is Task 14's job (R16(b)); until then a forged fork.url can
+// still name a third-party repository.
+export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approvedBranch = null, upstream = null }) {
+  const upstreamRepo = /^([^/#\s]+\/[^/#\s]+)#\d+$/.exec(String(upstream ?? ''))?.[1];
+  if (upstreamRepo && namesRepository(remoteUrl, upstreamRepo)) {
+    return deny(`Push destination ${remoteUrl} is the upstream repository (${upstreamRepo}), not your fork. Riverwright never pushes there.`);
+  }
   if (!forkUrl) return deny('This clone has no fork yet. Pushes happen only through "riverwright submit" after you approve the submit gate.');
   const dest = normalizeRemoteUrl(remoteUrl);
   if (!dest || dest !== normalizeRemoteUrl(forkUrl)) {
     return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). Riverwright never pushes anywhere else.`);
   }
-  if (!approvedSha) return deny('Nothing has been unlocked at the submit gate yet. Pushes happen only through "riverwright submit".');
+  if (!approvedSha) return deny('Nothing has been unlocked at the submit gate yet. Pushes happen only through "riverwright submit".', 'NOTHING_UNLOCKED');
   if (!approvedBranch) return deny('The submit-gate receipt does not name a branch.');
   for (const u of updates) {
     if (!u.localSha || ZERO.test(u.localSha)) return deny(`Deleting ${u.remoteRef} is not allowed.`);
     if (!String(u.remoteRef).startsWith('refs/heads/riverwright/')) return deny(`Only branches named riverwright/… may be pushed (got ${u.remoteRef}).`);
     if (u.remoteRef !== `refs/heads/${approvedBranch}`) return deny(`Only the approved branch ${approvedBranch} may be pushed (got ${u.remoteRef}).`);
-    if (u.localSha.toLowerCase() !== approvedSha) {
+    if (u.localSha !== approvedSha) {
       return deny(`Commit ${u.localSha.slice(0, 12)} is not the approved commit ${approvedSha.slice(0, 12)}. Run "riverwright submit" again to approve the new commit.`);
     }
   }

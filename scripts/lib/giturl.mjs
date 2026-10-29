@@ -31,3 +31,27 @@ export function normalizeRemoteUrl(url) {
   if (parts.length !== 2 || !parts.every((p) => SEGMENT.test(p) && !p.includes('..'))) return null;
   return `${host}/${parts[0].toLowerCase()}/${parts[1].toLowerCase()}`;
 }
+
+// Does this remote URL name the repository owner/repo, in ANY form git can hand a hook? Deliberately looser
+// than normalizeRemoteUrl, because it is used to REFUSE: any scheme (https, http, git, ssh, scp-like, file),
+// any user, password or port, any host, any case, with or without ".git" or a trailing slash, with empty or
+// "." path segments and percent-encoding ignored. Only the first two path segments are compared, so a
+// near-miss that git would still send to that repository is not missed. `ownerRepo` is "owner/repo".
+export function namesRepository(url, ownerRepo) {
+  const want = String(ownerRepo ?? '').toLowerCase().replace(/\.git$/, '');
+  const s = String(url ?? '').trim();
+  if (!want || !s) return false;
+  let pathPart;
+  const scheme = /^[a-z][a-z0-9+.-]*:\/\/([^/]*)(.*)$/i.exec(s);
+  if (scheme) pathPart = scheme[2];
+  else {
+    const colon = s.indexOf(':');
+    const slash = s.indexOf('/');
+    pathPart = colon >= 0 && (slash < 0 || colon < slash) ? s.slice(colon + 1) : s;
+  }
+  let decoded = pathPart.replace(/\\/g, '/');
+  try { decoded = decodeURIComponent(decoded); } catch { /* keep the raw text */ }
+  const segs = decoded.split('/').filter((p) => p !== '' && p !== '.');
+  if (segs.length < 2) return false;
+  return `${segs[0]}/${segs[1].replace(/\.git$/i, '')}`.toLowerCase() === want;
+}
