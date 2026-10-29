@@ -9,7 +9,9 @@ export const GATES = ['checkpoint-1', 'submit-gate', 'post-issue', 'post-comment
 export const APPROVAL_MODES = ['host-ask', 'tty', 'unlock'];
 // The gates that publish (receipt.mjs PUBLIC_GATES; repeated here because receipt.mjs imports this module).
 const UNLOCK_GATES = ['submit-gate', 'post-issue', 'post-comment'];
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
+// A full lowercase commit SHA (SHA-1 or SHA-256 object format). The one copy: receipt, gate and guard import it
+// (final review M6).
+export const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const CONTENT = /^sha256:[0-9a-f]{64}$/;
 
 export function contentHash(text) {

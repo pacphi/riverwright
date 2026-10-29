@@ -25,7 +25,7 @@
 import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { RiverwrightError } from './errors.mjs';
-import { normalizeBranch } from './approvals.mjs';
+import { SHA, normalizeBranch } from './approvals.mjs';
 import { shown } from './printable.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
 import { GENESIS, appendChained, readEvents, verifyChain } from './events.mjs';
@@ -34,7 +34,6 @@ export const RECEIPT_SCHEMA = 'riverwright-receipt/1';
 export const PUBLIC_GATES = ['submit-gate', 'post-issue', 'post-comment'];
 export const RECEIPT_TTL_MS = 10 * 60 * 1000;
 const FUTURE_SKEW_MS = 60_000;
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 const CONTENT = /^sha256:[0-9a-f]{64}$/;
 const HEAD = /^sha256:[0-9a-f]{64}$/;
 const NONCE = /^[0-9a-f]{32}$/;
@@ -49,6 +48,23 @@ const bad = (msg) => new RiverwrightError('BAD_RECEIPT', msg);
 // The fork a push may go to, as host/owner/repo: the key normalizeRemoteUrl gives an https, ssh or scp-style URL
 // of it. Only that exact canonical text is a fork key (lowercase, no scheme, user, port or ".git").
 export const isForkKey = (fork) => typeof fork === 'string' && normalizeRemoteUrl(`https://${fork}`) === fork;
+
+// Why `lease` cannot be signed for this gate and binding, or null when it can (ADR-0012). The one copy of the rule:
+// the gate checks it before the passphrase and buildReceipt checks it again (final review M6).
+// - null: no lease.
+// - otherwise only the submit gate for a commit, and a full lowercase SHA of the fork branch tip being replaced.
+// - Finding M-1: never one that cannot be a real replacement (all zeros, the approved commit itself, or a SHA of
+//   another object format), so no receipt and no gate prompt can claim one.
+export function checkLease({ gate, binding, lease }) {
+  if (lease === null) return null;
+  if (!(gate === 'submit-gate' && binding?.kind === 'sha' && typeof lease === 'string' && SHA.test(lease))) {
+    return 'a lease is the full lowercase SHA of the fork branch tip being replaced, and only the submit gate for a commit takes one';
+  }
+  if (/^0+$/.test(lease) || lease === binding.value || lease.length !== binding.value.length) {
+    return 'a lease is the commit the fork branch holds now: not all zeros, not the commit being approved, and a SHA of the same length';
+  }
+  return null;
+}
 
 // The fields a receipt signs. `fork` (ruling R16(b)) and `lease` (ADR-0012) belong to the submit gate:
 // - fork: required on every submit-gate receipt, null on the others. The pre-push guard allows a push only to this
@@ -65,10 +81,8 @@ export function buildReceipt({ gate, run, binding, branch = null, fork = null, l
   if (gate === 'submit-gate') branch = normalizeBranch(branch);
   else if (branch !== null) throw bad('only the submit gate names a branch');
   if (gate === 'submit-gate' ? !isForkKey(fork) : fork !== null) throw bad('a submit-gate receipt names its fork as host/owner/repo (for example github.com/you/repo), and no other gate names a fork');
-  if (lease !== null && !(gate === 'submit-gate' && binding.kind === 'sha' && typeof lease === 'string' && SHA.test(lease))) throw bad('a lease is the full lowercase SHA of the remote tip, and only a submit-gate receipt for a commit has one');
-  // Finding M-1: a lease that can never be a real replacement (all zeros, the approved commit itself, or a SHA of
-  // another object format) is refused here, so no receipt and no gate prompt can claim one.
-  if (lease !== null && (/^0+$/.test(lease) || lease === binding.value || lease.length !== binding.value.length)) throw bad('a lease is the commit the fork branch holds now: not all zeros, not the approved commit, and the same length as the approved commit\'s SHA');
+  const leaseProblem = checkLease({ gate, binding, lease });
+  if (leaseProblem) throw bad(leaseProblem);
   if (!HEAD.test(ledgerHead ?? '')) throw bad('ledgerHead must be sha256:<64 hex>');
   if (!Number.isInteger(seq) || seq < 1) throw bad('seq must be a positive integer');
   if (typeof at !== 'string' || !AT.test(at) || Number.isNaN(Date.parse(at))) throw bad('"at" must be an ISO-8601 UTC time such as 2026-10-02T14:03:11.000Z');

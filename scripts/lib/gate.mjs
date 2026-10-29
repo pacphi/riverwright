@@ -26,7 +26,7 @@ import util from 'node:util';
 import { RiverwrightError } from './errors.mjs';
 import { openVault, readVault } from './vault.mjs';
 import { canHideInput, noEchoControl, readSecret } from './tty.mjs';
-import { PUBLIC_GATES, appendReceipt, markConsumed } from './receipt.mjs';
+import { PUBLIC_GATES, appendReceipt, checkLease, isForkKey, markConsumed } from './receipt.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
 import { appendEvent, ledgerDirFor } from './ledger.mjs';
 import { loadState, saveState } from './state.mjs';
@@ -408,15 +408,13 @@ export async function runPublicAction({ home, runDir, gate, run, binding, branch
   const onBranch = gate === 'submit-gate' ? normalizeBranch(branch) : null;
   if (gate !== 'submit-gate' && branch !== null) throw new RiverwrightError('BAD_CALL', 'only the submit gate names a branch');
   const forkKey = gate === 'submit-gate' ? normalizeRemoteUrl(fork) : null;
-  if (gate === 'submit-gate' && !forkKey) throw new RiverwrightError('BAD_CALL', 'the submit gate needs the fork\'s URL (https://host/owner/repo or git@host:owner/repo)');
+  // isForkKey is the receipt's own test of the key (final review M6), so a URL whose key buildReceipt would refuse
+  // (for example ".git.git") is refused here, before the passphrase, not after it.
+  if (gate === 'submit-gate' && !isForkKey(forkKey)) throw new RiverwrightError('BAD_CALL', 'the submit gate needs the fork\'s URL (https://host/owner/repo or git@host:owner/repo)');
   if (gate !== 'submit-gate' && fork !== null) throw new RiverwrightError('BAD_CALL', 'only the submit gate names a fork');
-  if (lease !== null && !(gate === 'submit-gate' && bound.kind === 'sha' && typeof lease === 'string' && /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/.test(lease))) {
-    throw new RiverwrightError('BAD_CALL', 'a lease is the full lowercase SHA of the fork branch tip being replaced, and only the submit gate for a commit takes one');
-  }
-  // Finding M-1: never show the human a replacement that cannot be real.
-  if (lease !== null && (/^0+$/.test(lease) || lease === bound.value || lease.length !== bound.value.length)) {
-    throw new RiverwrightError('BAD_CALL', 'a lease is the commit the fork branch holds now: not all zeros, not the commit being approved, and a SHA of the same length');
-  }
+  // The receipt's own lease rule (final review M6); finding M-1: never show the human a replacement that cannot be real.
+  const leaseProblem = checkLease({ gate, binding: bound, lease });
+  if (leaseProblem) throw new RiverwrightError('BAD_CALL', leaseProblem);
   checkLines(summary, { label: 'the summary', required: true });
   checkLines(warnings, { label: 'the warnings', required: false });
   for (const [name, fn] of [['now', now], ['clock', clock], ['sleep', sleep], ['recompute', recompute], ['action', action]]) {

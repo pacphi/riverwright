@@ -3,10 +3,10 @@ import path from 'node:path';
 import { RiverwrightError } from './errors.mjs';
 import { toLf } from './fsx.mjs';
 import { normalizeRemoteUrl, namesRepository } from './giturl.mjs';
+import { SHA } from './approvals.mjs';
 
 const ZERO = /^0+$/;
 const deny = (reason, code) => ({ allow: false, reason, ...(code ? { code } : {}) });
-const SHA = /^(?:[0-9a-f]{40}|[0-9a-f]{64})$/;
 
 // One line per ref git is about to push: "<local ref> <local sha> <remote ref> <remote sha>". Exactly four
 // fields, each SHA 40 or 64 hex digits (lowercased), CRLF tolerated. Anything else is refused, so later code

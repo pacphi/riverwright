@@ -1321,6 +1321,9 @@ test('a submit gate without a fork the guard can recognise, or a fork or lease o
     [{ fork: '/tmp/decoy.git' }, /fork/],
     [{ fork: 'http://github.com/pacphi/ruflo.git' }, /fork/],
     [{ fork: 'github.com/pacphi/ruflo' }, /fork/],
+    // Final review M6: a URL whose key the receipt would refuse (a doubled .git leaves "repo.git") is refused here,
+    // before the passphrase, not after it.
+    [{ fork: 'https://github.com/pacphi/ruflo.git.git' }, /fork/],
     [{ gate: 'post-comment', branch: null, binding: content, recompute: async () => content }, /fork/],
     [{ lease: 'abc' }, /lease/],
     [{ lease: 'C'.repeat(40) }, /lease/],
