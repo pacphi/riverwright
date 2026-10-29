@@ -147,6 +147,52 @@ const DENIED_R24 = [
   'yarn dlx riverwright@2 credential setup',
   'deno run /opt/rw/scripts/riverwright.mjs credential setup',
 ];
+// Fix round 2 (R25): the credential rule is a text match over the whole command. These spellings reach no
+// modelled program position: a literal riverwright word behind a launcher the classifier does not know, with a
+// variable, substitution, glob or brace after it (N1), and payloads that are literal text inside another
+// command (N2). They stay denied without any shell modelling.
+const DENIED_R25 = [
+  'C=credential; script -q /dev/null rw "$C" setup --replace',
+  'script -q /dev/null rw "$(printf credential)" remove',
+  'script -q /dev/null rw $C remove',
+  'xvfb-run rw $C remove',
+  'rlwrap rw $C remove',
+  'firejail rw $C remove',
+  'gdb --args rw $C remove',
+  'chroot / rw $C remove',
+  'pkexec rw $C remove',
+  'runuser -u me -- rw $C remove',
+  'systemd-run --user rw $C remove',
+  'faketime now rw $C remove',
+  'winpty rw $C remove',
+  'touch credential; script -q /dev/null rw c*l setup',
+  'valgrind rw c*l',
+  'unshare -r rw c*l',
+  'xvfb-run riverwright credential setup',
+  'winpty rw.cmd credential remove',
+  'C=credential; su -c "rw $C setup"',
+  'expect -c "spawn rw $C setup"',
+  'tmux new "rw $C setup"',
+  'script -c "rw $C setup"',
+  "su -c 'riverwright credential setup'",
+  'expect -c "spawn riverwright credential setup"',
+  "tmux new 'rw credential setup'",
+  "git -c alias.x='!rw credential setup --replace' x",
+  'ssh -o ProxyCommand="rw credential setup" localhost true',
+  'x="rw credential setup"; $x',
+  'F="rw credential setup"; eval "$F"',
+  'eval rw \\$C',
+  "sh -c 'rw $C'",
+  'bash -c "rw c*l remove"',
+  'rw @(credential) setup',
+  'rw +(credential) setup',
+  'rw !(x) setup',
+  'cmd /c "rw.cmd %SUB%"',
+  'xvfb-run ri[v]erwright credential setup',
+  'rlwrap r{w,x} credential setup',
+  'firejail river{wright,x} credential setup',
+  'script -q /dev/null ri{v,}erwright credential setup',
+];
 const ALLOWED = [
   'riverwright ledger verify --run /tmp/x',
   'riverwright state get --run /tmp/x',
@@ -158,12 +204,34 @@ const ALLOWED = [
   'node --test tests/hook-credential.test.mjs',
   'cat docs/specs/credential.md',
   'ls riverwright',
+];
+// Fix round 1 (I1): "rw" or "riverwright" as a plain word (a grep pattern, a mount option, a file name) is not a
+// riverwright command. Under R25 this holds while nothing after the word is "credential", a variable, a
+// substitution, a glob or a brace.
+const ALLOWED_I1 = [
+  'grep -n rw file.txt',
+  'mount -o rw /dev/x /mnt',
+  'rw --home /abs state get',
+  'rw ledger verify --run /abs',
+  'npx prettier@3 --check .',
+  'echo $HOME credentials',
+  'echo push | xargs printf "%s\\n"',
+  'node -e "require(\'./lib/cli.js\')"',
+  'docker run -v "$PWD":/w:rw img',
+  'grep -n credential scripts/lib/commands/credential.mjs',
+  'git log -- scripts/lib/commands/credential.mjs',
+  'cd /x/riverwright-worktrees/plan && ls *.mjs',
+  'ls /x/riverwright/docs',
+  'echo rw',
+  // A directory named rw is not the program.
+  'ls rw/*.md',
+  'cat rw/$X',
+];
+// R25 accepted cost: a riverwright word followed by a variable, substitution, glob or brace is denied, even when
+// the word is only a grep pattern or a mount option. These were allowed before fix round 2.
+const DENIED_NOW_R25 = [
   'riverwright ledger verify --run "$RUN"',
   'riverwright --home "$H" state get',
-];
-// Fix round 1 (I1): "rw" or "riverwright" as a plain word (a grep pattern, a mount option, a file name) next to a
-// variable is not a riverwright command; only riverwright in program position has its subcommand checked.
-const ALLOWED_I1 = [
   'grep -n rw "$FILE"',
   'mount -o rw "$DEV" /mnt',
   'echo rw $HOME',
@@ -172,29 +240,80 @@ const ALLOWED_I1 = [
   'sed -i s/a/b/ rw $X',
   'grep -rn riverwright "$DIR"',
   'riverwright ledger verify --run runs/*',
-  'ls rw/*.md',
   'grep -rn rw src/*',
-  'npx prettier@3 --check .',
-  'echo $HOME credentials',
   'find . -name "*.mjs" -exec grep -l rw {} +',
-  'echo push | xargs printf "%s\\n"',
   'rw --home="$H" state get',
   'riverwright --run="$RUN" ledger verify',
-  'node -e "require(\'./lib/cli.js\')"',
+  'chmod u+rw "$F"',
+  'cd /x/riverwright && ls *.md',
 ];
 
 test('the hook denies an agent shell command that runs riverwright credential in any spelling', () => {
-  const missed = [...DENIED, ...DENIED_R24].filter((c) => classifyCommand(c).outward !== true);
+  const missed = [...DENIED, ...DENIED_R24, ...DENIED_R25].filter((c) => classifyCommand(c).outward !== true);
   assert.deepEqual(missed, []);
 });
 
 test('every denied spelling is denied by the riverwright-credential rule itself (so it applies everywhere)', () => {
-  const wrong = [...DENIED, ...DENIED_R24].map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  const wrong = [...DENIED, ...DENIED_R24, ...DENIED_R25].map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
   assert.deepEqual(wrong, []);
+});
+
+test('R25: a riverwright word followed by a variable, substitution, glob or brace is denied (accepted false positives)', () => {
+  const wrong = DENIED_NOW_R25.map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(wrong, []);
+});
+
+// N3: the rule does no brace or glob expansion, so a large or deeply nested command is cheap to check.
+const WORST = (() => {
+  const n = 60000;
+  const nest = `${'{'.repeat(n)}${'}'.repeat(n)}`;
+  return {
+    'nested braces, echo': `echo ${nest}`,
+    'nested braces, rw argument': `rw ${nest}`,
+    'nested braces in three quoting levels, then rw credential': `echo "a 'b \\"${nest} c\\"'"; rw credential remove`,
+    'comma nesting': `echo ${'{a,'.repeat(40000)}b${'}'.repeat(40000)}`,
+    'sequence groups': `git commit -m '${'{a..b}'.repeat(40000)}'`,
+    'many rw words, no trigger': 'rw '.repeat(80000),
+    'many glob stars for a variable program': `$X ${'*'.repeat(120000)}z`,
+    'many glob stars and letters': `$X ${'*e'.repeat(60000)}z`,
+    'long word': `rw ${'a'.repeat(250000)}`,
+    'many brackets': `$X ${'['.repeat(120000)}]`,
+  };
+})();
+
+test('N3: a worst-case 256 KB command is classified in under a second', () => {
+  for (const [label, c] of Object.entries(WORST)) {
+    assert.ok(c.length <= 256 * 1024, label);
+    for (const platform of ['darwin', 'win32']) {
+      const cmd = platform === 'win32' ? `${c.slice(0, 256 * 1024 - 4)} \\x` : c;
+      const t0 = performance.now();
+      classifyCommand(cmd, { platform });
+      const ms = performance.now() - t0;
+      assert.ok(ms < 1000, `${label} (${platform}) took ${ms.toFixed(0)} ms`);
+    }
+  }
+});
+
+test('N3: input shaped to overflow the stack never throws, and the verdict is the same every time', () => {
+  const shapes = [
+    `git commit -m '${'{a..b}'.repeat(20000)}'`,
+    `echo ${'{'.repeat(20000)}a${',b}'.repeat(20000)}`,
+    `rw ${'{'.repeat(20000)}a${',b}'.repeat(20000)}`,
+    `echo ${'$('.repeat(40000)}x${')'.repeat(40000)}`,
+    `${'('.repeat(40000)}x${')'.repeat(40000)}`,
+  ];
+  for (const c of shapes) {
+    const a = classifyCommand(c);
+    assert.equal(typeof a.outward, 'boolean');
+    assert.deepEqual(classifyCommand(c), a);
+  }
+  // A commit message full of brace sequences is not a riverwright command.
+  assert.equal(classifyCommand(shapes[0]).outward, false);
 });
 
 test('other riverwright commands and unrelated uses of the word are not blocked by that rule', () => {
   for (const c of [...ALLOWED, ...ALLOWED_I1]) assert.equal(classifyCommand(c).outward, false, c);
+  for (const c of ['C:\\Users\\me\\rw\\notes.txt', 'type C:\\rw\\bin\\rw.cmd']) assert.equal(classifyCommand(c, { platform: 'win32' }).outward, false, c);
 });
 
 test('a symlink to the launcher or its script, by any name, is the launcher', posixOnly, () => {
@@ -251,7 +370,9 @@ fs.mkdirSync(path.join(idleHome, 'o', 'r', 'worktrees'), { recursive: true });
 
 test('the hook denies riverwright credential outside the workspace too, with or without an active run', async () => {
   for (const h of [home, idleHome]) {
-    for (const c of ['rw credential status', 'rw credential remove', 'rw credential setup --replace', 'RIVERWRIGHT_HOME=/x rw credential setup', 'echo credential remove | xargs rw', 'rw {,credential} remove', 'rw $SUB', '$(echo rw) credential setup', 'npx riverwright@latest credential setup']) {
+    for (const c of ['rw credential status', 'rw credential remove', 'rw credential setup --replace', 'RIVERWRIGHT_HOME=/x rw credential setup', 'echo credential remove | xargs rw', 'rw {,credential} remove', 'rw $SUB', '$(echo rw) credential setup', 'npx riverwright@latest credential setup',
+      // N1 and N2: behind a launcher the classifier does not model, or as literal text inside another command.
+      'C=credential; script -q /dev/null rw "$C" setup --replace', "git -c alias.x='!rw credential setup --replace' x", 'ssh -o ProxyCommand="rw credential setup" localhost true', 'x="rw credential setup"; $x', 'F="rw credential setup"; eval "$F"']) {
       const r = await callMain(['hook', 'claude-code', '--home', h], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
       assert.equal(r.code, 2, `${c} (home ${h === home ? 'with' : 'without'} an active run)`);
       assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
@@ -267,15 +388,31 @@ test('the hook denies a symlinked launcher run from the payload working director
   assert.equal(r.code, 2);
 });
 
-test('I1: a plain word "rw" next to a variable is allowed outside the workspace while a run is active', async () => {
-  for (const c of ['grep -n rw "$FILE"', 'echo rw $HOME', 'mount -o rw "$DEV" /mnt', 'grep -rn riverwright "$DIR"']) {
+test('I1: a plain word "rw" with nothing dynamic after it is allowed outside the workspace while a run is active', async () => {
+  for (const c of ['grep -n rw file.txt', 'mount -o rw /dev/x /mnt', 'docker run -v "$PWD":/w:rw img']) {
     const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
     assert.equal(r.code, 0, c);
   }
 });
 
+test('R25: a plain word "rw" followed by a variable is denied everywhere by the credential rule (accepted cost)', async () => {
+  for (const c of ['grep -n rw "$FILE"', 'rw --home="$H" state get']) {
+    const r = await callMain(['hook', 'claude-code', '--home', idleHome], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
+    assert.equal(r.code, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
+  }
+});
+
+test('N3: a command shaped to overflow the stack gets a JSON decision from the hook, never a crash', async () => {
+  for (const c of [`git commit -m '${'{a..b}'.repeat(20000)}'`, `echo ${'{'.repeat(20000)}a${',b}'.repeat(20000)}`]) {
+    const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
+    assert.equal(r.code, 0, c.slice(0, 40));
+    assert.equal(r.stderr, '');
+  }
+});
+
 test('other riverwright commands outside the workspace are still allowed', async () => {
-  for (const c of ['rw version', 'riverwright ledger verify --run "$RUN"', 'riverwright --home "$H" state get']) {
+  for (const c of ['rw version', 'riverwright ledger verify --run /abs/run', 'riverwright --home /abs/h state get']) {
     const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
     assert.equal(r.code, 0, c);
   }

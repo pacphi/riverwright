@@ -12,18 +12,26 @@ export { hasUnresolved };
 // subcommand, eval, a shell reading code from a pipe) is outward with rule "unresolvable".
 //
 // The riverwright-credential rule (an agent running "riverwright credential") applies everywhere, not only
-// in the workspace, and outranks every other rule in the same command. Its honest limits: it is a static
-// reading of one command line, so it cannot see
+// in the workspace, and outranks every other rule in the same command. It is a deliberately conservative TEXT
+// match over the whole command (R25), not a model of the shell: with quotes and backslashes removed, a
+// riverwright word ("rw" or "riverwright" as a word or the last path component, cli.mjs, credential.mjs)
+// followed anywhere later by "credential", a variable, a substitution, a glob or a brace is denied. Nested
+// payloads (sh -c '...', git -c alias.x='!...', ssh -o ProxyCommand=..., eval, su -c, tmux new '...') are
+// literal text in the command, so they are covered without being parsed. It over-blocks on purpose:
+// `grep -n rw "$FILE"`, `rw state get *` and prose such as `git commit -m "... riverwright credential ..."` are
+// denied too (workaround: write the value out, or `git commit -F file`). A few structural checks remain for
+// spellings with no riverwright word in them: a variable or glob program word with a "credential" argument,
+// xargs/parallel/find feeding riverwright, an alias to it, inline code that loads the CLI, and a path that
+// realpath resolves to the launcher files. Its honest limits: it reads one command line, so it cannot see
 //   - code inside a script file, Makefile or package.json that the command runs (sh ./x.sh, make, npm run);
 //   - a renamed or copied launcher that cannot be resolved by path: a plain copy (cp bin/riverwright /tmp/x),
 //     a hard link, or a bare program name found through PATH (only a path that realpath resolves to the
 //     launcher files is recognised);
-//   - arguments built from pieces inside inline code ('cred' + 'ential' with no other riverwright marker);
+//   - a command or argument built from pieces or encoded (base64 -d | sh, 'cred' + 'ential' with no
+//     riverwright word);
 //   - a deliberate forger running as the same user, who can always reach the vault another way.
 // The passphrase, typed by the human in their own terminal, is the real protection (ADR-0010); this rule stops
-// accidents and prompt injection. Where a word cannot be resolved (a glob, a brace, a variable, a substitution)
-// it fails closed: a program word that could be riverwright with an argument that is or could expand to
-// "credential" is denied.
+// accidents and prompt injection.
 
 const MAX_INPUT = 256 * 1024;
 const MAX_DEPTH = 8;
@@ -424,15 +432,13 @@ function classifyInvocation(words, cmd, ctx) {
 
 // "riverwright credential ..." seals, replaces or removes the credential. The human runs it in their own
 // terminal, so an agent's shell command that names it is denied in any spelling, wherever it runs.
-// Two checks work together:
-//   - word-wide (classifyRiverwrightCredential): any word that could be the program (the launcher, a path to it,
-//     "rw", a versioned package, a glob or brace that could expand to it, a path that resolves to the launcher
-//     files) followed by a word that is "credential" after brace expansion. Wrappers, option values and
-//     runners cannot hide the program from it.
-//   - program position (credentialAtProgram, called by classifyInvocation, so env, sudo, wrappers, xargs and
-//     find -exec reach it too, plus npx/pnpm/npm/yarn/bunx and node/bun/deno running a script): the program is
-//     riverwright and an argument is or could expand to "credential", or its subcommand is a variable; or the
-//     program itself is a variable or substitution and an argument is or could expand to "credential".
+// The text rule (credentialInText, run by classifyCommand on the raw command) does most of the work. The
+// structural checks below catch the spellings that have no riverwright word for the text rule to find
+// (credentialAtProgram, called by classifyInvocation, so env, sudo, wrappers, xargs and find -exec reach it, plus
+// npx/pnpm/npm/yarn/bunx and node/bun/deno running a script): the program is a glob or brace that could be
+// riverwright, a path that resolves to the launcher, or a variable or substitution, and an argument is or could
+// match "credential" (or, for a riverwright program, its subcommand is a variable). Nothing is expanded: a glob is
+// matched, never generated, and a brace is taken as "could be anything".
 // base() lowercases and drops .exe/.cmd/.bat, so upper case and Windows names are caught too.
 const RIVERWRIGHT_NAMES = new Set(['riverwright', 'rw']);
 const RIVERWRIGHT_CANDIDATES = ['riverwright', 'rw', ...['mjs', 'cmd', 'exe', 'bat', 'ps1', 'js'].flatMap((x) => [`riverwright.${x}`, `rw.${x}`])];
@@ -450,62 +456,100 @@ const isCredential = (v) => v?.rule === 'riverwright-credential';
 const prefer = (found, v) => (!found || (isCredential(v) && !isCredential(found)) ? (v ?? found) : found);
 const mentionsCredential = (s) => /credential/i.test(String(s).replace(/["'`\\^]/g, ''));
 
+// The text rule. Every regex here is matched once from left to right with fixed-length alternatives, so the
+// cost is linear in the command's length.
+//   - a riverwright word: "rw" or "riverwright" (optionally .cmd/.mjs/.exe/.bat/.ps1/.js) not inside a longer
+//     name and not followed by "/" (a directory named rw is not the program), or cli.mjs / credential.mjs;
+//   - after the first riverwright word: the word "credential", a variable or substitution ($, backtick,
+//     %NAME%), a glob (* ? [ and the extglob openers @( +( !( ), or a brace.
+const RIVERWRIGHT_WORD = /(?<![\w.-])(?:riverwright|rw)(?:\.(?:cmd|mjs|exe|bat|ps1|js))?(?![\w./-])|(?<![\w-])(?:cli|credential)\.mjs(?!\w)/i;
+const AFTER_RIVERWRIGHT = /(?<!\w)credential(?!\w)|[$`*?[{]|[@+!]\(|%[A-Za-z_]\w*%/i;
+const CREDENTIAL_WORD = /(?<!\w)credential(?!\w)/gi;
+
+// The two readings of a command: quotes, cmd.exe carets and backslashes removed (r\iverwright, cred""ential),
+// and backslashes read as "/" (a Windows path, C:\tools\rw.cmd). Whitespace is collapsed.
+function textForms(raw) {
+  const t = String(raw).replace(/["'^]/g, '').replace(/\s+/g, ' ');
+  return [t.replace(/\\/g, ''), t.replace(/\\/g, '/')];
+}
+
+// A glob, matched (never expanded) against a short name, case-insensitively. Any [...] class counts as one
+// character. The classic two-pointer match: time is (pattern length) x (name length), with no backtracking blowup.
+function globMatch(pattern, name) {
+  const units = [];
+  const p = pattern.toLowerCase();
+  const lastClose = p.lastIndexOf(']');
+  let fixed = 0;
+  for (let i = 0; i < p.length; i += 1) {
+    const c = p[i];
+    if (c === '*') { if (units[units.length - 1] !== '*') units.push('*'); continue; }
+    if (c === '?') units.push('?');
+    else if (c === '[' && lastClose >= i + 2) { units.push('?'); i = p.indexOf(']', i + 2); }
+    else units.push(c);
+    // Each unit other than "*" takes one character: more of them than the name has cannot match.
+    fixed += 1;
+    if (fixed > name.length) return false;
+  }
+  const s = name.toLowerCase();
+  let pi = 0;
+  let si = 0;
+  let star = -1;
+  let mark = 0;
+  while (si < s.length) {
+    if (pi < units.length && (units[pi] === '?' || units[pi] === s[si])) { pi += 1; si += 1; }
+    else if (pi < units.length && units[pi] === '*') { star = pi; mark = si; pi += 1; }
+    else if (star !== -1) { pi = star + 1; mark += 1; si = mark; }
+    else return false;
+  }
+  while (pi < units.length && units[pi] === '*') pi += 1;
+  return pi === units.length;
+}
+
+// A brace that bash would expand ({a,b} or {x..y}): it could become anything, so it is never expanded here.
+function isBrace(v) {
+  const k = v.indexOf('{');
+  return k !== -1 && (v.indexOf(',', k) !== -1 || v.indexOf('..', k) !== -1);
+}
+
+// A glob or brace word that could name riverwright: a glob whose last segment (with a literal letter, so a bare
+// "*" does not count) matches a riverwright name, or a brace whose letters could still spell "rw".
+function patternCouldBeRiverwright(word) {
+  const seg = word.split('/').pop();
+  if (isBrace(seg)) {
+    const r = seg.search(/r/i);
+    return r !== -1 && /w/i.test(seg.slice(r + 1));
+  }
+  if (!GLOB.test(seg) || !/[a-z0-9]/i.test(seg.replace(/\[[^\]]*\]/g, ''))) return false;
+  const name = seg.replace(/(?!^)@[^@]*$/, '');
+  return RIVERWRIGHT_CANDIDATES.some((c) => globMatch(name, c));
+}
+
+// True when the command, read as text, names riverwright and then "credential" or something that could become
+// it. Also: a glob or brace word that could be riverwright, before the last word "credential" (a launcher the
+// classifier does not model: script -q /dev/null riverw?ight credential setup).
+function credentialInText(raw) {
+  for (const t of textForms(raw)) {
+    const m = RIVERWRIGHT_WORD.exec(t);
+    if (m && AFTER_RIVERWRIGHT.test(t.slice(m.index + m[0].length))) return true;
+    let last = -1;
+    for (const c of t.matchAll(CREDENTIAL_WORD)) last = c.index;
+    if (last > 0 && t.slice(0, last).split(/[\s;&|()<>]+/).some((w) => (GLOB.test(w) || isBrace(w)) && patternCouldBeRiverwright(w))) return true;
+  }
+  return false;
+}
+
 // The name a program or package word stands for: its base name without .exe/.cmd/.mjs, a package version
 // (riverwright@latest, @scope/riverwright@1.2.3) or a tarball suffix.
 function riverwrightName(v) {
   return base(v).replace(/(?!^)@[^@]*$/, '').replace(/\.(mjs|cjs|js|tgz|tar\.gz)$/, '');
 }
 
-// The words a word can become through brace expansion ({a,b}, nesting; a {x..y} sequence counts as "*").
-// Quoting is already removed by the lexer, so a quoted brace is expanded too (fails closed).
-function braceAlternatives(v) {
-  const out = [];
-  const walk = (s) => {
-    if (out.length > 256) return;
-    for (let i = 0; i < s.length; i += 1) {
-      if (s[i] !== '{') continue;
-      let depth = 0;
-      let j = i;
-      const commas = [];
-      for (; j < s.length; j += 1) {
-        if (s[j] === '{') depth += 1;
-        else if (s[j] === '}') { depth -= 1; if (depth === 0) break; }
-        else if (s[j] === ',' && depth === 1) commas.push(j);
-      }
-      if (j >= s.length) break;
-      const pre = s.slice(0, i);
-      const post = s.slice(j + 1);
-      if (commas.length) {
-        let from = i + 1;
-        for (const c of [...commas, j]) { walk(pre + s.slice(from, c) + post); from = c + 1; }
-        return;
-      }
-      if (/^[^{}]*\.\.[^{}]*$/.test(s.slice(i + 1, j))) { walk(`${pre}*${post}`); return; }
-    }
-    out.push(s);
-  };
-  walk(String(v));
-  // Too many to check one by one: it could be anything.
-  return out.length > 256 ? ['*'] : out;
-}
-
-// A glob as an anchored, case-insensitive regex. Any [...] class counts as any one character.
-function globRegex(s) {
-  let r = '';
-  for (let i = 0; i < s.length; i += 1) {
-    const c = s[i];
-    if (c === '*') r += '.*';
-    else if (c === '?') r += '.';
-    else if (c === '[' && s.indexOf(']', i + 2) !== -1) { r += '.'; i = s.indexOf(']', i + 2); }
-    else r += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
-  }
-  return new RegExp(`^${r}$`, 'is');
-}
-
-// A word that is "credential", or could expand to it (brace, glob, a PowerShell comma list 'credential','setup').
+// A word that is "credential", or could match it (a glob, a brace, a PowerShell comma list 'credential','setup').
 function mayBeCredential(w) {
   if (!w || isDynamic(w)) return false;
-  return braceAlternatives(nameOf(w)).some((a) => a.split(',').some((part) => (GLOB.test(part) ? globRegex(part).test('credential') : part.toLowerCase() === 'credential')));
+  const v = nameOf(w);
+  if (isBrace(v)) return true;
+  return v.split(',').some((part) => (GLOB.test(part) ? globMatch(part, 'credential') : part.toLowerCase() === 'credential'));
 }
 
 // A path that resolves (realpath, against the command's working directory) to one of the launcher files. A
@@ -519,29 +563,23 @@ function resolvesToLauncher(v, ctx, script = false) {
   }
 }
 
-// A word that is, or could be, the riverwright program. `loose` (the word-wide scan) ignores a glob with no
-// literal letter in its last segment ("*"), so "mv * credential" in a user's project is not denied; in program
-// position any glob counts.
-function mayBeRiverwright(w, ctx, { loose = false, script = false } = {}) {
+// A word that is, or could be, the riverwright program: its name, a glob that matches it, a brace (could be
+// anything), or a path that resolves to the launcher files.
+function mayBeRiverwright(w, ctx, { script = false } = {}) {
   if (!w) return false;
   if (isDynamic(w)) {
     const p = programName(w);
     return p !== null && RIVERWRIGHT_NAMES.has(riverwrightName(p));
   }
   const v = nameOf(w);
-  const hit = braceAlternatives(v).some((a) => {
-    const seg = a.split(/[\\/]/).pop();
-    if (!GLOB.test(seg)) return RIVERWRIGHT_NAMES.has(riverwrightName(seg));
-    if (loose && !/[a-z0-9]/i.test(seg.replace(/\[[^\]]*\]/g, ''))) return false;
-    const re = globRegex(seg.replace(/(?!^)@[^@]*$/, ''));
-    return RIVERWRIGHT_CANDIDATES.some((c) => re.test(c));
-  });
-  return hit || resolvesToLauncher(v, ctx, script);
+  if (isBrace(v)) return true;
+  const seg = v.split(/[\\/]/).pop();
+  if (GLOB.test(seg)) return RIVERWRIGHT_CANDIDATES.some((c) => globMatch(seg.replace(/(?!^)@[^@]*$/, ''), c));
+  return RIVERWRIGHT_NAMES.has(riverwrightName(seg)) || resolvesToLauncher(v, ctx, script);
 }
 
-// riverwright is the program: an argument that is or could expand to "credential" is denied, and so is a
-// subcommand given as a variable (it could be "credential"). Values of --home/--run/--workspace are skipped,
-// so `riverwright --home "$H" state get` stays allowed.
+// riverwright is the program: an argument that is or could match "credential" is denied, and so is a
+// subcommand given as a variable (it could be "credential"). Values of --home/--run/--workspace are skipped.
 function riverwrightArgs(args, ctx) {
   if (args.some(mayBeCredential)) return credentialVerdict(CREDENTIAL_DETAIL);
   if (!ctx.strict) return null;
@@ -597,7 +635,7 @@ function credentialAtProgram(words, ctx) {
   const args = words.slice(1);
   const prog = programName(w0);
   if (prog === null) {
-    return args.some(mayBeCredential) ? credentialVerdict('the program is a variable or substitution and an argument is (or could expand to) "credential"') : null;
+    return args.some(mayBeCredential) ? credentialVerdict('the program is a variable or substitution and an argument is (or could match) "credential"') : null;
   }
   if (mayBeRiverwright(w0, ctx)) return riverwrightArgs(args, ctx);
   const k = runnerTarget(prog, args);
@@ -605,25 +643,9 @@ function credentialAtProgram(words, ctx) {
   const target = args[k];
   const rest = args.slice(k + 1);
   if (isDynamic(target) && programName(target) === null) {
-    return rest.some(mayBeCredential) ? credentialVerdict(`${prog} runs a package or script named by a variable, and an argument is (or could expand to) "credential"`) : null;
+    return rest.some(mayBeCredential) ? credentialVerdict(`${prog} runs a package or script named by a variable, and an argument is (or could match) "credential"`) : null;
   }
   return mayBeRiverwright(target, ctx, { script: SCRIPT_RUNNERS.test(prog) }) ? riverwrightArgs(rest, ctx) : null;
-}
-
-// Word-wide: a word that could be riverwright followed by a word that is "credential" after brace expansion
-// and comma splitting.
-function classifyRiverwrightCredential(words, ctx) {
-  const expanded = words.flatMap((w) => (isDynamic(w)
-    ? [w]
-    : braceAlternatives(nameOf(w)).flatMap((a) => a.split(',')).map((value) => ({ value, dynamic: false, quoted: w.quoted, subs: [] }))));
-  // Only words before the last "credential" can be its program; this also keeps the realpath checks to
-  // commands that name it.
-  let last = -1;
-  expanded.forEach((x, k) => { if (!isDynamic(x) && nameOf(x).toLowerCase() === 'credential') last = k; });
-  for (let j = 0; j < last; j += 1) {
-    if (!isDynamic(expanded[j]) && mayBeRiverwright(expanded[j], ctx, { loose: true })) return credentialVerdict(CREDENTIAL_DETAIL);
-  }
-  return null;
 }
 
 // Inline code (node -e, python -c, perl -e, ruby -e, deno eval, bun -e) that starts riverwright with "credential"
@@ -661,10 +683,7 @@ function classifySimple(cmd, ctx) {
     if (m) { take(checkEnvName(m[1])); i += 1; continue; }
     break;
   }
-  if (i < cmd.words.length) {
-    if (take(classifyRiverwrightCredential(cmd.words.slice(i), ctx))) return found;
-    if (take(classifyInvocation(cmd.words.slice(i), cmd, ctx))) return found;
-  }
+  if (i < cmd.words.length && take(classifyInvocation(cmd.words.slice(i), cmd, ctx))) return found;
   // A git or gh word anywhere later in the command (sudo -u x git push, find -exec, echo ... | sh).
   for (let k = i + 1; k < cmd.words.length && !found; k += 1) {
     const w = cmd.words[k];
@@ -720,18 +739,25 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
 // is the launcher.
 export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd() } = {}) {
   const text = String(command ?? '');
+  if (text.length <= MAX_INPUT && isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
+  // R25: the credential rule reads the whole command as text first, at any length.
+  if (credentialInText(text)) return credentialVerdict(CREDENTIAL_DETAIL);
   if (text.length > MAX_INPUT) {
     return mentionsCredential(text) ? credentialVerdict('the command is too long to check, and it mentions "credential"') : unresolvable('the command is too long to check');
   }
-  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
   const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
   const opts = { cwd, launchers };
-  let found = classifyScript(text, makeCtx(0, true, { used: 0 }, opts));
-  // On Windows a backslash separates path segments and does not escape; read that way too, so
-  // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is. This second
-  // reading applies to every rule, not only the credential rule; it can only add denials.
-  if (platform === 'win32' && text.includes('\\') && !isCredential(found)) {
-    found = prefer(found, classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }, opts)));
+  try {
+    let found = classifyScript(text, makeCtx(0, true, { used: 0 }, opts));
+    // On Windows a backslash separates path segments and does not escape; read that way too, so
+    // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is. This second
+    // reading applies to every rule, not only the credential rule; it can only add denials.
+    if (platform === 'win32' && text.includes('\\') && !isCredential(found)) {
+      found = prefer(found, classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }, opts)));
+    }
+    return found ?? { outward: false };
+  } catch {
+    // A command shaped to exhaust the stack (or any other surprise) gets a fixed verdict, never a crash.
+    return mentionsCredential(text) ? credentialVerdict('the command is too complex to check, and it mentions "credential"') : unresolvable('the command is too complex to check');
   }
-  return found ?? { outward: false };
 }
