@@ -35,7 +35,7 @@ test('I2: an input error rejects with a Riverwright error, restores raw mode, re
   await assert.rejects(pending, (e) => e instanceof RiverwrightError && !/secretpart/.test(e.message));
   assert.deepEqual(t.modes, [true, false]);
   assert.equal(t.input.listenerCount('data'), 0);
-  assert.equal(t.input.listenerCount('error'), 0);
+  assert.equal(t.input.listenerCount('error'), 1); // only the permanent no-op (N1)
   assert.equal(t.input.listenerCount('close'), 0);
 });
 
@@ -53,7 +53,7 @@ test('I2: an output error rejects and restores raw mode', async () => {
   t.output.emit('error', new Error('EIO'));
   await assert.rejects(pending, (e) => e instanceof RiverwrightError);
   assert.deepEqual(t.modes, [true, false]);
-  assert.equal(t.output.listenerCount('error'), 0);
+  assert.equal(t.output.listenerCount('error'), 1); // only the permanent no-op (N1)
 });
 
 test('I2: Ctrl-C and end restore raw mode', async () => {
@@ -117,4 +117,66 @@ test('M1: noEcho is not honoured on a terminal backed by a real file stream', as
   const t = { input, output: new PassThrough(), noEcho: true };
   await assert.rejects(readSecret({ terminal: t, question: '> ' }), (e) => e.code === 'NO_ECHO_CONTROL');
   input.destroy();
+});
+
+test('N1: a failing write of the trailing newline after finish does not crash the process', async () => {
+  const t = rawTerminal();
+  const pending = readSecret({ terminal: t, question: '> ' });
+  t.input.write('abc\r');
+  assert.equal(await pending, 'abc');
+  const uncaught = [];
+  const onUncaught = (e) => uncaught.push(e);
+  process.on('uncaughtException', onUncaught);
+  try {
+    t.output.emit('error', new Error('EPIPE'));
+    t.input.emit('error', new Error('late'));
+    await new Promise((r) => setImmediate(r));
+  } finally {
+    process.off('uncaughtException', onUncaught);
+  }
+  assert.deepEqual(uncaught, []);
+});
+
+test('N1: the trailing newline is written while the error listener is still attached', async () => {
+  const t = rawTerminal();
+  let listenersAtNewline = -1;
+  const realWrite = t.output.write.bind(t.output);
+  t.output.write = (chunk, ...rest) => {
+    if (chunk === '\n') listenersAtNewline = t.output.listenerCount('error');
+    return realWrite(chunk, ...rest);
+  };
+  const pending = readSecret({ terminal: t, question: '> ' });
+  t.input.write('x\r');
+  await pending;
+  assert.ok(listenersAtNewline >= 1);
+});
+
+test('N2: Enter inside an unfinished CSI sequence still submits', async () => {
+  const t = rawTerminal();
+  const pending = readSecret({ terminal: t, question: '> ' });
+  t.input.write('ab\u001b[\r');
+  assert.equal(await pending, 'ab');
+});
+
+test('N2: Enter inside an unfinished SS3 sequence still submits', async () => {
+  const t = rawTerminal();
+  const pending = readSecret({ terminal: t, question: '> ' });
+  t.input.write('ab\u001bO\n');
+  assert.equal(await pending, 'ab');
+});
+
+test('N2: Ctrl-C and Ctrl-D inside a sequence abort', async () => {
+  for (const [prefix, key] of [['\u001b[', '\u0003'], ['\u001bO', '\u0004'], ['\u001b[1;', '\u0003']]) {
+    const t = rawTerminal();
+    const pending = readSecret({ terminal: t, question: '> ' });
+    t.input.write(`ab${prefix}${key}`);
+    await assert.rejects(pending, (e) => e.code === 'ABORTED');
+    assert.deepEqual(t.modes, [true, false]);
+  }
+});
+
+test('N2: a new ESC inside a sequence starts a fresh sequence', async () => {
+  const t = fakeSecretTerminal([]);
+  t.input.end('ab\u001b[\u001b[Acd\r');
+  assert.equal(await readSecret({ terminal: t, question: '> ' }), 'abcd');
 });

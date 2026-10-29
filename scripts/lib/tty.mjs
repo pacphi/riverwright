@@ -42,6 +42,7 @@ export async function confirmTyped({ terminal, question, expected }) {
 // so production code cannot use it to skip the echo check.
 // Leftover characters after a newline stay in terminal.pending for the next read. The caller must enforce a
 // minimum length: bare Enter returns an empty string.
+function ignoreLateError() { /* the read is over; nothing to report and no text to leak */ }
 const closedMessage = 'the terminal closed before a passphrase was entered';
 
 export function readSecret({ terminal, question }) {
@@ -71,8 +72,10 @@ export function readSecret({ terminal, question }) {
     const finish = (fn, arg) => {
       if (settled) return;
       settled = true;
-      cleanup();
       try { output.write('\n'); } catch { /* the output is already gone */ }
+      cleanup();
+      // A late asynchronous error (EPIPE on the newline, a destroy(err) after Enter) must not crash the process.
+      for (const stream of [input, output]) stream.on('error', ignoreLateError);
       fn(arg);
     };
     const abort = (message) => finish(reject, new RiverwrightError('ABORTED', message));
@@ -87,8 +90,15 @@ export function readSecret({ terminal, question }) {
           terminal.skipLF = false;
           if (ch === '\n') continue;
         }
-        if (esc === 3) { esc = 0; continue; }
-        if (esc === 2) { if (/[@-~]/.test(ch)) esc = 0; continue; }
+        if (esc >= 2) {
+          // Enter, Ctrl-C, Ctrl-D and a new ESC break out of an unfinished sequence and are handled normally.
+          const breaksOut = ch === '\r' || ch === '\n' || ch === '\u0003' || ch === '\u0004' || ch === '\u001b';
+          if (!breaksOut) {
+            if (esc === 3 || /[@-~]/.test(ch)) esc = 0;
+            continue;
+          }
+          esc = 0;
+        }
         if (esc === 1) {
           if (ch === '[') { esc = 2; continue; }
           if (ch === 'O') { esc = 3; continue; }
