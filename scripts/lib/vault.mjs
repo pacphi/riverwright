@@ -81,6 +81,7 @@ const canonical = (x) => (x && typeof x === 'object' && !Array.isArray(x)
 // Keys are sorted, so the file may be re-serialised in any key order.
 const aadOf = (v) => Buffer.from(canonical({ schema: v.schema, kdf: v.kdf, publicKey: v.publicKey }), 'utf8');
 
+const ISO_UTC = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d{1,3})?Z$/;
 const SALT_LEN = 16;
 const NONCE_LEN = 12;
 const TAG_LEN = 16;
@@ -90,14 +91,22 @@ export function fingerprint(publicKeyPem) {
   return `sha256:${crypto.createHash('sha256').update(der).digest('hex')}`;
 }
 
-// allowWeakKdfForTests lets tests use small parameters. The command line must never pass it.
-export function sealVault({ token, passphrase, kdf = defaultKdf(), now = null, allowWeakKdfForTests = false }) {
+export function checkPassphrase(passphrase) {
   if (typeof passphrase !== 'string' || [...passphrase.normalize('NFKC')].length < MIN_PASSPHRASE) {
     throw new RiverwrightError('WEAK_PASSPHRASE', `the passphrase must be at least ${MIN_PASSPHRASE} characters`);
   }
+}
+
+export function checkToken(token) {
   if (typeof token !== 'string' || !/^[!-~]{8,4096}$/.test(token)) {
     throw new RiverwrightError('BAD_TOKEN', 'the token must be 8 to 4096 printable characters with no spaces');
   }
+}
+
+// allowWeakKdfForTests lets tests use small parameters. The command line must never pass it.
+export function sealVault({ token, passphrase, kdf = defaultKdf(), now = null, allowWeakKdfForTests = false }) {
+  checkPassphrase(passphrase);
+  checkToken(token);
   checkKdf(kdf);
   if (allowWeakKdfForTests !== true) checkFloor(kdf);
   const salt = crypto.randomBytes(SALT_LEN);
@@ -154,6 +163,15 @@ export function validateVault(v) {
     }
   }
   checkKdf(v.kdf);
+  // Printed by "credential status" from a file the agent can edit, so it must be a plain timestamp or absent.
+  if (v.createdAt !== undefined && v.createdAt !== null && !(typeof v.createdAt === 'string' && ISO_UTC.test(v.createdAt))) {
+    throw new RiverwrightError('BAD_VAULT', 'the vault has a malformed creation time');
+  }
+  try {
+    fingerprint(v.publicKey);
+  } catch {
+    throw new RiverwrightError('BAD_VAULT', 'the vault has a malformed public key');
+  }
   return v;
 }
 

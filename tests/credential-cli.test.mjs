@@ -1,6 +1,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import path from 'node:path';
 import { callMain, fakeSecretTerminal, tmpDir } from './helpers.mjs';
 import { readVault, openVault, vaultFile, fingerprint } from '../scripts/lib/vault.mjs';
 import { RiverwrightError } from '../scripts/lib/errors.mjs';
@@ -149,4 +150,108 @@ test('credential remove with no vault, and unknown subcommands, exit 1', async (
   assert.equal((await cred(home, ['remove'], { terminal: fakeSecretTerminal(['remove']) })).code, 1);
   assert.equal((await cred(home, ['bogus'])).code, 1);
   assert.equal((await cred(home, [])).code, 1);
+});
+
+// ---- Fix round 1 ----
+const setupVault = async (home) => { await cred(home, ['setup'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, PASSPHRASE]) }); };
+const tamper = (home, edit) => { const f = vaultFile(home); const v = JSON.parse(fs.readFileSync(f, 'utf8')); edit(v); fs.writeFileSync(f, JSON.stringify(v)); };
+// eslint-disable-next-line no-control-regex
+const RAW_CONTROL = /[\x00-\x08\x0b-\x1f\x7f-\x9f]/;
+
+test('I1: a vault with escape sequences and a forged fingerprint cannot spoof status output', async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  const real = fingerprint(readVault(home).publicKey);
+  tamper(home, (v) => { v.createdAt = 'x\x1b[2J\x1b[1;1H\x9bFingerprint: sha256:deadbeef'; });
+  const bad = await cred(home, ['status']);
+  assert.equal(bad.code, 1);
+  assert.equal(RAW_CONTROL.test(bad.stdout + bad.stderr), false);
+  tamper(home, (v) => { v.createdAt = '2026-10-02T14:03:11.000Z'; v.kdf.name = 'argon2id\x1b[2J\nFingerprint: sha256:deadbeef'; });
+  const r = await cred(home, ['status']);
+  assert.equal(RAW_CONTROL.test(r.stdout.replace(/\n/g, '') + r.stderr), false);
+  assert.equal(r.stdout.includes('\x1b'), false);
+  assert.equal(r.stdout.includes('deadbeef'), false);
+});
+
+test('I1: the real fingerprint is the last line of status', async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  const real = fingerprint(readVault(home).publicKey);
+  const r = await cred(home, ['status']);
+  assert.equal(r.code, 0, r.stderr);
+  const lines = r.stdout.trimEnd().split('\n');
+  assert.equal(lines.at(-1), `Public-key fingerprint: ${real}`);
+  assert.equal(lines.filter((l) => l.startsWith('Public-key fingerprint:')).length, 1);
+});
+
+test('I1: createdAt must be a strict ISO-8601 UTC string', () => {
+  const home = tmpDir();
+  return setupVault(home).then(() => {
+    for (const bad of ['yesterday', '2026-10-02 14:03:11', '2026-10-02T14:03:11+02:00', 5]) {
+      tamper(home, (v) => { v.createdAt = bad; });
+      assert.throws(() => readVault(home), (e) => e.code === 'BAD_VAULT');
+    }
+    tamper(home, (v) => { delete v.createdAt; });
+    assert.doesNotThrow(() => readVault(home));
+  });
+});
+
+test('M1: a malformed publicKey gives a Riverwright error, not a stack trace', async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  tamper(home, (v) => { v.publicKey = 'garbage'; });
+  const r = await cred(home, ['status']);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /public key|vault/i);
+  assert.equal(/\bat .*\.mjs|DECODER|unexpected error/.test(r.stderr), false);
+});
+
+test('M2: a bad token is refused before the passphrase is asked for', async () => {
+  const home = tmpDir();
+  const t = fakeSecretTerminal(['has a space in it', PASSPHRASE, PASSPHRASE]);
+  const r = await cred(home, ['setup'], { terminal: t });
+  assert.equal(r.code, 1);
+  assert.equal(t.written.join('').includes('New passphrase'), false);
+  const t2 = fakeSecretTerminal([TOKEN, 'short']);
+  const r2 = await cred(home, ['setup'], { terminal: t2 });
+  assert.equal(r2.code, 1);
+  assert.match(r2.stderr, /at least 12/);
+  assert.equal(t2.written.join('').includes('again'), false);
+});
+
+test('M3: --replace shows the fingerprint of the vault being replaced, sanitized', async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  const old = fingerprint(readVault(home).publicKey);
+  const r = await cred(home, ['setup', '--replace'], { terminal: fakeSecretTerminal(['ghp_anotherTokenValue0123456789', PASSPHRASE, PASSPHRASE]) });
+  assert.equal(r.code, 0, r.stderr);
+  assert.ok(r.stdout.includes(`Replacing the sealed credential with fingerprint ${old}`));
+  const home2 = tmpDir();
+  await setupVault(home2);
+  tamper(home2, (v) => { v.publicKey = 'garbage\x1b[2J'; });
+  const r2 = await cred(home2, ['setup', '--replace'], { terminal: fakeSecretTerminal(['ghp_anotherTokenValue0123456789', PASSPHRASE, PASSPHRASE]) });
+  assert.equal(r2.code, 0, r2.stderr);
+  assert.equal(r2.stdout.includes('\x1b'), false);
+});
+
+test('M5: flags that do not belong to the subcommand get the fixed usage message', async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  for (const args of [['status', '--replace'], ['remove', '--replace'], ['status', 'extra']]) {
+    const r = await cred(home, args, { terminal: fakeSecretTerminal(['remove']) });
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.stderr, /usage: riverwright credential/);
+    assert.equal(fs.existsSync(vaultFile(home)), true);
+  }
+});
+
+test('M7: vault file is 0600, its directory 0700, and no temp file is left behind', { skip: process.platform === 'win32' }, async () => {
+  const home = tmpDir();
+  await setupVault(home);
+  const dir = path.dirname(vaultFile(home));
+  assert.equal(fs.statSync(vaultFile(home)).mode & 0o777, 0o600);
+  assert.equal(fs.statSync(dir).mode & 0o777, 0o700);
+  assert.deepEqual(fs.readdirSync(dir), ['vault.json']);
+  await cred(home, ['setup', '--replace'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, 'different passphrase']) });
+  assert.deepEqual(fs.readdirSync(dir), ['vault.json']);
 });

@@ -8,18 +8,24 @@ import { RiverwrightError } from '../errors.mjs';
 import { riverwrightHome } from '../paths.mjs';
 import { nowIso } from '../clock.mjs';
 import { confirmTyped, openTerminal, readSecret } from '../tty.mjs';
-import { defaultKdf, fingerprint, readVault, sealVault, vaultFile, writeVault } from '../vault.mjs';
+import { checkPassphrase, checkToken, defaultKdf, fingerprint, readVault, sealVault, vaultFile, writeVault } from '../vault.mjs';
 import { auditAmbient } from '../ambient.mjs';
 
 const USAGE = 'usage: riverwright credential <setup [--replace] | status | remove>';
+
+// Anything read from a file (or the environment) is stripped of control characters before it is printed,
+// so a tampered vault cannot move the cursor, clear the screen or forge a line. Includes C1 such as \x9b.
+// eslint-disable-next-line no-control-regex
+export const printable = (value) => String(value).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '?');
 
 const terminalOf = (io) => (io.openTerminal ? io.openTerminal() : openTerminal({ platform: io.platform }));
 
 // parseArgs errors can quote the offending argument, which may be a token someone pasted by mistake.
 // So its message is never shown; the usage line is.
-function parseFlags(rest) {
+function parseFlags(rest, allowReplace) {
   try {
-    const { values, positionals } = parseArgs({ args: rest, options: { replace: { type: 'boolean', default: false } }, allowPositionals: true });
+    const options = allowReplace ? { replace: { type: 'boolean', default: false } } : {};
+    const { values, positionals } = parseArgs({ args: rest, options, allowPositionals: true });
     if (positionals.length > 0) throw new Error('positional');
     return values;
   } catch {
@@ -32,11 +38,20 @@ async function setup(values, io, home) {
   if (!values.replace && fs.existsSync(vaultFile(home))) {
     throw new RiverwrightError('VAULT_EXISTS', `a sealed credential already exists at ${vaultFile(home)}; pass --replace to overwrite it`);
   }
+  if (values.replace && fs.existsSync(vaultFile(home))) {
+    let shown = 'unreadable';
+    try {
+      shown = fingerprint(readVault(home).publicKey);
+    } catch { /* a damaged vault can still be replaced */ }
+    io.stdout.write(`Replacing the sealed credential with fingerprint ${printable(shown)}. The old token and key cannot be recovered.\n`);
+  }
   const terminal = terminalOf(io);
   try {
     terminal.output.write('Riverwright will seal a GitHub token under a passphrase you choose. Nothing you type is shown.\n');
     const token = await readSecret({ terminal, question: 'GitHub token: ' });
+    checkToken(token);
     const passphrase = await readSecret({ terminal, question: 'New passphrase (12+ characters): ' });
+    checkPassphrase(passphrase);
     const again = await readSecret({ terminal, question: 'Type the passphrase again: ' });
     if (passphrase !== again) throw new RiverwrightError('MISMATCH', 'the two passphrases did not match; nothing was saved');
     // The weak-parameter allowance exists only for the in-process test seam; the entry point never sets io.testing.
@@ -62,15 +77,17 @@ async function status(io, home) {
   } catch (e) {
     if (e.code !== 'NO_VAULT') throw e;
   }
-  if (!vault) io.stdout.write(`No sealed credential yet (looked in ${vaultFile(home)}). Run "riverwright credential setup" in a terminal.\n`);
-  else io.stdout.write(`Sealed credential: ${vaultFile(home)}\nPublic-key fingerprint: ${fingerprint(vault.publicKey)}\nKey derivation: ${vault.kdf.name}\nCreated: ${vault.createdAt ?? 'unknown'}\n`);
+  if (!vault) io.stdout.write(`No sealed credential yet (looked in ${printable(vaultFile(home))}). Run "riverwright credential setup" in a terminal.\n`);
+  else io.stdout.write(`Sealed credential: ${printable(vaultFile(home))}\nKey derivation: ${printable(vault.kdf.name)}\nCreated: ${printable(vault.createdAt ?? 'unknown')}\n`);
   const findings = await auditAmbient({ env: io.env, userHome: os.userInfo().homedir });
   if (findings.length === 0) {
     io.stdout.write('No credential routes found that an agent could use without Riverwright.\n');
   } else {
     io.stdout.write('\nCredential routes an agent could use without Riverwright (Riverwright cannot remove these for you):\n');
-    for (const f of findings) io.stdout.write(`  - ${f.what} ${f.fix}\n`);
+    for (const f of findings) io.stdout.write(`  - ${printable(f.what)} ${printable(f.fix)}\n`);
   }
+  // Last, so nothing printed above can scroll it away or pose as it.
+  if (vault) io.stdout.write(`Public-key fingerprint: ${printable(fingerprint(vault.publicKey))}\n`);
   return 0;
 }
 
@@ -85,7 +102,7 @@ async function remove(io, home) {
 
 export async function run(args, io) {
   const [sub, ...rest] = args;
-  const values = parseFlags(rest);
+  const values = parseFlags(rest, sub === 'setup');
   // A person runs this command, so RIVERWRIGHT_HOME is honored.
   const home = riverwrightHome(io.env);
   switch (sub) {
