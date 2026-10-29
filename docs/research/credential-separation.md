@@ -139,3 +139,34 @@ Not researched: Gemini CLI sandboxing, Cursor, OpenHands, Devin, devcontainers.
 - The Comment and Control CVSS score and the CVE-2026 details; Codex, Gemini CLI, Cursor, OpenHands and Devin.
 - Windows AppContainer and restricted tokens; whether Node exposes peer credentials on a Unix socket.
 - The ledger-head-in-PR-body witness scheme (inferred).
+
+## 11. Review findings for Plan 2a
+
+Plan 2a, Task 17: two independent reviews of the built security foundation, read-only, on branch
+`plan-2a-security` at `df96fd3`. One reviewer was Codex, the other Claude. Each finding has a label:
+**CONFIRMED** means the reviewer reproduced it; **PLAUSIBLE** means it was found by reading the code and not
+reproduced. The triage that decided what to fix and what to accept is ruling R35. Every fix was written test first; the tests are in
+`tests/security-review.test.mjs` (and `tests/credential-cli.test.mjs` for the test-hygiene item).
+
+| ID | Reviewer | Label | Severity | Finding | Outcome |
+|---|---|---|---|---|---|
+| C1 | Codex | CONFIRMED | Important | A NUL inside an ANSI-C `$'...'` word: bash cuts the quoted text at the NUL, but the lexer kept the rest, so `rw $'credential\0x' setup`, `gh pr $'create\0x' --fill` and `git $'push\0x' fork HEAD` were allowed | Fixed in `caad7d6`: both readings are checked (bash cuts the `$'...'` part; zsh and the kernel cut the whole word), and a raw NUL is read with and without it |
+| C2 | Codex | CONFIRMED | Important | An empty or missing ledger ignored `--head`, so `ledger verify --head H` said "intact" after the whole ledger was removed | Fixed in `6a1b9b8`: an empty ledger fails any head but the genesis head; `ledger verify` exits 1 and says why |
+| C3 | Codex | PLAUSIBLE | Important | A FIFO planted as a run's `state.json` could stall the hook (a blocking read), and a host that lets a command run after a hook timeout would then allow it | Fixed in `e795e00` (same fix as F4) |
+| F1 | Claude | CONFIRMED | Important | node can shift riverwright's arguments: `node - credential setup < riverwright.mjs` and `node --import=./riverwright.mjs - credential setup` ran the credential command unseen | Fixed in `adc2f9c`: when node, bun or deno reads a riverwright file from stdin or preloads one (`--import`, `--require`, `-r`, `--loader`, `--experimental-loader`, `--preload`, `NODE_OPTIONS`), every word after the script operand is checked |
+| F2 | Claude | CONFIRMED | Important | A link to the launcher was resolved only against the hook's working directory, not after `cd`, `pushd`, a subshell `cd`, `~` or a glob; the reviewer sealed an agent-chosen vault in a scratch home this way | Fixed in `799df69`: every directory the command may be in is tracked, `~` is the account home (password database) and `HOME`, and a glob path counts when its directory holds a launcher link |
+| F3 | Claude | CONFIRMED (classifier), PLAUSIBLE (impact) | Minor | `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` or a node `--require` in front of `riverwright submit` or `post` was allowed, so the passphrase could be typed into code the agent chose | Fixed in `61bad2b`: a new rule, `riverwright-publish-env`, denies these everywhere; the plain trusted publish stays allowed |
+| F4 | Claude | CONFIRMED | Minor | A FIFO at a run's `state.json` hung the hook (measured: killed by an 8-second timeout) | Fixed in `e795e00`: `state.json` is read only as a bounded regular file, opened without blocking; anything else counts as an active run |
+| F5 | Claude | PLAUSIBLE | Minor | The gate returns the action's `result` without cleaning it, so an action that echoes the token would pass it on | Accepted (R35): a Plan 2b contract. Spec §7.5 now says the result must not contain the token, and Plan 2b checks each action's result when it builds the actions |
+| F6 | Claude | PLAUSIBLE | Minor | An appended, correctly chained `receipt-consumed` line marks a live receipt as used, which blocks the human's own push | Accepted (R35): a denial of service that fails closed; nothing is published. Plan 2b reports this case clearly |
+
+**Test hygiene** (from the Claude reviewer's process note). `credential status` audits the account's home from
+`os.userInfo()`, which `HOME` does not change, so tests that isolated `HOME` still read the real `~/.ssh` file
+names and key headers. Fixed in `bf74527`: `status` and the hook take an in-process `userInfo` test seam, every
+test passes a scratch home, and `os.userInfo` throws while the credential tests run, so a call that skips the
+seam fails.
+
+**Limits that remain** (stated in the `classify.mjs` header): a directory held in a variable (`cd "$D" && ./tool`,
+`$D/tool`) or another user's home (`~user/tool`) is not resolved. `submit` and `post` do not yet refuse to run
+when `NODE_OPTIONS` or a preload is present in their own process; the hook rule is the only check. None of these
+fixes has run in CI on all three systems yet.

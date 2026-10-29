@@ -471,6 +471,8 @@ public key are authenticated with the ciphertext, so changing any of them makes 
    record; nothing treats it as proof.
 6. Call `action({ token, receipt, attempt, signal, deadline })`. The action (Plan 2b) may pass the token to one child
    process through its environment, never through an argument list or a file, and pushes the exact SHA by name.
+   The action's result must not contain the token: the gate returns it to the caller unchanged, and only its error
+   path is cleaned (Task 17 F5). Plan 2b checks each action's result for the token when it builds the actions.
 7. Record the outcome once: a `receipt-consumed` event with `succeeded` or `failed`. If that record cannot be
    written after a success, the gate says so and asks the human to run `riverwright ledger verify`. The caller then
    appends `pr-opened` or `posted`.
