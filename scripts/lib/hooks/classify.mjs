@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realish } from '../paths.mjs';
@@ -50,6 +51,9 @@ export { hasUnresolved };
 //     shift its arguments: every word after the script operand is then a slot (F1).
 //   - A path-shaped program word is resolved against the launcher files before any list trusts its name (a link
 //     named grep or sudo to the launcher is riverwright), and a path with a variable directory is not trusted at all.
+//     A relative path is resolved against every directory the command may be in (its own cd, pushd, chdir and
+//     Set-Location, in a subshell too, and CDPATH), "~" against the account home (password database) and HOME, and a
+//     glob or brace in the last segment counts when that directory holds a launcher link (F2).
 //   - Known non-executing tools: the arguments of grep, egrep, fgrep, echo, printf, cat, head, tail, wc, sort, uniq,
 //     diff, cmp, ls, stat, file, mount, umount, chmod, chown, cp, mv, ln, mkdir, rmdir, touch, cut, tr, curl, wget,
 //     jq, rg (no --pre, --hostname-bin or RIPGREP_CONFIG_PATH), sed (no e/w/W, no -f), awk (no system() or pipe, no
@@ -89,7 +93,8 @@ export { hasUnresolved };
 //   - a variable that names riverwright in an ordinary argument of a program that runs it in a way the classifier
 //     does not model (an unknown program's --cmd="$X" option, a python script that runs its arguments);
 //   - a renamed launcher that cannot be resolved by path: a plain copy or a hard link, a symlink reached by bare
-//     name through PATH or through a variable directory ("$D/tool"), or a link created by the same command;
+//     name through PATH or through a variable directory ("$D/tool", cd "$D" && ./tool, ~user/tool), or a link created
+//     by the same command;
 //   - a tool on the non-executing list that runs something through its configuration (a curl config, an rg config
 //     already in the environment, a git pager, editor, external diff, hook or fsmonitor set in a config file);
 //   - a deliberate forger running as the same user, who can always reach the vault another way.
@@ -610,22 +615,104 @@ function formCouldBeRiverwright(form, dynamic) {
   return RIVERWRIGHT_NAMES.has(riverwrightName(name)) || ['cli.mjs', 'credential.mjs'].includes(name.toLowerCase());
 }
 
-// A path that resolves (realpath, against the command's working directory) to one of the launcher files. A
-// bare name is a path only when it looks like a script (node a.mjs); as a program it is looked up in PATH. Long or
-// deep paths are not resolved (realish walks up one parent per missing segment); results are cached per command.
-function resolvesToLauncher(v, ctx) {
-  if (!/[\\/]/.test(v) && !/\.(mjs|cjs|js)$/i.test(v)) return false;
-  if (GLOB.test(v) || /[{}]/.test(v) || v.includes('\0') || v.length > 1024 || v.split(/[\\/]/).length > 64) return false;
-  const cache = ctx.opts.realCache;
-  if (cache.has(v)) return cache.get(v);
+// F2 (Task 17): the working directories a relative path may be resolved against. The command's own cd, pushd, chdir
+// and Set-Location change it, in a subshell too, so every directory any of them names is kept (the set only grows: a
+// subshell's end, popd and "cd -" go back to a directory already in it). A cd later in the command counts as well
+// (classifyCommand reads the command again when the set grew, for loops). Past MAX_CWDS, a relative path fails closed.
+const MAX_CWDS = 32;
+const MAX_DIR_ENTRIES = 1024;
+const CD_PROGRAMS = new Set(['cd', 'pushd', 'chdir', 'set-location', 'sl', 'push-location']);
+
+// The homes "~" may stand for: the account's home from the password database (os.userInfo, which the environment
+// cannot change) and the HOME the shell has. Both are checked.
+function homesOf(ctx) {
+  const o = ctx.opts;
+  if (!o.homes) {
+    let account = null;
+    try { account = o.userInfo().homedir; } catch { account = null; }
+    o.homes = [...new Set([account, o.env.HOME, o.env.USERPROFILE].filter((h) => typeof h === 'string' && path.isAbsolute(h)))];
+  }
+  return o.homes;
+}
+
+// The absolute paths a path word may name: "~" expanded to each home (and kept literal), a relative path against
+// every working directory the command may be in. null when there are too many directories to know.
+function pathsOf(v, ctx) {
+  const out = [];
+  if (v === '~' || /^~[\\/]/.test(v)) for (const h of homesOf(ctx)) out.push(path.join(h, v.slice(1)));
+  if (path.isAbsolute(v)) out.push(v);
+  else {
+    if (ctx.opts.cwds.overflow) return null;
+    for (const c of ctx.opts.cwds) out.push(path.resolve(c, v));
+  }
+  return out;
+}
+
+function trackCd(cmd, ctx) {
+  const ws = cmd.words;
+  const k = programIndex(ws, ctx);
+  if (k >= ws.length || !CD_PROGRAMS.has(programName(ws[k]) ?? '')) return;
+  const args = ws.slice(k + 1);
+  const target = args.find((w) => { const t = nameOf(w); return t === '-' || !t.startsWith('-'); });
+  let v;
+  if (!target) v = '~';
+  else if (isDynamic(target)) {
+    // $HOME, ${HOME} and $PWD are known; any other variable is a variable directory (a stated limit).
+    v = nameOf(target).replace(/^(?:\$HOME|\$\{HOME\})(?=$|[\\/])/, '~').replace(/^(?:\$PWD|\$\{PWD\})(?=$|[\\/])/, '.');
+    if (/[$`]/.test(v)) return;
+  } else v = nameOf(target);
+  if (v === '-') return;
+  const cwds = ctx.opts.cwds;
+  const bases = path.isAbsolute(v) || v === '~' || /^~[\\/]/.test(v) ? [] : String(ctx.opts.env.CDPATH ?? '').split(path.delimiter).filter((d) => path.isAbsolute(d));
+  const found = [...(pathsOf(v, ctx) ?? []), ...bases.map((b) => path.resolve(b, v))];
+  for (const d of found) {
+    if (cwds.includes(d)) continue;
+    if (cwds.length >= MAX_CWDS) { cwds.overflow = true; return; }
+    cwds.push(d);
+  }
+}
+
+// Does any entry of this directory resolve to the launcher files? A glob or brace in the last segment of a path could
+// match it (F2). Cached per directory; an unreadable or very large directory fails closed only when it exists.
+function dirHoldsLauncher(dir, ctx) {
+  const cache = ctx.opts.dirCache;
+  if (cache.has(dir)) return cache.get(dir);
   let hit = false;
   try {
-    hit = ctx.opts.launchers.has(realish(path.resolve(ctx.opts.cwd, v)));
-  } catch {
-    hit = false;
+    const names = fs.readdirSync(dir);
+    hit = names.length > MAX_DIR_ENTRIES || names.some((n) => ctx.opts.launchers.has(realish(path.join(dir, n))));
+  } catch (err) {
+    hit = !['ENOENT', 'ENOTDIR'].includes(err.code);
   }
-  cache.set(v, hit);
+  cache.set(dir, hit);
   return hit;
+}
+
+// A path that resolves (realpath, against the command's working directories, after "~") to one of the launcher files.
+// A bare name is a path only when it looks like a script (node a.mjs); as a program it is looked up in PATH. A glob or
+// brace in its last segment counts when that directory holds a launcher link; one in a directory segment fails closed.
+// Long or deep paths are not resolved (realish walks up one parent per missing segment); results are cached.
+function resolvesToLauncher(v, ctx) {
+  if (!/[\\/]/.test(v) && !/\.(mjs|cjs|js)$/i.test(v)) return false;
+  if (v.includes('\0') || v.length > 1024 || v.split(/[\\/]/).length > 64) return false;
+  const pattern = GLOB.test(v) || /[{}]/.test(v);
+  const cut = Math.max(v.lastIndexOf('/'), v.lastIndexOf('\\'));
+  if (pattern && (GLOB.test(v.slice(0, cut + 1)) || /[{}]/.test(v.slice(0, cut + 1)))) return true;
+  const paths = pathsOf(pattern ? (v.slice(0, cut + 1) || '.') : v, ctx);
+  if (paths === null) return true;
+  const cache = ctx.opts.realCache;
+  return paths.some((p) => {
+    if (pattern) return dirHoldsLauncher(p, ctx);
+    if (cache.has(p)) return cache.get(p);
+    let hit = false;
+    try {
+      hit = ctx.opts.launchers.has(realish(p));
+    } catch {
+      hit = false;
+    }
+    cache.set(p, hit);
+    return hit;
+  });
 }
 
 // A word that is, or could be, the riverwright program: its name, a pattern or expansion that could produce it, a
@@ -784,7 +871,7 @@ const GIT_SHORT_RUNNERS = { grep: 'O', fetch: 'u', pull: 'u', clone: 'u', 'ls-re
 function gitTier(args, ctx, pre) {
   let safe = !pre.some((w) => /^GIT_\w*=/i.test(nameOf(w)));
   let broad = false;
-  let dir = ctx.opts.cwd;
+  let dirs = [...ctx.opts.cwds];
   let i = 0;
   for (; i < args.length; i += 1) {
     const w = args[i];
@@ -794,7 +881,7 @@ function gitTier(args, ctx, pre) {
     if (t === '-C') {
       const d = args[i + 1];
       if (!d || isDynamic(d)) safe = false;
-      else dir = path.resolve(dir, nameOf(d));
+      else dirs = dirs.map((x) => path.resolve(x, nameOf(d)));
       i += 1;
       continue;
     }
@@ -821,9 +908,13 @@ function gitTier(args, ctx, pre) {
     }
   }
   if (GIT_RUNNERS.has(sub)) broad = true;
-  const aliases = gitAliases(ctx, dir);
-  if (aliases === null) safe = false;
-  else if (aliases.has(sub)) return { tier: 'broad', alias: aliases.get(sub) };
+  // The repository's aliases, for every directory the command may be in (F2).
+  for (const dir of ctx.opts.cwds.overflow ? [] : dirs) {
+    const aliases = gitAliases(ctx, dir);
+    if (aliases === null) safe = false;
+    else if (aliases.has(sub)) return { tier: 'broad', alias: aliases.get(sub) };
+  }
+  if (ctx.opts.cwds.overflow) safe = false;
   if (broad) return { tier: 'broad' };
   const listing = sub !== 'tag' || !rest.length || opts.some((t) => t === '--list' || /^-[a-z]*l/i.test(t));
   return { tier: safe && GIT_SAFE.has(sub) && listing ? 'safe' : 'narrow' };
@@ -1548,6 +1639,7 @@ function classifyScript(text, ctx) {
   for (const cmd of commands) {
     found = prefer(found, classifySimple(cmd, ctx));
     if (isCredential(found)) return found;
+    trackCd(cmd, ctx);
   }
   return found;
 }
@@ -1574,7 +1666,8 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
 
 // `cwd` is the command's working directory: a relative program path is resolved against it to see whether it
 // is the launcher.
-export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd(), env = process.env } = {}) {
+// userInfo: where the account's home ("~") comes from; a test seam, os.userInfo by default (read only for a "~" path).
+export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd(), env = process.env, userInfo = os.userInfo } = {}) {
   const text = String(command ?? '');
   if (text.length <= MAX_INPUT && isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
   // Too long to lex: denied by the credential rule when it names riverwright or credential anywhere.
@@ -1582,7 +1675,8 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
     return mentionsCredential(text) || RIVERWRIGHT_TEXT.test(text) ? credentialVerdict('the command is too long to check, and it names riverwright or "credential"') : unresolvable('the command is too long to check');
   }
   const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
-  const opts = { cwd, env: env ?? {}, platform, launchers, realCache: new Map(), gitCache: new Map(), lex: {} };
+  const cwds = [path.resolve(cwd)];
+  const opts = { cwd, cwds, env: env ?? {}, platform, launchers, userInfo, realCache: new Map(), dirCache: new Map(), gitCache: new Map(), lex: {} };
   // Each reading is classified and the strongest verdict kept; an extra reading can only add denials.
   //   - On Windows a backslash separates path segments and does not escape, so
   //     "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is also read with "/" (the program it is).
@@ -1594,9 +1688,14 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
   if (platform === 'win32' && text.includes('\\')) readings.push(...readings.map(([t, l]) => [t.replace(/\\/g, '/'), l]));
   try {
     let found = null;
-    for (const [t, lexOpts] of readings) {
-      found = prefer(found, classifyScript(t, makeCtx(0, true, { used: 0 }, { ...opts, lex: lexOpts })));
-      if (isCredential(found)) break;
+    // A second round when the command changed directory: every directory it names then counts from the start (a cd
+    // after a use, in a loop).
+    for (let round = 0; round < 2; round += 1) {
+      for (const [t, lexOpts] of readings) {
+        found = prefer(found, classifyScript(t, makeCtx(0, true, { used: 0 }, { ...opts, lex: lexOpts })));
+        if (isCredential(found)) break;
+      }
+      if (isCredential(found) || cwds.length === 1) break;
     }
     return found ?? { outward: false };
   } catch (err) {

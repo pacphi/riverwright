@@ -246,3 +246,78 @@ test('F1: the real hook denies node reading riverwright from stdin or preloading
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
   }
 });
+
+// F2 (Claude): a path-shaped program word was resolved against the payload cwd only, so a link to the launcher reached
+// after cd, pushd or a subshell cd, through ~, or through a glob ran riverwright credential unseen.
+function linkWorld() {
+  const base = tmpDir('rw-f2-');
+  const links = path.join(base, 'links');
+  fs.mkdirSync(links);
+  fs.symlinkSync(path.join(ROOT, 'bin', 'riverwright'), path.join(links, 'tool'));
+  fs.writeFileSync(path.join(links, 'plain'), '');
+  const account = tmpDir('rw-f2-account-');
+  fs.symlinkSync(path.join(ROOT, 'bin', 'riverwright'), path.join(account, 'tool'));
+  return { base, links, account };
+}
+
+test('F2: a launcher link is resolved after cd, pushd and a subshell cd, through ~, and behind a glob', posixOnly, () => {
+  const { base, links, account } = linkWorld();
+  const opts = { cwd: base, userInfo: () => ({ homedir: account }) };
+  const denied = [
+    `cd ${links} && ./tool credential setup`,
+    'cd links && ./tool credential setup',
+    'cd links; ./tool credential setup --replace',
+    '(cd links && ./tool credential setup)',
+    '( cd links && ./tool credential )',
+    'pushd links && ./tool credential setup',
+    'pushd links >/dev/null; ./tool credential setup',
+    `cd ${base} && links/tool credential setup`,
+    'cd links && sudo ./tool credential setup',
+    'cd links && env ./tool credential setup',
+    'cd links && exec ./tool credential setup',
+    'cd links && timeout 9 ./tool credential setup',
+    'cd links && sh ./tool credential setup',
+    'cd links && printf x | script -q /dev/null ./tool credential setup --replace',
+    "sh -c 'cd links && ./tool credential setup'",
+    'cd links && cd .. && cd links && ./tool credential',
+    '~/tool credential setup',
+    '~/tool "$SUB"',
+    'cd ~ && ./tool credential setup',
+    'cd && ./tool credential setup',
+    `${links}/too? credential setup`,
+    `${links}/t* credential setup`,
+    'links/[t]ool credential setup',
+    'cd links && ./too? credential setup',
+    `${links}/{tool,x} credential setup`,
+    // A cd later in the command still counts for an earlier use in a loop.
+    'for i in 1 2; do ./tool credential setup; cd links; done',
+  ];
+  for (const c of denied) assert.equal(classify(c, opts).rule, 'riverwright-credential', c);
+  const allowed = [
+    'cd links && ./tool version',
+    'cd links && ls ./tool credential',
+    'cd links && ./plain credential setup',
+    `${links}/pla? credential`.replace(links, base),
+    '~/tool version',
+  ];
+  for (const c of allowed) assert.equal(classify(c, opts).outward, false, c);
+});
+
+test('F2: ~ is the account home from the password database, and also HOME', posixOnly, () => {
+  const { base, account } = linkWorld();
+  const other = tmpDir('rw-f2-home-');
+  // The account home (the seam) holds the link; HOME points elsewhere.
+  assert.equal(classify('~/tool credential setup', { cwd: base, env: { ...HERMETIC_ENV, HOME: other }, userInfo: () => ({ homedir: account }) }).rule, 'riverwright-credential');
+  // HOME holds the link; the account home does not.
+  assert.equal(classify('~/tool credential setup', { cwd: base, env: { ...HERMETIC_ENV, HOME: account }, userInfo: () => ({ homedir: other }) }).rule, 'riverwright-credential');
+  assert.equal(classify('~/tool credential setup', { cwd: base, env: { ...HERMETIC_ENV, HOME: other }, userInfo: () => ({ homedir: other }) }).outward, false);
+});
+
+test('F2: the real hook denies a launcher link reached after cd (exit 2)', posixOnly, () => {
+  const { base } = linkWorld();
+  for (const c of ['cd links && ./tool credential setup', '(cd links && ./tool credential setup)', 'pushd links && ./tool credential setup', 'cd links && printf x | script -q /dev/null ./tool credential setup --replace']) {
+    const r = realHook(c, { cwd: base });
+    assert.equal(r.status, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
+  }
+});
