@@ -53,9 +53,13 @@ function checkLines(lines, { label, required }) {
 // ---- Keeping the token out of errors ----
 //
 // The gate never rethrows what the action (or recompute) threw. It builds a new RiverwrightError from a short
-// allowlist of fields, each read once as an own data property, so no getter, Proxy trap, toString, toJSON or
-// util.inspect.custom on the original runs, and nothing else it holds (Map, Set, URL, Headers, symbol keys,
-// boxed strings, functions) is carried over.
+// allowlist of fields, each read once as an own data property, and nothing else the original holds (Map, Set,
+// URL, Headers, symbol keys, boxed strings, functions) is carried over. While it is cleaned, no getter, Proxy
+// trap, toString, toPrimitive, toJSON or util.inspect.custom the error defines runs. The only code called on it
+// is built in: the byte-length getters, and V8's `stack` getter with the gate's own Error.prepareStackTrace in
+// place, so it formats the frames alone and never reads `name` or `message` (N8). The stack shown is the gate's
+// cleaned message over the original's frame lines; its first line is never taken from the original. The one
+// deliberate exception is `transient`, read before cleaning (a getter or Proxy trap may run there; it is caught).
 //
 // Raw bytes are never kept (ruling R13). A Buffer, typed array, DataView, ArrayBuffer or SharedArrayBuffer found
 // anywhere the walk reaches (the message, stack, stderr, stdout, a cause, an AggregateError entry, or the thrown
@@ -64,7 +68,8 @@ function checkLines(lines, { label, required }) {
 //
 // Only strings are kept. Each is scrubbed of the token's raw, URL-encoded, base64, base64url and hex (lower or
 // upper case, plain or spaced) forms, of every 16-character piece of the raw token, and of any base64 or hex run
-// that decodes to bytes holding one. Then it is checked again, as is and with every white space, control and
+// that decodes to bytes holding one, as decoded or with its spaces, controls and format characters taken out
+// (base64 or hex of UTF-16 text). Then it is checked again, as is and with every white space, control and
 // format character taken out: the NULs of UTF-16 or UTF-32 text read as UTF-8, a zero-width space, a line wrap.
 // A form found only that way cannot be scrubbed in place. If any form survives, or reading the error throws, the
 // error becomes the generic message, with nothing else attached (fail closed).
@@ -76,6 +81,10 @@ function checkLines(lines, { label, required }) {
 // - A deliberately obfuscated token: a list of decimal bytes, "0x" or "\x" before each byte, reversed or
 //   doubled characters, or the token's bytes misread in another encoding (UTF-8 read as UTF-16 shows as CJK).
 // - Raw byte buffers are omitted by design: a tool that writes its stderr as bytes loses that detail here.
+// - Text the caller already serialized (ruling R14). The caller must decode tool output to UTF-8 strings before
+//   it throws, and must not pre-serialize it. UTF-16 text that was pushed through JSON.stringify ("\u0000"),
+//   util.inspect ("\x00"), printableLines ("?") or encodeURIComponent ("%00") before it reached the gate is an
+//   accepted limit: a check-only gate could only make that error generic, never recover it.
 
 const SAFE_CODE = /^[A-Z0-9_]{1,64}$/;
 const B64_RUN = /[A-Za-z0-9+/_-]{16,}={0,2}/g;
@@ -84,6 +93,9 @@ const SQUEEZE = /[\s\p{Cc}\p{Cf}\p{Zl}\p{Zp}]+/gu;
 const CAUSE_DEPTH = 10;
 const CAUSE_COUNT = 20;
 const TEXT_MAX = 8192;
+// Only the first 1 MiB of a string is read (M1): at most 8 KiB of it is shown, and what is shown comes from
+// what was scanned, so the rest is dropped unread. This bounds the time a huge field can take.
+const SCAN_MAX = 1024 * 1024;
 // The built-in accessors, captured before any action runs: an Error's `stack` getter (an own accessor on every
 // Error in current V8) and the byte lengths of the byte containers. Only these are ever called, never one the
 // error defines.
@@ -109,16 +121,28 @@ function formsOf(token) {
   const windows = [];
   for (let i = 0; token.length > WINDOW && i + WINDOW <= token.length; i += 1) windows.push(token.slice(i, i + WINDOW));
   // The spaced hex holds spaces, so squeezing turns it into the plain hex; it is taken out before that check.
-  return { full, all: [...full, ...new Set(windows)], spaced: full.filter((f) => f.replace(SQUEEZE, '') !== f) };
+  const all = [...full, ...new Set(windows)];
+  return { full, all, shortest: Math.min(...all.map((f) => f.length)), spaced: full.filter((f) => f.replace(SQUEEZE, '') !== f) };
 }
 const holdsForm = (text, list) => list.some((f) => text.includes(f));
-// A base64 (or base64url) run that decodes, at any of the four character alignments, to bytes holding a form.
+// Decoded bytes, read one byte per character, that hold a form or a 16-character piece (N9), as they are or with
+// every space, control and format character taken out: base64 or hex of UTF-16 text decodes to the token with a
+// NUL after each character, as PowerShell's -EncodedCommand carries it (N10). Bytes too few to hold the shortest
+// form are skipped without a scan.
+const bytesHide = (bytes, forms) => {
+  if (bytes.length < forms.shortest) return false;
+  const text = bytes.toString('latin1');
+  if (holdsForm(text, forms.all)) return true;
+  const squeezed = text.replace(SQUEEZE, '');
+  return squeezed !== text && squeezed.length >= forms.shortest && holdsForm(squeezed, forms.all);
+};
+// A base64 (or base64url) run that decodes, at any of the four character alignments, to bytes that hide a form.
 const runHides = (run, forms) => {
-  for (let k = 0; k < 4; k += 1) if (holdsForm(Buffer.from(run.slice(k), 'base64').toString('latin1'), forms.full)) return true;
+  for (let k = 0; k < 4; k += 1) if (bytesHide(Buffer.from(run.slice(k), 'base64'), forms)) return true;
   return false;
 };
-// A hex run (either case) that decodes, at either character alignment, to bytes holding a form or a piece of one.
-const hexRunHides = (run, forms) => holdsForm(Buffer.from(run, 'hex').toString('latin1'), forms.all) || holdsForm(Buffer.from(run.slice(1), 'hex').toString('latin1'), forms.all);
+// A hex run (either case) that decodes, at either character alignment, to bytes that hide a form.
+const hexRunHides = (run, forms) => bytesHide(Buffer.from(run, 'hex'), forms) || bytesHide(Buffer.from(run.slice(1), 'hex'), forms);
 const hidesIn = (text, forms) => holdsForm(text, forms.all)
   || [...text.matchAll(B64_RUN)].some(([run]) => runHides(run, forms))
   || [...text.matchAll(HEX_RUN)].some(([run]) => hexRunHides(run, forms));
@@ -164,7 +188,7 @@ const crossesSqueezed = (text, forms) => {
   const squeezed = base.replace(SQUEEZE, '');
   return squeezed !== base && forms.all.some((f) => squeezed.includes(f) && count(squeezed, f) > count(base, f));
 };
-const cut = (text) => (text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}... [cut]` : text);
+const cut = (text, longer) => (longer || text.length > TEXT_MAX ? `${text.slice(0, TEXT_MAX)}... [cut]` : text);
 
 class Unclean extends Error {}
 
@@ -173,12 +197,34 @@ function own(o, key) {
   const d = Object.getOwnPropertyDescriptor(o, key);
   return d && 'value' in d ? d.value : undefined;
 }
-// `stack` is an own accessor on a real Error; its built-in getter only formats the frames V8 captured.
-function ownStack(o) {
+// The frame lines of the original's stack ("    at ..."), never its first line (N8). V8 formats a stack lazily,
+// on first read, as `${name}: ${String(message)}` plus the frames: that would run a `name` getter and the
+// message's toString, and print a typed array or an Array message as a list of decimal bytes. So the built-in
+// getter is called only while the gate's own Error.prepareStackTrace is in place, which formats the frames alone
+// and reads nothing from the error. A stack that was already formatted (the action read it, or assigned its own)
+// comes back as it was, so only its frame lines are kept. The global hook is put back before this returns.
+// Side effect: an original whose stack had not been read keeps the frames-only text; it is never rethrown.
+const framesOnly = (_error, sites) => sites.map((site) => `    at ${site}`).join('\n');
+function frameLines(o) {
   const d = Object.getOwnPropertyDescriptor(o, 'stack');
   if (!d) return undefined;
-  if ('value' in d) return d.value;
-  return d.get !== undefined && d.get === NATIVE_STACK_GET ? d.get.call(o) : undefined;
+  let text;
+  if ('value' in d) text = d.value;
+  else if (d.get !== undefined && d.get === NATIVE_STACK_GET) {
+    const saved = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+    Object.defineProperty(Error, 'prepareStackTrace', { value: framesOnly, writable: true, configurable: true });
+    try {
+      text = d.get.call(o);
+    } finally {
+      if (saved) Object.defineProperty(Error, 'prepareStackTrace', saved);
+      else delete Error.prepareStackTrace;
+    }
+  }
+  const note = bytesNote(text);
+  if (note !== undefined) return note;
+  if (typeof text !== 'string') return undefined;
+  const frames = text.split('\n').filter((line) => line.startsWith('    at '));
+  return frames.length ? frames.join('\n') : undefined;
 }
 const isObj = (v) => v !== null && (typeof v === 'object' || typeof v === 'function');
 
@@ -194,8 +240,10 @@ function cleanText(value, forms) {
   const note = bytesNote(value);
   if (note !== undefined) return note;
   if (typeof value !== 'string') return undefined;
-  if (crossesSqueezed(value, forms)) throw new Unclean();
-  const scrubbed = scrub(value, forms);
+  const longer = value.length > SCAN_MAX;
+  const text = longer ? value.slice(0, SCAN_MAX) : value;
+  if (crossesSqueezed(text, forms)) throw new Unclean();
+  const scrubbed = scrub(text, forms);
   // Checked before terminal cleaning too, which turns a NUL or a zero-width space into "?" and would hide the
   // token from the squeezed check.
   if (hides(scrubbed, forms)) throw new Unclean();
@@ -203,7 +251,7 @@ function cleanText(value, forms) {
   const clean = printableLines(scrubbed);
   // Again when terminal cleaning changed something: a "?" put in place of a control can complete a token holding "?".
   if (clean !== scrubbed && hides(clean, forms)) throw new Unclean();
-  return cut(clean);
+  return cut(clean, longer);
 }
 
 // The message of one entry in the cause chain: a string, a byte container's note, or an object's own `message`.
@@ -273,8 +321,14 @@ function sanitize(error, token, { code, what, transient = false }) {
       if (typeof errCode === 'string' && SAFE_CODE.test(errCode)) details.code = errCode;
       const status = own(error, 'status');
       if (Number.isInteger(status)) details.status = status;
-      const stack = cleanText(ownStack(error), forms);
-      if (stack !== undefined) details.stack = stack;
+      // The stack is the gate's own cleaned message over the cleaned frame lines, so the message is scanned
+      // once and the original's header is never read (N8).
+      const frames = cleanText(frameLines(error), forms);
+      if (frames !== undefined) {
+        const stack = message === undefined ? frames : `${message}\n${frames}`;
+        if (hides(stack, forms)) throw new Unclean();
+        details.stack = stack;
+      }
       for (const key of ['stderr', 'stdout']) {
         const text = cleanText(own(error, key), forms);
         if (text !== undefined) details[key] = text;

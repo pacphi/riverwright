@@ -547,9 +547,10 @@ test('I1: a code that is not a plain constant, or a status that is not an intege
 });
 
 test('I1: the stack the action already formatted is cleaned (stack scrubbing is exercised)', async () => {
-  const { caught } = await failWith((t) => { const e = new Error(`tok ${t}`); const formatted = e.stack; e.message = 'changed later'; assert.ok(formatted.includes(t)); return e; });
-  assert.match(caught.details.stack, /tok \[redacted\]/);
-  assert.equal(holdsToken(caught.details.stack), false);
+  // Since N8 only the frame lines are taken from the original stack; its first line is the gate's own message.
+  const { caught } = await failWith((t) => { const e = new Error('clean'); e.stack = `Error: tok ${t}\n    at ${t} (file.js:1:1)`; return e; });
+  assert.equal(caught.details.stack, 'clean\n    at [redacted] (file.js:1:1)');
+  assert.equal(holdsToken(rendered(caught)), false);
 });
 
 test('I1: a long base64 run or a commit SHA that does not hold the token is left alone', async () => {
@@ -849,9 +850,10 @@ test('N6: base64 wrapped across lines (any column) is caught', async () => {
   }
 });
 
-test('N6: a huge single base64-looking run fails closed with the generic message', async () => {
+test('N6, M1: a huge single base64-looking run is read only up to 1 MiB, then cut; it no longer has to fail closed', async () => {
   const { caught } = await failWith(() => Object.assign(new Error('x'), { stderr: 'A'.repeat(12 * 1024 * 1024) }));
-  assert.equal(caught.message, GENERIC);
+  assert.equal(caught.message, 'the action failed: x');
+  assert.equal(caught.details.stderr, `${'A'.repeat(8192)}... [cut]`);
 });
 
 // ---- Fix round 3 (R13, N7, hex case) ----
@@ -891,10 +893,11 @@ test('R13: bytes as the message, as a cause, inside an AggregateError, or thrown
   assert.equal(msg.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
   const bare = await failWith(() => bytes());
   assert.equal(bare.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
-  // On a real Error, V8 formats the stack from the message when it is first read, so the bytes come back as a
-  // NUL-interleaved string there: that string is caught by the N7 check and the error is generic.
+  // On a real Error, V8 would format the stack's first line from the message (N8): the gate takes only the
+  // frames from it and puts its own note on top.
   const onError = await failWith(() => Object.assign(new Error('x'), { message: bytes() }));
-  assert.equal(onError.caught.message, GENERIC);
+  assert.equal(onError.caught.message, `the action failed: ${omitted(2 * TOKEN.length)}`);
+  assert.match(onError.caught.details.stack, new RegExp(`^\\[${2 * TOKEN.length} bytes omitted\\]\\n {4}at `));
   for (const c of [caught, agg.caught, msg.caught, bare.caught, onError.caught]) assert.equal(holdsToken(rendered(c).replace(/[\s\0?]/g, '')), false);
 });
 
@@ -1009,4 +1012,161 @@ test('3a: mixed-case hex of the token, at either alignment, is scrubbed in place
 test('N7: a Basic header with NULs between its characters (UTF-16 text read as UTF-8) gives the generic message', async () => {
   const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: interleave(`Authorization: Basic ${b64(`x:${t}`)}`, '\0') }));
   assert.equal(caught.message, GENERIC);
+});
+
+// ---- Fix round 4 (N8, N9, N10, mutants) ----
+
+// A list of eight or more numbers joined by commas: how a typed array or an Array prints through toString.
+const DECIMALS = /\d+(?:\.\d+)?(?:\s*,\s*\d+(?:\.\d+)?){8,}/;
+const codeUnits = (t) => [...t].map((c) => c.charCodeAt(0));
+const CONTAINERS = [
+  ['a Uint8Array', (t) => new Uint8Array(Buffer.from(t))],
+  ['an Int16Array of code units', (t) => Int16Array.from(codeUnits(t))],
+  ['a Float64Array', (t) => Float64Array.from(Buffer.from(t))],
+  ['a plain Array of bytes', (t) => [...Buffer.from(t)]],
+];
+for (const [kind, make] of CONTAINERS) {
+  for (const key of ['message', 'name']) {
+    for (const [when, readFirst] of [['', false], [', with the stack read by the action first', true]]) {
+      test(`N8: ${kind} as the error's own ${key}${when} never reaches the stack as decimals`, async () => {
+        const { caught } = await failWith((t) => {
+          const e = new Error('x');
+          e[key] = make(t);
+          if (readFirst) void e.stack;
+          return e;
+        });
+        const all = rendered(caught);
+        assert.equal(DECIMALS.test(all), false, all);
+        assert.equal(holdsToken(all), false, all);
+        assert.match(caught.details.stack, /\n {4}at /);
+      });
+    }
+  }
+}
+
+test('N8: a message or name from a prototype getter, or a poisoned toString, is never called and never shown', async () => {
+  let calls = 0;
+  let tok;
+  class ByMessage extends Error { get message() { calls += 1; return new Uint8Array(Buffer.from(tok)); } }
+  class ByName extends Error { get name() { calls += 1; return new Uint8Array(Buffer.from(tok)); } }
+  class Poisoned extends Error {
+    get name() { calls += 1; return tok; }
+    toString() { calls += 1; return tok; }
+    [Symbol.toPrimitive]() { calls += 1; return tok; }
+  }
+  for (const make of [
+    () => { const e = new ByMessage(); delete e.message; return e; },
+    () => new ByName('clean'),
+    () => new Poisoned('clean'),
+    () => { const e = new Error('x'); e.message = { toString() { calls += 1; return tok; } }; return e; },
+  ]) {
+    const { caught } = await failWith((t) => { tok = t; return make(); });
+    const all = rendered(caught);
+    assert.equal(DECIMALS.test(all), false, all);
+    assert.equal(holdsToken(all), false, all);
+  }
+  assert.equal(calls, 0);
+});
+
+test('N8: the stack keeps the action\'s frames under the gate\'s own cleaned message, never the original header', async () => {
+  const { caught } = await failWith((t) => {
+    const e = new Error(`tok ${t}`);
+    const formatted = e.stack;
+    e.message = 'changed later';
+    assert.ok(formatted.startsWith(`Error: tok ${t}\n`));
+    return e;
+  });
+  assert.equal(caught.message, 'the action failed: changed later');
+  assert.match(caught.details.stack, /^changed later\n {4}at /);
+  assert.equal(caught.details.stack.includes('tok'), false);
+  // A frame that holds the token (a function named after it) is scrubbed.
+  const named = await failWith((t) => ({ [t]: () => new Error('from a named function') })[t]());
+  assert.match(named.caught.details.stack, /^from a named function\n {4}at .*\[redacted\]/);
+  assert.equal(holdsToken(rendered(named.caught)), false);
+});
+
+test('N9: a base64 run is checked for 16-character pieces too: halves in two fields, a cut Basic header, a cut token', async () => {
+  const halves = await failWith((t) => { const b = b64(t); return Object.assign(new Error(`a ${b.slice(0, 28)}`), { stderr: `b ${b.slice(28)}` }); });
+  assert.equal(halves.caught.message, 'the action failed: a [redacted]');
+  assert.equal(halves.caught.details.stderr, 'b [redacted]');
+  const basic = await failWith((t) => new Error(`401 Authorization: Basic ${b64(`x-access-token:${t}`).slice(0, 64)}...`));
+  assert.equal(basic.caught.message, 'the action failed: 401 Authorization: Basic [redacted]...');
+  const cut = await failWith((t) => new Error(`cut ${b64(t.slice(0, 30))}`));
+  assert.equal(cut.caught.message, 'the action failed: cut [redacted]');
+});
+
+test('N10: base64 or hex of UTF-16 text (PowerShell -EncodedCommand, a UTF-16 Buffer printed) is not shown', async () => {
+  const ps = await failWith((t) => new Error(`Command failed: powershell -EncodedCommand ${Buffer.from(`$env:X='${t}'`, 'utf16le').toString('base64')}`));
+  assert.equal(ps.caught.message, 'the action failed: Command failed: powershell -EncodedCommand [redacted]');
+  const hex16 = await failWith((t) => new Error(`bytes ${Buffer.from(`x ${t}`, 'utf16le').toString('hex')}`));
+  assert.equal(hex16.caught.message, 'the action failed: bytes [redacted]');
+  const odd = await failWith((t) => new Error(`bytes 7${Buffer.from(`x ${t}`, 'utf16le').toString('hex').toUpperCase()}`));
+  assert.equal(odd.caught.message, 'the action failed: bytes [redacted]');
+  // util.inspect shows the first 50 bytes, spaced: 25 characters of the token, found only once squeezed.
+  const shown = await failWith((t) => new Error(`unexpected ${util.inspect(Buffer.from(t, 'utf16le'))}`));
+  assert.equal(shown.caught.message, GENERIC);
+});
+
+test('mutants: a 16-character piece of the token is redacted and a 15-character piece is kept (the stated limit)', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(`p ${t.slice(5, 21)} q`), { stderr: `r ${t.slice(-16)} s`, stdout: `u ${t.slice(5, 20)} v` }));
+  assert.equal(caught.message, 'the action failed: p [redacted] q');
+  assert.equal(caught.details.stderr, 'r [redacted] s');
+  assert.equal(caught.details.stdout, `u ${TOKEN.slice(5, 20)} v`);
+});
+
+test('mutants: the hex of a 16-character piece (a 32-character hex run) is redacted, and a 30-character one is kept', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error(`h ${hexOf(t.slice(5, 21))} q`), { stderr: `k ${hexOf(t.slice(5, 20))} l` }));
+  assert.equal(caught.message, 'the action failed: h [redacted] q');
+  assert.equal(caught.details.stderr, `k ${hexOf(TOKEN.slice(5, 20))} l`);
+});
+
+test('mutants: a Basic header glued after one, two or three base64 characters is redacted at every alignment', async () => {
+  for (const glue of ['a', 'ab', 'abc', 'abcd']) {
+    const { caught } = await failWith((t) => new Error(`${glue}${b64(`x:${t}`)}`));
+    assert.equal(caught.message, 'the action failed: [redacted]', glue);
+    assert.equal(holdsToken(rendered(caught)), false, glue);
+  }
+});
+
+test('mutants: the hex of a 20-character piece, wrapped every 10 characters or NUL-interleaved, gives the generic message', async () => {
+  for (const make of [
+    (t) => new Error(hexOf(t.slice(0, 20)).match(/.{1,10}/g).join('\n')),
+    (t) => new Error([...hexOf(t.slice(3, 23))].join('\0')),
+  ]) {
+    const { caught } = await failWith(make);
+    assert.equal(caught.message, GENERIC);
+  }
+});
+
+test('M1: only the first 1 MiB of a field is scanned; what lies past it is never read or shown, and the field is marked cut', async () => {
+  // A NUL-interleaved token makes a field generic when it is read; past 1 MiB it is not read at all.
+  const far = await failWith((t) => new Error(`${'x'.repeat(1024 * 1024)}${interleave(t, '\0')}`));
+  assert.equal(far.caught.message, `the action failed: ${'x'.repeat(8192)}... [cut]`);
+  // Within the first 1 MiB it is still caught, even far past the 8 KiB that is shown.
+  const near = await failWith((t) => new Error(`${'x'.repeat(1024 * 1024 - 200)}${interleave(t, '\0')}`));
+  assert.equal(near.caught.message, GENERIC);
+  // A field that shrinks when scrubbed below 8 KiB is still marked cut when its tail was not read.
+  const shrunk = await failWith((t) => Object.assign(new Error('x'), { stderr: `${b64(`x:${t}${'z'.repeat(800_000)}`)} tail` }));
+  assert.equal(shrunk.caught.details.stderr, '[redacted]... [cut]');
+});
+
+test('N8: the global Error.prepareStackTrace is put back after the gate reads a stack, whether it was set or not', async () => {
+  const before = Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace');
+  await failWith((t) => new Error(`tok ${t}`));
+  assert.deepEqual(Object.getOwnPropertyDescriptor(Error, 'prepareStackTrace'), before);
+  const mine = (err, frames) => `mine ${frames.length}`;
+  try {
+    Error.prepareStackTrace = mine;
+    const { caught } = await failWith(() => new Error('plain failure'));
+    assert.equal(Error.prepareStackTrace, mine);
+    assert.match(caught.details.stack, /^plain failure\n {4}at /);
+  } finally {
+    if (before) Object.defineProperty(Error, 'prepareStackTrace', before);
+    else delete Error.prepareStackTrace;
+  }
+});
+
+test('N8, R13: a stack that is a byte buffer is named by its size under the gate\'s message, never decoded', async () => {
+  const { caught } = await failWith((t) => { const o = { message: 'x' }; Object.defineProperty(o, 'stack', { value: Buffer.from(t) }); return o; });
+  assert.equal(caught.details.stack, `x\n${omitted(TOKEN.length)}`);
 });
