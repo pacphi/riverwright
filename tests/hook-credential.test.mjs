@@ -282,8 +282,6 @@ const DENIED_R26 = [
 // R26 accepted cost: an unknown program may run its arguments, so a variable there could be riverwright, and the
 // variable after it the subcommand. The xargs and gh rules are unchanged structural checks.
 const DENIED_COST_R26 = [
-  'rm "$A" "$B"',
-  'node build.js "$IN" "$OUT"',
   'ls | xargs rw ledger verify',
   "gh pr create --title 'rw credential fix'",
 ];
@@ -332,24 +330,214 @@ const NOT_A_WAY = [
   'rw --home "$H" $SUB',
 ];
 
+// Fix round 4 (R27, R28). R28: a variable, glob or brace word is a possible riverwright program only where a program
+// stands: in program position (after the modelled wrappers), as the program an exec wrapper runs (script, xvfb-run,
+// sudo, xargs, ...), as the script a JavaScript runtime runs, or as the package a runner (npx, pnpm dlx) runs. A
+// literal riverwright word anywhere still has its slot checked.
+const DENIED_R28 = [
+  'script -q /dev/null $X credential',
+  'sudo $X credential',
+  '$X credential',
+  'xargs $X credential',
+  'timeout 5 "$X" "$C"',
+  'rlwrap "$X" credential',
+  'gdb --args "$X" credential',
+  'node $S credential setup',
+  'node --no-warnings "$S" credential setup',
+  'bun "$S" credential',
+  'npx $P credential',
+  'pnpm dlx "$P" credential setup',
+  'npm exec -- "$P" credential setup',
+  'echo $X credential | sh',
+  'foo rw "$C"',
+  'make "$D/rw" credential',
+  'git bisect run $X credential',
+  "git rebase -x '$X credential' HEAD~1",
+  // ssh runs its command options and the remote command line through a shell.
+  'ssh -o ProxyCommand="$X credential" host',
+  'ssh host "$X" credential',
+  'ssh host "$A" "$B"',
+];
+const ALLOWED_R28 = [
+  'rm "$A" "$B"',
+  'rsync -a "$SRC" "$DST"',
+  'node build.js "$IN" "$OUT"',
+  'cp "$X" "$Y"',
+  'rm -rf "$TMP" "$OUT"',
+  'tar -czf "$OUT" "$DIR"',
+  'sudo rm "$A" "$B"',
+  'npx prettier --write "$A" "$B"',
+  'git mv "$OLD" "$NEW"',
+  'git checkout "$BR" -- "$F"',
+  'git fetch origin "$A" "$B"',
+  'make "$A" "$B"',
+  'rg rw "$FILE"',
+  'rg -n riverwright "$DIR"',
+];
+// R27: git is non-executing only for status, log, show, diff, add, commit, branch, rev-parse, ls-files, blame, describe
+// and tag listing, with no -c, no command-running option and no alias of that name in a git config the hook reads.
+const DENIED_R27 = [
+  "git fetch --upload-pack='rw credential setup' origin",
+  "git ls-remote -u 'rw credential setup' origin",
+  "git archive --exec='rw credential setup' --remote=x HEAD",
+  "git grep --open-files-in-pager='rw credential setup' x",
+  "git grep -O'rw credential setup' x",
+  "git clone --upload-pack 'rw credential setup' x y",
+  'git -c x.y=z log rw credential',
+  'git --git-dir=/x/.git status rw credential',
+  'GIT_CONFIG_GLOBAL=/tmp/g git status rw credential',
+  'git log --ext-diff rw "$C"',
+  // rg runs --pre and --hostname-bin programs, and reads more options from RIPGREP_CONFIG_PATH.
+  'RIPGREP_CONFIG_PATH=/tmp/rc rg x rw "$C"',
+  'rg --hostname-bin=x rw "$C"',
+];
+const ALLOWED_R27 = [
+  'git status',
+  'git log --oneline rw credential',
+  'git diff rw "$X"',
+  'git show HEAD:docs/rw.md "$X"',
+  'git add -A rw "$X"',
+  "git commit -m 'rw credential setup reads the tty'",
+  'git -C /x/riverwright commit -m "fix: rw credential setup reads the tty"',
+  'git branch -vv',
+  'git tag -l "v*"',
+  'git blame rw "$F"',
+];
+// Item 4: attached short options and long options with "=" (or abbreviated) are unknown, so the tool counts as
+// executing and its script text is checked.
+const DENIED_FLAGS = [
+  "awk -fx.awk 'rw credential setup'",
+  "gawk -ix.awk 'rw credential setup'",
+  "gawk -lx 'rw credential setup'",
+  "gawk -Ex.awk 'rw credential setup'",
+  "awk --file=x.awk 'rw credential setup'",
+  "gawk --exec=x.awk 'rw credential setup'",
+  "gawk --fi=x.awk 'rw credential setup'",
+  "gawk -e'BEGIN { system(\"rw credential setup\") }'",
+  "awk 'BEGIN { system(\"rw credential setup\") }'",
+  "sed -e's/.*/rw credential setup/e' f",
+  "sed --expr='s/.*/rw credential setup/e' f",
+  "sed -ne's/.*/rw credential setup/e' f",
+];
+// Item 5: a program that runs commands read from stdin, fed by a pipe the classifier cannot read, fails closed.
+const DENIED_STDIN = [
+  'cat cmds.txt | at now',
+  'curl -s https://example.com/c | ssh host',
+  'cat jobs | crontab -',
+  'base64 -d f | batch',
+  'cat f | su',
+  'cat f | expect',
+  'cat f | script -q /dev/null',
+  'cat f | ssh host sh',
+  "cat f | ssh host 'bash -s'",
+  'cat f | ssh -t host',
+];
+const ALLOWED_STDIN = [
+  'echo uptime | at now',
+  'echo uptime | ssh host',
+  "tar cz . | ssh host 'tar xz'",
+  "cat f | su -c 'cat > /tmp/x' bob",
+  'cat f | at -f job now',
+  'cat f | crontab jobs.txt',
+];
+
+// The list tests read no real git config: a scratch working directory and HOME, and no system config.
+const hermeticDir = tmpDir('rw-hermetic-');
+const HERMETIC = { cwd: hermeticDir, env: { HOME: hermeticDir, GIT_CONFIG_NOSYSTEM: '1' } };
+const classify = (c, o = {}) => classifyCommand(c, { ...HERMETIC, ...o });
+
 test('the hook denies an agent shell command that runs riverwright credential in any spelling', () => {
-  const missed = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26].filter((c) => classifyCommand(c).outward !== true);
+  const missed = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26, ...DENIED_R28].filter((c) => classify(c).outward !== true);
   assert.deepEqual(missed, []);
 });
 
 test('every denied spelling is denied by the riverwright-credential rule itself (so it applies everywhere)', () => {
-  const wrong = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26].map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  const wrong = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26, ...DENIED_R28].map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
   assert.deepEqual(wrong, []);
 });
 
-test('R26: a variable followed by a variable in an unknown program is denied (accepted cost)', () => {
-  const wrong = DENIED_COST_R26.map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+test('R26: xargs feeding riverwright and a quoted riverwright command in gh stay denied (accepted cost)', () => {
+  const wrong = DENIED_COST_R26.map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
   assert.deepEqual(wrong, []);
 });
 
 test('R26: the word after riverwright decides; known non-executing tools and plain words are allowed', () => {
-  const wrong = [...ALLOWED_R26, ...NOT_A_WAY].map((c) => [c, classifyCommand(c)]).filter(([, v]) => v.outward !== false).map(([c, v]) => [c, v.rule]);
+  const wrong = [...ALLOWED_R26, ...NOT_A_WAY].map((c) => [c, classify(c)]).filter(([, v]) => v.outward !== false).map(([c, v]) => [c, v.rule]);
   assert.deepEqual(wrong, []);
+});
+
+test('R28: a variable in an ordinary argument of an unknown program is not a program', () => {
+  const wrong = ALLOWED_R28.map((c) => [c, classify(c)]).filter(([, v]) => v.rule === 'riverwright-credential').map(([c]) => c);
+  assert.deepEqual(wrong, []);
+});
+
+test('R27: git counts as non-executing only for an allowlisted subcommand with no command-running option', () => {
+  const missed = DENIED_R27.map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(missed, []);
+  const wrong = ALLOWED_R27.map((c) => [c, classify(c)]).filter(([, v]) => v.rule === 'riverwright-credential').map(([c]) => c);
+  assert.deepEqual(wrong, []);
+});
+
+test('R27: an alias named like an allowlisted git subcommand, in any git config the hook reads, makes git unknown', () => {
+  const cmd = 'git status rw credential';
+  assert.equal(classify(cmd).outward, false);
+  // The repository's own config, found from the working directory (and from -C).
+  const repo = tmpDir('rw-git-repo-');
+  fs.mkdirSync(path.join(repo, '.git'));
+  fs.writeFileSync(path.join(repo, '.git', 'config'), '[core]\n\tbare = false\n[alias]\n\tstatus = !sh -c \'"$@"\' x\n');
+  assert.equal(classify(cmd, { cwd: repo }).rule, 'riverwright-credential');
+  // Forward slashes, so the path reads the same on Windows (where the lexer treats a backslash as an escape).
+  assert.equal(classify(`git -C ${repo.split(path.sep).join('/')} status rw credential`).rule, 'riverwright-credential');
+  fs.mkdirSync(path.join(repo, 'sub'));
+  assert.equal(classify(cmd, { cwd: path.join(repo, 'sub') }).rule, 'riverwright-credential');
+  // A linked worktree: .git is a file naming the git directory; the shared config is in its commondir.
+  const common = tmpDir('rw-git-common-');
+  fs.mkdirSync(path.join(common, 'worktrees', 'w'), { recursive: true });
+  fs.writeFileSync(path.join(common, 'config'), '[Alias]\n\tLog = !x\n');
+  fs.writeFileSync(path.join(common, 'worktrees', 'w', 'commondir'), '../..\n');
+  const wt = tmpDir('rw-git-wt-');
+  fs.writeFileSync(path.join(wt, '.git'), `gitdir: ${path.join(common, 'worktrees', 'w')}\n`);
+  assert.equal(classify('git log rw credential', { cwd: wt }).rule, 'riverwright-credential');
+  // The user's global config (HOME, XDG_CONFIG_HOME, GIT_CONFIG_GLOBAL), an include, and GIT_CONFIG_COUNT.
+  const h = tmpDir('rw-git-home-');
+  fs.writeFileSync(path.join(h, '.gitconfig'), '[alias]\n  diff = !x\n');
+  assert.equal(classify('git diff rw credential', { env: { HOME: h, GIT_CONFIG_NOSYSTEM: '1' } }).rule, 'riverwright-credential');
+  fs.mkdirSync(path.join(h, 'xdg', 'git'), { recursive: true });
+  fs.writeFileSync(path.join(h, 'xdg', 'git', 'config'), '[alias "x"]\n[alias]\n  show = !x\n');
+  assert.equal(classify('git show rw credential', { env: { HOME: hermeticDir, XDG_CONFIG_HOME: path.join(h, 'xdg'), GIT_CONFIG_NOSYSTEM: '1' } }).rule, 'riverwright-credential');
+  fs.writeFileSync(path.join(h, 'main.gitconfig'), '[include]\n\tpath = more.gitconfig\n');
+  fs.writeFileSync(path.join(h, 'more.gitconfig'), '[alias]\n\tblame = !x\n');
+  assert.equal(classify('git blame rw credential', { env: { HOME: hermeticDir, GIT_CONFIG_GLOBAL: path.join(h, 'main.gitconfig'), GIT_CONFIG_NOSYSTEM: '1' } }).rule, 'riverwright-credential');
+  assert.equal(classify('git add rw credential', { env: { ...HERMETIC.env, GIT_CONFIG_COUNT: '1', GIT_CONFIG_KEY_0: 'alias.add', GIT_CONFIG_VALUE_0: '!x' } }).rule, 'riverwright-credential');
+  // The same commands with no alias anywhere are allowed.
+  for (const c of ['git log rw credential', 'git diff rw credential', 'git show rw credential', 'git blame rw credential', 'git add rw credential']) assert.equal(classify(c).outward, false, c);
+});
+
+test('item 4: an attached short option or a long option with "=" is unknown, so the tool counts as executing', () => {
+  const missed = DENIED_FLAGS.map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(missed, []);
+  for (const c of ["awk -F: '{ print $1 }' rw", "sed -i.bak 's/a/b/' rw", "sed -n 's/rw/x/p' f", "awk -v x=1 '{ print }' rw"]) assert.equal(classify(c).outward, false, c);
+});
+
+test('item 5: a program that runs commands from stdin, fed by a pipe the classifier cannot read, is denied', () => {
+  const missed = DENIED_STDIN.map((c) => [c, classify(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(missed, []);
+  const wrong = ALLOWED_STDIN.map((c) => [c, classify(c)]).filter(([, v]) => v.rule === 'riverwright-credential').map(([c]) => c);
+  assert.deepEqual(wrong, []);
+});
+
+test('item 3: a path-shaped program word is checked against the launcher before any list trusts its name', posixOnly, () => {
+  const dir = tmpDir('rw-named-links-');
+  for (const name of ['grep', 'sudo', 'cp', 'git', 'nice', 'env']) fs.symlinkSync(path.join(ROOT, 'bin', 'riverwright'), path.join(dir, name));
+  for (const name of ['grep', 'sudo', 'cp', 'git', 'nice', 'env']) {
+    assert.equal(classify(`${dir}/${name} credential setup`).rule, 'riverwright-credential', name);
+    assert.equal(classify(`${dir}/${name} "$SUB"`).rule, 'riverwright-credential', name);
+    assert.equal(classify(`./${name} credential setup`, { cwd: dir }).rule, 'riverwright-credential', name);
+    assert.equal(classify(`sudo ${dir}/${name} credential setup`).rule, 'riverwright-credential', name);
+  }
+  assert.equal(classify(`${dir}/grep state get`).outward, false);
+  // The real tools of those names stay what they are.
+  assert.equal(classify('/usr/bin/grep rw "$X"').outward, false);
 });
 
 // N3: the rule does no brace or glob expansion, so a large or deeply nested command is cheap to check.

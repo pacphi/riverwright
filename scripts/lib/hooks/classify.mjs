@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realish } from '../paths.mjs';
@@ -12,49 +13,73 @@ export { hasUnresolved };
 // subcommand, eval, a shell reading code from a pipe) is outward with rule "unresolvable".
 //
 // The riverwright-credential rule (an agent running "riverwright credential") applies everywhere, not only
-// in the workspace, and outranks every other rule in the same command (R23). It is the subcommand-slot rule (R26):
-// the CLI dispatches on its first argument alone, so riverwright runs the credential command only when the word right
-// after the program is "credential". Every word is read the way the shell decodes it first (quotes, backslash
-// escapes, ANSI-C $'..' with \x, \u and octal, line continuations including CRLF). Then, for each word that is or
-// could be riverwright (rw/riverwright as the name or last path component, with .cmd/.mjs/.exe and the like;
-// cli.mjs or credential.mjs; a package such as riverwright@latest or npm:riverwright; a path whose realpath is one
-// of the launcher files; a variable, substitution, glob or brace that could produce one), the next word is denied
-// when it is, could be, or could vanish into "credential": a variable or substitution with no literal text that
-// rules it out (--run="$RUN" cannot be "credential"; "$X" can), a glob that matches it, any brace or extglob, %NAME%,
-// a PowerShell splat or comma list, a parenthesised argument (fish, PowerShell), or a "--" or glob that may vanish
-// ahead of it. After a literal riverwright program only its own slot counts: its other arguments are riverwright's.
-//   - Known non-executing tools: the arguments of grep, egrep, fgrep, rg, echo, printf, cat, head, tail, wc, sort,
-//     uniq, diff, cmp, ls, stat, file, mount, umount, chmod, chown, cp, mv, ln, mkdir, rmdir, touch, cut, tr,
-//     curl, wget, jq, rg (no --pre), sed (no e/w/W command or flag, no -f script), awk (no system() or pipe, no
-//     -f), find (no -exec/-execdir/-ok/-okdir) and git (not bisect, rebase, submodule, difftool, mergetool, config,
-//     hook and the other subcommands that run a command), seen through env, sudo, nice, nohup, timeout, time,
-//     command, exec, builtin and the other pass-through wrappers, are not read as programs, and their quoted
-//     arguments are not read as commands. git's -c values and "!" aliases are always read as commands.
-//   - Every other program fails closed: all of its words are checked, and its quoted arguments, here-documents
-//     and here-strings are lexed as commands. Nested payloads are lexed and checked the same way: sh/bash/zsh/
-//     dash/pwsh/cmd -c, eval, env -S, su -c, expect -c, script, tmux, screen, watch and ssh (their joined
-//     arguments), ssh -o ProxyCommand=..., git -c alias.*=!... and other -c values, command substitutions, code
-//     piped or fed to a shell or to at, batch, crontab, ssh, su, script or expect (when the piped text cannot be
-//     read exactly, the words of the command that writes it are checked as if they ran), and assignments
-//     (EDITOR="...", x="..."; $x).
+// in the workspace, and outranks every other rule in the same command (R23).
+// Threat model (ADR-0010): the credential command needs a terminal (setup reads the token and passphrase, remove asks
+// for typed confirmation), so the harm this rule guards against is an agent driving it by accident or because an
+// injected instruction told it to (for example `setup --replace` with a passphrase the agent chose). It does not stop
+// a determined forger running as the same user, who can reach the vault file without this command at all. The
+// passphrase, typed by the human in their own terminal, is the protection; this rule is a guard rail, so it is kept
+// from blocking ordinary agent work.
+// It is the subcommand-slot rule (R26): the CLI dispatches on its first argument alone, so riverwright runs the
+// credential command only when the word right after the program is "credential". Every word is read the way the shell
+// decodes it first (quotes, backslash escapes, ANSI-C $'..' with \x, \u and octal, line continuations including
+// CRLF). Then, for each word that is or could be riverwright, the next word is denied when it is, could be, or could
+// vanish into "credential": a variable or substitution with no literal text that rules it out (--run="$RUN" cannot be
+// "credential"; "$X" can), a glob that matches it, any brace or extglob, %NAME%, a PowerShell splat or comma list, a
+// parenthesised argument (fish, PowerShell), or a "--" or glob that may vanish ahead of it. After a literal riverwright
+// program only its own slot counts: its other arguments are riverwright's.
+//   - What counts as riverwright (R28). A literal word, anywhere: rw/riverwright as the name or last path component
+//     (with .cmd/.mjs/.exe and the like), cli.mjs or credential.mjs, a package such as riverwright@latest or
+//     npm:riverwright, the value of KEY=VALUE or a "!" alias, or a path whose realpath is one of the launcher files.
+//     A variable, substitution, glob or brace that could produce one counts only where a program stands: in program
+//     position (after env, sudo, nice, nohup, timeout, time, command, exec and the other modelled wrappers), anywhere
+//     in the arguments of an exec wrapper (script, xvfb-run, rlwrap, firejail, gdb, chroot, pkexec, runuser,
+//     systemd-run, faketime, winpty, valgrind, unshare, chrt, taskset, watch, flock, xargs, parallel, ...), of a git
+//     subcommand that runs commands, or of text about to be run (a pipe into a shell), as the script of node or bun,
+//     or as the package of npx, pnpm dlx, npm exec and the other runners. It is never one in an ordinary argument of
+//     an unknown program, so rm "$A" "$B" and node build.js "$IN" "$OUT" are allowed.
+//   - A path-shaped program word is resolved against the launcher files before any list trusts its name (a link
+//     named grep or sudo to the launcher is riverwright), and a path with a variable directory is not trusted at all.
+//   - Known non-executing tools: the arguments of grep, egrep, fgrep, echo, printf, cat, head, tail, wc, sort, uniq,
+//     diff, cmp, ls, stat, file, mount, umount, chmod, chown, cp, mv, ln, mkdir, rmdir, touch, cut, tr, curl, wget,
+//     jq, rg (no --pre, --hostname-bin or RIPGREP_CONFIG_PATH), sed (no e/w/W, no -f), awk (no system() or pipe, no
+//     -f/-i/-l/-E), find (no -exec/-execdir/-ok/-okdir) are not read as programs, and their quoted arguments are not
+//     read as commands. An option the check cannot place (an attached -fX, -iX, -lX, -EX, an abbreviated or "="
+//     long option) makes sed or awk unknown. git (R27) counts only for status, log, show, diff, add, commit, branch,
+//     rev-parse, ls-files, blame, describe and tag listing, with no -c, no option that runs a command or changes the
+//     repository or configuration, no GIT_* assignment before it, and no alias of that name in any git config the
+//     hook can read (the repository's, found from the working directory or -C; the user's global; the system's;
+//     their includes; GIT_CONFIG_COUNT). The configs are only read, never written; one that cannot be read makes
+//     git unknown. git's -c values, command-running option values and "!" aliases are always read as commands.
+//   - Every other program fails closed: its literal riverwright words are checked, and its quoted arguments,
+//     here-documents and here-strings are lexed as commands. Nested payloads are lexed and checked the same way:
+//     sh/bash/zsh/dash/pwsh/cmd -c, eval, env -S, su -c, expect -c, script, tmux, screen, watch (their joined
+//     arguments), ssh (the remote command line, and -o ProxyCommand, LocalCommand, KnownHostsCommand and
+//     RemoteCommand), git -c alias.*=!... and other -c values, command substitutions, code piped or fed to a shell,
+//     and assignments (EDITOR="...", x="..."; $x).
+//   - A program that runs commands read from stdin (at, batch, crontab, expect, and ssh, su, runuser and script with
+//     no command of their own) fed by a pipe: text the classifier can reproduce exactly is judged as a command;
+//     anything else is denied (cat cmds.txt | at now).
 //   - Structural checks kept from earlier rounds: xargs, parallel, find -exec and rg --pre feeding riverwright;
-//     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, ...) that names
-//     it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
+//     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, a sed e command,
+//     an awk system(), ...) that names it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
 // Its honest limits: it reads one command line, so it cannot see
 //   - code inside a script file, Makefile or package.json that the command runs (sh ./x.sh, make, npm run),
 //     including a script written by the same command (printf "rw credential setup" > s.sh && sh s.sh);
 //   - a command or argument built from pieces or encoded (base64 -d | sh, IFS games, 'cred' + 'ential' in a
-//     language the classifier does not read);
+//     language the classifier does not read); a shell (not one of the stdin runners above) reading a pipe it
+//     cannot read is only "unresolvable", which is denied in the workspace or while a run is active;
+//   - a whole command held in one variable and run by a shell elsewhere (ssh host "$CMD", sh -c "$CMD");
+//   - a variable that names riverwright in an ordinary argument of a program that runs it in a way the classifier
+//     does not model (an unknown program's --cmd="$X" option, a python script that runs its arguments);
 //   - a renamed launcher that cannot be resolved by path: a plain copy or a hard link, a symlink reached by bare
-//     name through PATH, or a link created by the same command (only a path that realpath resolves to the launcher
-//     files now is recognised);
-//   - a tool on the non-executing list that turns out to run something (a sed or awk spelling the check misses, a
-//     curl or git configuration file);
+//     name through PATH or through a variable directory ("$D/tool"), or a link created by the same command;
+//   - a tool on the non-executing list that runs something through its configuration (a curl config, an rg config
+//     already in the environment, a git pager, editor, external diff, hook or fsmonitor set in a config file);
 //   - a deliberate forger running as the same user, who can always reach the vault another way.
-// It over-blocks in unknown programs on purpose: "$A" "$B" there is denied (the first could be riverwright, the
-// second "credential"), as are quoted arguments that mention both (gh pr create --title 'rw credential fix').
-// The passphrase, typed by the human in their own terminal, is the real protection (ADR-0010); this rule stops
-// accidents and prompt injection.
+// It over-blocks on purpose where a program may run its arguments: "$A" "$B" after an exec wrapper (xvfb-run cp
+// "$A" "$B") is denied, as are quoted arguments of an unknown program, or of a git subcommand off the allowlist, that
+// mention both (gh pr create --title 'rw credential fix', git stash push -m 'rw credential setup').
 
 const MAX_INPUT = 256 * 1024;
 const MAX_DEPTH = 8;
@@ -610,57 +635,312 @@ function holdsCredential(w, ctx) {
 
 // Known tools that never run their arguments as commands (R26). Their arguments are not read as programs. sed and
 // awk count only without a way to run a command (sed's e command or flag, w/W file writes; awk's system() or a
-// pipe), find only without -exec/-execdir/-ok/-okdir. git counts too, but its -c values and "!" aliases are read
-// as commands (gitPayloads). Every other program fails closed: all of its words are checked.
+// pipe) and only when every option is one the check knows (an attached or abbreviated option it cannot place, such
+// as -fX, -iX, -lX, -EX or --fi=X, makes the tool unknown). find counts only without -exec/-execdir/-ok/-okdir, rg
+// only without --pre, --hostname-bin or a RIPGREP_CONFIG_PATH assignment, and git only for the allowlist below
+// (R27). Every other program fails closed: its literal riverwright words are checked, and its quoted arguments are
+// read as commands.
 const NON_EXECUTING = new Set(['grep', 'egrep', 'fgrep', 'rg', 'echo', 'printf', 'cat', 'head', 'tail', 'wc', 'sort', 'uniq', 'diff', 'cmp', 'ls', 'stat', 'file', 'mount', 'umount', 'chmod', 'chown', 'cp', 'mv', 'ln', 'mkdir', 'rmdir', 'touch', 'cut', 'tr', 'curl', 'wget', 'jq', 'git', 'sed', 'awk', 'gawk', 'mawk', 'nawk', 'find']);
 const FIND_EXEC = ['-exec', '-execdir', '-ok', '-okdir'];
 
-// The script texts of a sed or awk command, or null when one is read from a file (unknown).
-function toolScripts(prog, args) {
+// The one long option a (possibly abbreviated) name stands for, or null when it is unknown or ambiguous.
+function longOption(name, known) {
+  if (known.includes(name)) return name;
+  const hits = name ? known.filter((o) => o.startsWith(name)) : [];
+  return hits.length === 1 ? hits[0] : null;
+}
+
+const AWK_LONG = ['file', 'include', 'load', 'exec', 'source', 'assign', 'field-separator'];
+const SED_LONG = ['expression', 'file', 'in-place', 'line-length', 'quiet', 'silent', 'regexp-extended', 'separate', 'null-data', 'zero-terminated', 'unbuffered', 'posix', 'debug', 'sandbox', 'follow-symlinks', 'binary', 'help', 'version'];
+
+// The script texts of an awk command, or null when a script comes from a file or an option is unknown.
+function awkScripts(args) {
   const scripts = [];
-  let positional = null;
-  const awk = prog !== 'sed';
   for (let i = 0; i < args.length; i += 1) {
     const t = nameOf(args[i]);
-    if (t === '--') { positional = positional ?? nameOf(args[i + 1]); break; }
-    if (awk) {
-      if (/^(-f|--file|-i|--include|-l|--load|-E|--exec)$/.test(t) || /^--(file|include|load|exec)=/.test(t)) return null;
-      if (t === '-e' || t === '--source') { scripts.push(nameOf(args[i + 1])); i += 1; continue; }
-      if (t.startsWith('--source=')) { scripts.push(t.slice(9)); continue; }
-      if (t === '-v' || t === '-F') { i += 1; continue; }
-    } else {
-      if (t === '--file' || t.startsWith('--file=') || /^-[a-zA-Z]*f/.test(t) && !t.startsWith('--')) return null;
-      if (t === '--expression' || /^-[a-zA-Z]*e$/.test(t) && !t.startsWith('--')) { scripts.push(nameOf(args[i + 1])); i += 1; continue; }
-      if (t.startsWith('--expression=')) { scripts.push(t.slice(13)); continue; }
-      if (t === '-l' || t === '--line-length') { i += 1; continue; }
+    if (t === '--') { if (!scripts.length && i + 1 < args.length) scripts.push(nameOf(args[i + 1])); return scripts; }
+    if (t.startsWith('--')) {
+      const eq = t.indexOf('=');
+      const name = t.slice(2, eq === -1 ? undefined : eq);
+      // Any name that could abbreviate a file-loading option is unknown, even when it could also be another one.
+      if (['file', 'include', 'load', 'exec'].some((o) => o.startsWith(name))) return null;
+      const opt = longOption(name, AWK_LONG);
+      if (opt === 'source') { scripts.push(eq === -1 ? nameOf(args[i += 1]) : t.slice(eq + 1)); continue; }
+      if (opt && eq === -1) i += 1;
+      continue;
     }
-    if ((t.startsWith('-') && t !== '-') || t === '') continue;
-    positional = t;
-    break;
+    if (t.startsWith('-') && t !== '-') {
+      // A cluster of short options; the first that takes a value takes the rest of the word (or the next word).
+      for (let j = 1; j < t.length; j += 1) {
+        const c = t[j];
+        const rest = t.slice(j + 1);
+        if ('filEW'.includes(c)) return null;
+        if (c === 'e') { scripts.push(rest || nameOf(args[i += 1])); break; }
+        if (c === 'v' || c === 'F') { if (!rest) i += 1; break; }
+      }
+      continue;
+    }
+    if (!scripts.length) scripts.push(t);
+    return scripts;
   }
-  if (!scripts.length && positional !== null) scripts.push(positional);
   return scripts;
 }
 
-// git subcommands that run a command they are given (bisect run, rebase -x, submodule foreach, difftool
-// --extcmd, a configured editor or alias, hooks).
-const GIT_RUNNERS = new Set(['bisect', 'rebase', 'submodule', 'filter-branch', 'filter-repo', 'difftool', 'mergetool', 'config', 'hook', 'for-each-repo', 'daemon', 'instaweb', 'send-email']);
-
-function gitSubcommand(args) {
+// The script texts of a sed command, or null when a script comes from a file or an option is unknown. After a bare
+// -i the next word may be a suffix (BSD) or the script (GNU): both are read as scripts.
+function sedScripts(args) {
+  const scripts = [];
+  let suffixMaybe = false;
   for (let i = 0; i < args.length; i += 1) {
     const t = nameOf(args[i]);
-    if (t === '-c' || t === '--config-env' || GIT_VALUE_OPTS.has(t)) { i += 1; continue; }
-    if (t.startsWith('-')) continue;
-    return t.toLowerCase();
+    if (t === '--') { if (!scripts.length) scripts.push(...args.slice(i + 1, i + 1 + (suffixMaybe ? 2 : 1)).map(nameOf)); return scripts; }
+    if (t.startsWith('--')) {
+      const eq = t.indexOf('=');
+      const opt = longOption(t.slice(2, eq === -1 ? undefined : eq), SED_LONG);
+      if (opt === null || opt === 'file') return null;
+      if (opt === 'expression') scripts.push(eq === -1 ? nameOf(args[i += 1]) : t.slice(eq + 1));
+      if (opt === 'line-length' && eq === -1) i += 1;
+      continue;
+    }
+    if (t.startsWith('-') && t !== '-') {
+      for (let j = 1; j < t.length; j += 1) {
+        const c = t[j];
+        const rest = t.slice(j + 1);
+        if (c === 'f') return null;
+        if (c === 'e') { scripts.push(rest || nameOf(args[i += 1])); break; }
+        if (c === 'i' || c === 'I') { if (!rest) suffixMaybe = true; break; }
+        if (c === 'l') { if (!rest) i += 1; break; }
+        if (!'nsErRuzbH'.includes(c)) return null;
+      }
+      continue;
+    }
+    if (t === '' && suffixMaybe) continue;
+    if (!scripts.length) {
+      scripts.push(t);
+      // Read as BSD sed would (the word after -i was its suffix). BSD sed has no e command, and a w file write in the
+      // GNU reading is already checked, so this second reading counts only for an e.
+      if (suffixMaybe && i + 1 < args.length && nameOf(args[i + 1]).includes('e')) scripts.push(nameOf(args[i + 1]));
+    }
+    return scripts;
   }
-  return null;
+  return scripts;
 }
 
-function nonExecuting(prog, args) {
+function toolScripts(prog, args) {
+  return prog === 'sed' ? sedScripts(args) : awkScripts(args);
+}
+
+// R27: git counts as non-executing only for these built-in subcommands, with no -c or --config-env, no option that
+// runs a command or changes which repository or configuration git reads, no GIT_* assignment before it, and no alias
+// of that name in any git config the hook can read. git ignores an alias named like a built-in command, so the alias
+// check is a second line of defence. tag counts only when it lists tags.
+const GIT_SAFE = new Set(['status', 'log', 'show', 'diff', 'add', 'commit', 'branch', 'rev-parse', 'ls-files', 'blame', 'describe', 'tag']);
+const GIT_SAFE_GLOBALS = new Set(['--no-pager', '-P', '-p', '--paginate', '--no-optional-locks', '--literal-pathspecs', '--glob-pathspecs', '--noglob-pathspecs', '--icase-pathspecs', '--no-replace-objects', '--no-advice']);
+// git subcommands that run a command they are given (bisect run, rebase -x, submodule foreach, difftool --extcmd, a
+// configured editor or alias, hooks). Their arguments are checked like an exec wrapper's.
+const GIT_RUNNERS = new Set(['bisect', 'rebase', 'submodule', 'filter-branch', 'filter-repo', 'difftool', 'mergetool', 'config', 'hook', 'for-each-repo', 'daemon', 'instaweb', 'send-email']);
+// Options (long names; git accepts any unambiguous prefix) that run a command, and those that only stop git from
+// counting as non-executing (a configured external diff, text conversion or editor).
+const GIT_RUNNING_LONG = ['exec', 'upload-pack', 'receive-pack', 'open-files-in-pager', 'extcmd'];
+const GIT_UNSAFE_LONG = ['ext-diff', 'textconv', 'edit', 'tool'];
+// The short option that runs a command, per subcommand (grep -O, fetch -u, rebase -x).
+const GIT_SHORT_RUNNERS = { grep: 'O', fetch: 'u', pull: 'u', clone: 'u', 'ls-remote': 'u', rebase: 'x' };
+
+// The git tier for the credential rule: "safe" (non-executing), "broad" (it runs a command it is given: every word
+// may be a program, like an exec wrapper) or "narrow" (an unknown program: its literal riverwright words are checked).
+// alias: the body of an alias of that name, when one is found.
+function gitTier(args, ctx, pre) {
+  let safe = !pre.some((w) => /^GIT_\w*=/i.test(nameOf(w)));
+  let broad = false;
+  let dir = ctx.opts.cwd;
+  let i = 0;
+  for (; i < args.length; i += 1) {
+    const w = args[i];
+    const t = nameOf(w);
+    if (t === '-c' || t === '--config-env') { broad = true; i += 1; continue; }
+    if (/^-c./.test(t) || t.startsWith('--config-env=')) { broad = true; continue; }
+    if (t === '-C') {
+      const d = args[i + 1];
+      if (!d || isDynamic(d)) safe = false;
+      else dir = path.resolve(dir, nameOf(d));
+      i += 1;
+      continue;
+    }
+    if (GIT_SAFE_GLOBALS.has(t)) continue;
+    if (t.startsWith('-')) { safe = false; if (GIT_VALUE_OPTS.has(t)) i += 1; continue; }
+    break;
+  }
+  const subWord = args[i];
+  if (!subWord) return { tier: broad ? 'broad' : safe ? 'safe' : 'narrow' };
+  if (isDynamic(subWord) || /[*?[{}]/.test(shapeOf(subWord))) return { tier: 'broad' };
+  const sub = nameOf(subWord).toLowerCase();
+  const rest = args.slice(i + 1);
+  const end = rest.findIndex((w) => nameOf(w) === '--');
+  const opts = (end === -1 ? rest : rest.slice(0, end)).map(nameOf);
+  for (const t of opts) {
+    if (t.startsWith('--')) {
+      const name = t.slice(2).split('=')[0].toLowerCase();
+      if (!name) continue;
+      if (GIT_RUNNING_LONG.some((o) => o.startsWith(name))) { broad = true; safe = false; }
+      else if (GIT_UNSAFE_LONG.some((o) => o.startsWith(name))) safe = false;
+    } else if (/^-[^-]/.test(t) && /[xOue]/.test(t.slice(1))) {
+      safe = false;
+      if (GIT_SHORT_RUNNERS[sub] && t.slice(1).includes(GIT_SHORT_RUNNERS[sub])) broad = true;
+    }
+  }
+  if (GIT_RUNNERS.has(sub)) broad = true;
+  const aliases = gitAliases(ctx, dir);
+  if (aliases === null) safe = false;
+  else if (aliases.has(sub)) return { tier: 'broad', alias: aliases.get(sub) };
+  if (broad) return { tier: 'broad' };
+  const listing = sub !== 'tag' || !rest.length || opts.some((t) => t === '--list' || /^-[a-z]*l/i.test(t));
+  return { tier: safe && GIT_SAFE.has(sub) && listing ? 'safe' : 'narrow' };
+}
+
+// git configuration, read (never written) only to find aliases: the repository's config (found from the working
+// directory or -C, through a linked worktree's commondir), the user's global config, the system config, included
+// files, and GIT_CONFIG_COUNT / GIT_CONFIG_PARAMETERS. Returns a Map of alias name to body, or null when a file
+// cannot be read (then git is not trusted). Cached per directory for one command.
+const GIT_CONFIG_MAX = 1024 * 1024;
+
+function gitAliases(ctx, dir) {
+  const cache = ctx.opts.gitCache;
+  if (cache.has(dir)) return cache.get(dir);
+  let out = new Map();
+  try {
+    const env = ctx.opts.env;
+    const seen = new Set();
+    for (const f of [...gitRepoConfigs(dir, env), ...gitUserConfigs(env, ctx.opts.platform)]) {
+      if (!readGitConfig(f, out, env, 0, seen)) { out = null; break; }
+    }
+    if (out && !gitEnvAliases(env, out, seen)) out = null;
+  } catch {
+    out = null;
+  }
+  cache.set(dir, out);
+  return out;
+}
+
+function gitRepoConfigs(dir, env) {
+  if (env.GIT_DIR) return gitDirConfigs(path.resolve(dir, env.GIT_DIR));
+  let d = path.resolve(dir);
+  for (let n = 0; n < 256; n += 1) {
+    const dotgit = path.join(d, '.git');
+    let st = null;
+    try { st = fs.statSync(dotgit); } catch (err) { if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err; }
+    if (st?.isDirectory()) return gitDirConfigs(dotgit);
+    if (st?.isFile()) {
+      const m = /^gitdir:\s*(.+?)\s*$/m.exec(fs.readFileSync(dotgit, 'utf8').slice(0, 4096));
+      if (!m) throw new Error('a .git file that names no git directory');
+      return gitDirConfigs(path.resolve(d, m[1]));
+    }
+    const parent = path.dirname(d);
+    if (parent === d) break;
+    d = parent;
+  }
+  return [];
+}
+
+function gitDirConfigs(gitDir) {
+  let common = gitDir;
+  try {
+    common = path.resolve(gitDir, fs.readFileSync(path.join(gitDir, 'commondir'), 'utf8').trim());
+  } catch (err) {
+    if (err.code !== 'ENOENT' && err.code !== 'ENOTDIR') throw err;
+  }
+  return [path.join(common, 'config'), path.join(gitDir, 'config.worktree')];
+}
+
+const truthy = (v) => /^(1|true|yes|on)$/i.test(String(v ?? '').trim());
+
+function gitUserConfigs(env, platform) {
+  const home = env.HOME || env.USERPROFILE || null;
+  const files = [];
+  if (env.GIT_CONFIG_GLOBAL) files.push(env.GIT_CONFIG_GLOBAL);
+  else {
+    const xdg = env.XDG_CONFIG_HOME || (home && path.join(home, '.config'));
+    if (xdg) files.push(path.join(xdg, 'git', 'config'));
+    if (home) files.push(path.join(home, '.gitconfig'));
+  }
+  if (env.GIT_CONFIG) files.push(env.GIT_CONFIG);
+  if (!truthy(env.GIT_CONFIG_NOSYSTEM)) {
+    if (env.GIT_CONFIG_SYSTEM) files.push(env.GIT_CONFIG_SYSTEM);
+    else {
+      files.push('/etc/gitconfig', '/opt/homebrew/etc/gitconfig', '/usr/local/etc/gitconfig', '/Library/Developer/CommandLineTools/usr/share/git-core/gitconfig', '/Applications/Xcode.app/Contents/Developer/usr/share/git-core/gitconfig');
+      if (platform === 'win32') for (const pf of new Set([env.ProgramFiles, env.PROGRAMFILES, 'C:\\Program Files'].filter(Boolean))) files.push(path.join(pf, 'Git', 'etc', 'gitconfig'));
+    }
+  }
+  return files;
+}
+
+const gitUnquote = (v) => String(v).replace(/\s+[#;].*$/, '').trim().replace(/^"([\s\S]*)"$/, '$1').replace(/\\(.)/g, '$1');
+
+// Reads one config file's aliases into `out` and follows its includes (every includeIf is followed, whatever its
+// condition). A missing file is fine; any other failure returns false.
+function readGitConfig(file, out, env, depth, seen) {
+  if (depth > 10 || seen.size > 64) return false;
+  const abs = path.resolve(file);
+  if (seen.has(abs)) return true;
+  seen.add(abs);
+  let text;
+  try {
+    const st = fs.statSync(abs);
+    if (!st.isFile()) return true;
+    if (st.size > GIT_CONFIG_MAX) return false;
+    text = fs.readFileSync(abs, 'utf8');
+  } catch (err) {
+    return err.code === 'ENOENT' || err.code === 'ENOTDIR';
+  }
+  let section = '';
+  let sub = null;
+  for (const raw of text.split(/\r?\n/)) {
+    let line = raw.trim();
+    const h = /^\[\s*([A-Za-z0-9.-]+)(?:\s+"((?:[^"\\]|\\.)*)")?\s*\](.*)$/.exec(line);
+    if (h) {
+      section = h[1].toLowerCase();
+      sub = h[2] ?? null;
+      const dot = section.indexOf('.');
+      if (dot !== -1) { sub = section.slice(dot + 1); section = section.slice(0, dot); }
+      if (section === 'alias' && sub !== null) out.set(sub.toLowerCase(), '');
+      line = h[3].trim();
+    }
+    if (!line || line.startsWith('#') || line.startsWith(';')) continue;
+    const m = /^([A-Za-z][A-Za-z0-9-]*)\s*(?:=\s*(.*))?$/.exec(line);
+    if (!m) continue;
+    const key = m[1].toLowerCase();
+    const value = gitUnquote(m[2] ?? '');
+    if (section === 'alias' && sub === null) out.set(key, value);
+    if ((section === 'include' || section === 'includeif') && key === 'path' && value) {
+      const home = env.HOME || env.USERPROFILE || '';
+      const p = value.startsWith('~/') ? path.join(home, value.slice(2)) : path.resolve(path.dirname(abs), value);
+      if (!readGitConfig(p, out, env, depth + 1, seen)) return false;
+    }
+  }
+  return true;
+}
+
+function gitEnvAliases(env, out, seen) {
+  const n = Number.parseInt(env.GIT_CONFIG_COUNT ?? '0', 10);
+  if (n > 0) {
+    if (n > 1000) return false;
+    for (let i = 0; i < n; i += 1) {
+      const key = String(env[`GIT_CONFIG_KEY_${i}`] ?? '').toLowerCase();
+      if (key.startsWith('alias.')) out.set(key.slice(6), String(env[`GIT_CONFIG_VALUE_${i}`] ?? ''));
+      if (/^include(if)?\..*path$/.test(key) && !readGitConfig(String(env[`GIT_CONFIG_VALUE_${i}`] ?? ''), out, env, 1, seen)) return false;
+    }
+  }
+  for (const m of String(env.GIT_CONFIG_PARAMETERS ?? '').matchAll(/alias\.([^'=\s]+)/gi)) out.set(m[1].toLowerCase(), '');
+  if (/include/i.test(String(env.GIT_CONFIG_PARAMETERS ?? ''))) return false;
+  return true;
+}
+
+// pre: the words before the program (assignments, env and wrapper words).
+function nonExecuting(prog, args, ctx, pre = []) {
   if (!NON_EXECUTING.has(prog)) return false;
-  if (prog === 'git') return !GIT_RUNNERS.has(gitSubcommand(args));
-  // ripgrep runs a --pre preprocessor with each file name as its argument.
-  if (prog === 'rg') return !args.some((w) => /^--pre(=|$)/.test(nameOf(w)));
+  if (prog === 'git') return gitTier(args, ctx, pre).tier === 'safe';
+  // ripgrep runs a --pre preprocessor with each file name as its argument, and a --hostname-bin program; a config
+  // file named by RIPGREP_CONFIG_PATH can add either. Its long options cannot be abbreviated.
+  if (prog === 'rg') return !pre.some((w) => /^RIPGREP_CONFIG_PATH=/.test(nameOf(w))) && !args.some((w) => /^--(pre|hostname-bin)(=|$)/.test(nameOf(w)));
   if (prog === 'find') return !args.some((w) => FIND_EXEC.includes(nameOf(w)));
   if (prog === 'sed') { const s = toolScripts(prog, args); return s !== null && !s.some((x) => /[ewW]/.test(x)); }
   if (/awk$/.test(prog)) { const s = toolScripts(prog, args); return s !== null && !s.some((x) => /system|\|/.test(x)); }
@@ -675,15 +955,24 @@ const PASS_WRAPPERS = new Set(Object.keys(WRAPPERS).filter((p) => p !== 'watch' 
 const JOINERS = new Set(['ssh', 'watch', 'su', 'runuser', 'script', 'tmux', 'screen', 'expect', 'flock']);
 const ASSIGNMENT = /^[A-Za-z_][A-Za-z0-9_]*\+?=/;
 
+// A path-shaped program word that is the launcher (its realpath is one of the launcher files), whatever it is
+// called: checked before any list trusts its name (./bin/grep -> riverwright is riverwright, not grep).
+const isLauncherPath = (w, ctx) => Boolean(w) && !isDynamic(w) && /[\\/]/.test(nameOf(w)) && resolvesToLauncher(nameOf(w), ctx);
+// A program word whose name can be trusted for the lists: not a path with a variable directory ("$D/grep" can be
+// any file named grep, including a link to the launcher).
+const trustsName = (w) => !(isDynamic(w) && /[\\/]/.test(nameOf(w)));
+
 // The index of the program: past leading keywords, assignments, env (its options and assignments) and the
-// pass-through wrappers. words.length when there is none (env -S, a lone assignment).
-function programIndex(ws) {
+// pass-through wrappers. words.length when there is none (env -S, a lone assignment). A path-shaped word that is the
+// launcher, or that has a variable directory, is the program whatever its name.
+function programIndex(ws, ctx) {
   let i = 0;
   let wrappers = 0;
   while (i < ws.length) {
     const w = ws[i];
     const t = nameOf(w);
     if ((!w.quoted && KEYWORDS.has(t)) || ASSIGNMENT.test(t)) { i += 1; continue; }
+    if (/[\\/]/.test(t) && (!trustsName(w) || isLauncherPath(w, ctx))) break;
     const p = programName(w);
     if (p === 'env') {
       i += 1;
@@ -721,14 +1010,15 @@ function xargsCommandIndex(args) {
 }
 
 // Does the command run anything it is given (so quoted text and here-documents in it could be commands)?
-function isExecuting(ws) {
-  const k = programIndex(ws);
+function isExecuting(ws, ctx) {
+  const k = programIndex(ws, ctx);
   if (k >= ws.length) return true;
+  if (isLauncherPath(ws[k], ctx) || !trustsName(ws[k])) return true;
   const p = programName(ws[k]);
   if (p === null) return true;
   const args = ws.slice(k + 1);
-  if (p === 'xargs') return isExecuting(args.slice(xargsCommandIndex(args)));
-  return !nonExecuting(p, args);
+  if (p === 'xargs') return isExecuting(args.slice(xargsCommandIndex(args)), ctx);
+  return !nonExecuting(p, args, ctx, ws.slice(0, k));
 }
 
 // Text that a program will run as a command, lexed and checked with this rule. Only a credential verdict counts.
@@ -736,6 +1026,20 @@ function payload(text, ctx) {
   if (!PAYLOAD_HINT.test(text)) return null;
   const v = classifyScript(text, ctx.deeper(false, true));
   return isCredential(v) ? v : null;
+}
+
+// A "!" alias body (git runs it with a shell): checked as a command, and denied when it runs riverwright (the
+// arguments after the alias on the command line are riverwright's).
+function gitAliasBody(body, ctx) {
+  const code = body.replace(/^!/, '');
+  const v = payload(code, ctx);
+  if (v) return v;
+  if (body.startsWith('!')) {
+    const first = lex(code).commands[0];
+    const ws = first ? first.words.slice(programIndex(first.words, ctx)) : [];
+    if (ws.length && mayBeRiverwright(ws[0], ctx)) return credentialVerdict('a git "!" alias runs riverwright (the arguments after it could be "credential")');
+  }
+  return null;
 }
 
 // git runs -c values that hold commands (alias.x=!..., core.pager, core.editor, core.sshCommand) and any "!" alias
@@ -747,22 +1051,71 @@ function gitPayloads(args, ctx) {
     if (t === '-c' && args[i + 1]) { const v = nameOf(args[i + 1]); body = v.slice(v.indexOf('=') + 1); i += 1; }
     else if (t.startsWith('-c') && t.length > 2) body = t.slice(t.indexOf('=') + 1);
     else if (t.startsWith('!')) body = t;
-    if (body === null) continue;
-    const code = body.replace(/^!/, '');
-    const v = payload(code, ctx);
-    if (v) return v;
-    if (body.startsWith('!')) {
-      const first = lex(code).commands[0];
-      const ws = first ? first.words.slice(programIndex(first.words)) : [];
-      if (ws.length && mayBeRiverwright(ws[0], ctx)) return credentialVerdict('a git "!" alias runs riverwright (the arguments after it could be "credential")');
+    else {
+      // A command-running option with its value attached (--upload-pack=..., -O..., -x...).
+      const m = /^(?:--[a-z-]+=|-[xOu])(.+)$/.exec(t);
+      if (m && (/^-[xOu]/.test(t) || GIT_RUNNING_LONG.some((o) => o.startsWith(t.slice(2, t.indexOf('=')))))) body = m[1];
     }
+    if (body === null) continue;
+    const v = gitAliasBody(body, ctx);
+    if (v) return v;
   }
   return null;
 }
 
+// R28: programs that run a program named among their arguments. sudo, env, nice, nohup, timeout and the other
+// modelled wrappers are looked through (programIndex), so the program they run is in program position; for the
+// others every variable, glob or brace word in their arguments may be that program.
+const EXEC_WRAPPERS = new Set(['script', 'xvfb-run', 'rlwrap', 'firejail', 'gdb', 'chroot', 'pkexec', 'runuser', 'systemd-run', 'faketime', 'winpty', 'valgrind', 'unshare', 'nohup', 'timeout', 'stdbuf', 'setsid', 'flock', 'sudo', 'doas', 'env', 'nice', 'ionice', 'chrt', 'taskset', 'strace', 'ltrace', 'time', 'watch', 'xargs', 'parallel']);
+// JavaScript runtimes run a script operand and package runners run a package: that word stands where a program does.
+const JS_RUNTIMES = new Set(['node', 'nodejs', 'bun']);
+const PACKAGE_RUNNERS = new Set(['npx', 'bunx', 'pnpx']);
+const RUNNER_SUBCOMMANDS = { npm: ['exec', 'x'], pnpm: ['exec', 'dlx'], yarn: ['dlx', 'exec'], bun: ['x', 'run', 'exec'], deno: ['run', 'x'] };
+const isPlainWord = (w) => !isDynamic(w) && !/[*?[{}]/.test(shapeOf(w)) && !EXTGLOB.test(shapeOf(w));
+
+// The arguments (indices) that stand where a program does for a JavaScript runtime or package runner: every
+// variable, glob or brace word up to the first plain operand, that operand, and the word after "--".
+function programOperands(prog, args) {
+  const out = new Set();
+  let start = null;
+  if (JS_RUNTIMES.has(prog) || PACKAGE_RUNNERS.has(prog)) start = 0;
+  if (Object.hasOwn(RUNNER_SUBCOMMANDS, prog)) {
+    const s = args.findIndex((w) => !nameOf(w).startsWith('-'));
+    if (s !== -1 && RUNNER_SUBCOMMANDS[prog].includes(nameOf(args[s]).toLowerCase())) start = s + 1;
+  }
+  if (start === null) return out;
+  for (let j = start; j < args.length; j += 1) {
+    const w = args[j];
+    const t = nameOf(w);
+    if (t === '--') { if (j + 1 < args.length) out.add(j + 1); break; }
+    if (!isPlainWord(w)) { out.add(j); continue; }
+    if (t.startsWith('-')) {
+      if (JS_RUNTIMES.has(prog) && /^(-e|-p|--eval|--print)(=|$)/.test(t)) break;
+      continue;
+    }
+    out.add(j);
+    break;
+  }
+  return out;
+}
+
+// A literal riverwright word (R28): its last path segment, or the value of a KEY=VALUE word or a "!" alias, names
+// riverwright with no variable, glob or brace in it; or a path that resolves to the launcher files.
+function namesRiverwright(w, ctx) {
+  const s = shapeOf(w);
+  const plain = (f) => { const seg = f.split(/[\\/]/).pop(); return !/[*?[\]{}]/.test(seg) && !EXTGLOB.test(seg); };
+  const forms = [s];
+  const eq = s.indexOf('=');
+  if (eq !== -1) forms.push(s.slice(eq + 1).replace(/^!/, ''));
+  if (s.startsWith('!')) forms.push(s.slice(1));
+  if (forms.some((f) => plain(f) && formCouldBeRiverwright(f, false))) return true;
+  return !isDynamic(w) && resolvesToLauncher(nameOf(w), ctx);
+}
+
 // The slot rule over one command's words. Returns a credential verdict or null. parenNext: the command was cut
 // short by "(" (fish and PowerShell evaluate a parenthesised argument, so its output is the next word).
-// force: check every word even when the program is a non-executing tool (its output is about to be run).
+// force: check every word even when the program is a non-executing tool (its output is about to be run), and let
+// any word be a program.
 function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
   if (!ws.length || depth > 8) return null;
   // Assignments before the program can hold a command the program runs (EDITOR, PAGER, GIT_SSH_COMMAND) or a
@@ -774,12 +1127,24 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
     const v = payload(t.slice(t.indexOf('=') + 1), ctx);
     if (v) return v;
   }
-  const k = programIndex(ws);
-  const prog = k < ws.length ? programName(ws[k]) : undefined;
+  const k = programIndex(ws, ctx);
+  const progWord = ws[k];
+  const launcher = isLauncherPath(progWord, ctx);
+  // A launcher path has no name to trust; a variable directory makes the name untrustworthy for the allow lists.
+  const prog = k < ws.length && !launcher ? programName(progWord) : undefined;
+  const trusted = prog != null && trustsName(progWord);
   const args = ws.slice(k + 1);
-  if (prog === 'git') { const v = gitPayloads(args, ctx); if (v) return v; }
-  if (prog && !force && nonExecuting(prog, args)) return null;
-  if (prog === 'xargs') return credentialSlots(args.slice(xargsCommandIndex(args)), ctx, depth + 1);
+  const pre = ws.slice(0, k);
+  let broadArgs = force || (prog != null && EXEC_WRAPPERS.has(prog));
+  if (prog === 'git') {
+    const v = gitPayloads(args, ctx);
+    if (v) return v;
+    const g = trusted ? gitTier(args, ctx, pre) : { tier: 'broad' };
+    if (g.alias) { const a = gitAliasBody(g.alias, ctx); if (a) return a; }
+    if (g.tier === 'safe' && !force) return null;
+    if (g.tier === 'broad') broadArgs = true;
+  } else if (trusted && !force && nonExecuting(prog, args, ctx, pre)) return null;
+  if (prog === 'xargs') return credentialSlots(args.slice(xargsCommandIndex(args)), ctx, depth + 1, false, force);
   if (prog === 'find') {
     // Only the commands find runs; its own arguments are paths and tests.
     for (let i = 0; i < args.length; i += 1) {
@@ -790,30 +1155,51 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
       if (v) return v;
       i = end;
     }
-    return null;
+    if (!force) return null;
   }
   if (prog === 'rg') {
     // rg --pre PROG runs PROG with each file name as its first argument: a file can be named "credential".
     for (let i = 0; i < args.length; i += 1) {
       const t = nameOf(args[i]);
-      const pre = t === '--pre' ? args[i + 1] : t.startsWith('--pre=') ? { ...args[i], value: t.slice(6), shape: shapeOf(args[i]).slice(6) } : null;
-      if (pre && mayBeRiverwright(pre, ctx)) return credentialVerdict('rg --pre runs riverwright with each file name as its subcommand (a file can be named "credential")');
+      const pp = t === '--pre' ? args[i + 1] : t.startsWith('--pre=') ? { ...args[i], value: t.slice(6), shape: shapeOf(args[i]).slice(6) } : null;
+      if (pp && mayBeRiverwright(pp, ctx)) return credentialVerdict('rg --pre runs riverwright with each file name as its subcommand (a file can be named "credential")');
     }
+  }
+  if (prog === 'sed' || /awk$/.test(prog ?? '')) {
+    // A sed e command or an awk system() that names riverwright and credential.
+    const scripts = toolScripts(prog, args) ?? [];
+    if (scripts.some((s) => inlineCredential(s))) return credentialVerdict(CREDENTIAL_DETAIL);
   }
   if (prog === 'start-process' || prog === 'saps') {
     if (args.some((w) => mayBeRiverwright(w, ctx))) return credentialVerdict('Start-Process runs riverwright with an argument list (it could hold "credential")');
   }
-  // Which words could be riverwright: for a literal riverwright program, only the words up to it (its own
-  // arguments are riverwright's); for anything else, every word (an unknown program may run its arguments).
-  const last = k < ws.length && isLiteralRiverwright(ws[k]) ? k : ws.length - 1;
+  // Which words are checked: for a riverwright program (literal, or a path to the launcher), only the words up to it
+  // (its own arguments are riverwright's); for anything else, every word, under the R28 limits below.
+  const last = k < ws.length && (launcher || isLiteralRiverwright(progWord)) ? k : ws.length - 1;
+  // R28: a variable, glob or brace word can be the program only where a program stands: program position, the
+  // arguments of an exec wrapper (or of a git subcommand that runs commands, or of text about to be run), the script
+  // of a JavaScript runtime or the package of a runner. Elsewhere only a literal riverwright word counts.
+  const operands = prog != null ? programOperands(prog, args) : new Set();
   // slot[j]: the slot starting at word j is, could be, or could vanish into "credential". Filled right to left.
   const slot = new Array(ws.length + 1).fill(false);
   slot[ws.length] = parenNext;
   for (let j = ws.length - 1; j >= 0; j -= 1) slot[j] = couldBeCredential(ws[j]) || (mayVanish(ws[j]) && slot[j + 1]);
   for (let i = 0; i <= last; i += 1) {
-    if ((slot[i + 1] && mayBeRiverwright(ws[i], ctx)) || holdsCredential(ws[i], ctx)) return credentialVerdict(SLOT_DETAIL);
+    if (holdsCredential(ws[i], ctx)) return credentialVerdict(SLOT_DETAIL);
+    if (!slot[i + 1]) continue;
+    const anywhere = i === k || force || (broadArgs && i > k) || operands.has(i - k - 1);
+    if (anywhere ? mayBeRiverwright(ws[i], ctx) : namesRiverwright(ws[i], ctx)) return credentialVerdict(SLOT_DETAIL);
   }
-  if (prog && (JOINERS.has(prog) || EVALUATORS.has(prog))) {
+  if (prog === 'ssh') {
+    // ssh runs its command options through a shell, and the remote command line through the remote shell: each is
+    // checked as a command whose first word stands where a program does (ssh host "$X" credential).
+    const { options, remote } = sshParts(args);
+    const texts = [...options.filter(([key]) => SSH_COMMAND_OPTIONS.has(key)).map(([, v]) => v), remote.map(nameOf).join(' ')];
+    for (const text of texts) {
+      const v = text.trim() ? classifyScript(text, ctx.deeper(false, true)) : null;
+      if (isCredential(v)) return v;
+    }
+  } else if (prog && (JOINERS.has(prog) || EVALUATORS.has(prog))) {
     const v = payload(args.map((w) => nameOf(w)).join(' '), ctx);
     if (v) return v;
   }
@@ -823,13 +1209,92 @@ function credentialSlots(ws, ctx, depth = 0, parenNext = false, force = false) {
   return null;
 }
 
-// Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads).
+// Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
+// they are given no command of their own.
 const STDIN_RUNNERS = new Set(['at', 'batch', 'crontab', 'ssh', 'su', 'runuser', 'script', 'expect']);
+const SSH_VALUE_OPTS = new Set('bcDEeFIiJLlmOopQRSWwB'.split(''));
+
+// ssh's own options (with their values), its host and the remote command words. -o values come as [key, value].
+function sshParts(args) {
+  const options = [];
+  let i = 0;
+  for (; i < args.length; i += 1) {
+    const t = nameOf(args[i]);
+    if (t === '--') { i += 1; break; }
+    if (t.startsWith('-') && t.length > 1) {
+      // A cluster: the first option that takes a value takes the rest of the word or the next word.
+      const j = [...t.slice(1)].findIndex((c) => SSH_VALUE_OPTS.has(c));
+      if (j === -1) continue;
+      const attached = t.slice(j + 2);
+      const value = attached || nameOf(args[i + 1] ?? { value: '' });
+      if (!attached) i += 1;
+      if (t[j + 1] === 'o') { const m = /^\s*([A-Za-z]+)\s*(?:=|\s)\s*([\s\S]*)$/.exec(value); if (m) options.push([m[1].toLowerCase(), m[2]]); }
+      continue;
+    }
+    break;
+  }
+  return { options, host: args[i], remote: args.slice(i + 1) };
+}
+
+// ssh options whose value is a command line run by a local or remote shell.
+const SSH_COMMAND_OPTIONS = new Set(['proxycommand', 'localcommand', 'knownhostscommand', 'remotecommand']);
+
+// Does this stdin runner read commands from stdin (rather than from a file, or passing stdin to a command)?
+function readsCommandsFromStdin(prog, args) {
+  const ts = args.map(nameOf);
+  if (prog === 'at' || prog === 'batch') return !ts.some((t) => /^-[a-zA-Z]*f/.test(t));
+  if (prog === 'crontab') {
+    if (ts.some((t) => /^-[a-zA-Z]*[lre]/.test(t))) return false;
+    const files = ts.filter((t, i) => !(t.startsWith('-') && t !== '-') && ts[i - 1] !== '-u');
+    return !files.length || files.includes('-');
+  }
+  if (prog === 'expect') {
+    if (ts.some((t) => /^-[a-zA-Z]*c/.test(t))) return false;
+    const files = ts.filter((t) => !(t.startsWith('-') && t !== '-'));
+    return !files.length || files[0] === '-' || ts.includes('-f') && ts[ts.indexOf('-f') + 1] === '-';
+  }
+  if (prog === 'su' || prog === 'runuser') return !ts.some((t) => /^--(command|session-command)(=|$)/.test(t) || /^-[a-zA-Z]*c/.test(t));
+  if (prog === 'script') {
+    if (ts.some((t) => /^--command(=|$)/.test(t) || /^-[a-zA-Z]*c/.test(t))) return false;
+    const positionals = [];
+    for (let i = 0; i < ts.length; i += 1) {
+      if (/^-[TIOBEmt]$/.test(ts[i])) { i += 1; continue; }
+      if (ts[i].startsWith('-') && ts[i] !== '-') continue;
+      positionals.push(i);
+    }
+    return positionals.length < 2;
+  }
+  if (prog === 'ssh') {
+    const { remote } = sshParts(args);
+    if (!remote.length) return true;
+    // A remote shell or interpreter with no script reads the commands from stdin too (ssh host sh, ssh host 'bash -s').
+    const first = lex(remote.map(nameOf).join(' ')).commands[0];
+    const ws = first ? first.words : [];
+    const p = programName(ws[0]);
+    if (p === null) return false;
+    const rest = ws.slice(1).map(nameOf);
+    if (SHELLS.has(p)) return rest.every((t) => t.startsWith('-') && !/^-[a-zA-Z]*c/.test(t));
+    return INTERPRETERS.some((x) => x.test.test(p)) && rest.every((t) => t === '-');
+  }
+  return false;
+}
 
 // The command piping into a program that runs its stdin: its output is a command, so its words are checked as if
 // it ran them (echo -e 'rw credential setup' | sh, printf '%s\n' rw credential | at now).
 function pipedCredential(prev, ctx) {
   return prev && ctx.cred ? credentialSlots(prev.words, ctx, 1, false, true) : null;
+}
+
+// A stdin runner fed by a pipe: text the classifier can reproduce exactly is judged as a command; anything else is
+// denied (it cannot be read, and the runner would run it).
+function stdinRunnerCredential(cmd, ctx) {
+  const k = programIndex(cmd.words, ctx);
+  const p = k < cmd.words.length && !isLauncherPath(cmd.words[k], ctx) ? programName(cmd.words[k]) : null;
+  if (!STDIN_RUNNERS.has(p) || !readsCommandsFromStdin(p, cmd.words.slice(k + 1))) return null;
+  const text = pipedText(cmd.prev);
+  if (text === null) return pipedCredential(cmd.prev, ctx) ?? credentialVerdict(`${p} runs commands piped in from another command, and the classifier cannot read them exactly`);
+  const v = classifyScript(text, ctx.deeper(true));
+  return isCredential(v) ? v : null;
 }
 
 // Inline code (node -e, python -c, perl -e, ruby -e, deno eval, bun -e) that starts riverwright with "credential"
@@ -853,13 +1318,11 @@ function classifySimple(cmd, ctx) {
   }
   // The riverwright-credential rule (R26) runs before any other rule can settle the verdict.
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
-  if (ctx.cred && cmd.stdin === 'pipe' && STDIN_RUNNERS.has(programName(cmd.words[programIndex(cmd.words)]))) {
-    if (take(pipedCredential(cmd.prev, ctx))) return found;
-  }
+  if (ctx.cred && cmd.stdin === 'pipe' && take(stdinRunnerCredential(cmd, ctx))) return found;
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo
   // or git commit -m are text, never commands.
-  const runs = ctx.cred && isExecuting(cmd.words);
+  const runs = ctx.cred && isExecuting(cmd.words, ctx);
   if (ctx.depth < 4) {
     const inner = ctx.deeper(false, runs);
     for (const w of all) {
@@ -934,7 +1397,7 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
 
 // `cwd` is the command's working directory: a relative program path is resolved against it to see whether it
 // is the launcher.
-export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd() } = {}) {
+export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd(), env = process.env } = {}) {
   const text = String(command ?? '');
   if (text.length <= MAX_INPUT && isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
   // Too long to lex: denied by the credential rule when it names riverwright or credential anywhere.
@@ -942,7 +1405,7 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
     return mentionsCredential(text) || RIVERWRIGHT_TEXT.test(text) ? credentialVerdict('the command is too long to check, and it names riverwright or "credential"') : unresolvable('the command is too long to check');
   }
   const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
-  const opts = { cwd, launchers, realCache: new Map() };
+  const opts = { cwd, env: env ?? {}, platform, launchers, realCache: new Map(), gitCache: new Map() };
   try {
     let found = classifyScript(text, makeCtx(0, true, { used: 0 }, opts));
     // On Windows a backslash separates path segments and does not escape; read that way too, so

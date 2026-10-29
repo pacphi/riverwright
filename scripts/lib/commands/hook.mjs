@@ -45,7 +45,7 @@ export async function run([host, ...rest], io) {
       reason = 'Riverwright could not read this command, so it is blocked while a Riverwright run is active or inside its workspace.';
     }
   } else {
-    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform, cwd: where });
+    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform, cwd: where, env: io.env });
     if (verdict.outward && verdict.rule === 'riverwright-credential') {
       // Always in scope (R23): the credential command acts on the account's vault wherever it runs, and a hook
       // sees only an agent's tool calls; the human runs it in their own terminal, which no hook sees.
