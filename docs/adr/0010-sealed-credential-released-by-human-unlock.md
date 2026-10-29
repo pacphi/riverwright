@@ -136,7 +136,7 @@ Codex re-review) is done; its outcomes are in
   sees it unused during the gate's own push), a crash during the action leaves it usable for up to 10 minutes,
   bound to the exact commit, branch and fork. `ledger verify` and the submit proof read the vault from the account's
   own workspace, never from `RIVERWRIGHT_HOME`, so with a vault sealed under a custom `RIVERWRIGHT_HOME` they fail
-  closed. This awaits the owner's decision. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).
+  closed. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).
 - **Decision of record.** The 11-field receipt and the crash window above change what item 2 and item 4 say. They
   are written up in [ADR-0014](0014-receipt-fields-and-crash-window.md), which the owner accepted on 2026-10-29
   (option A: the crash window is kept and recorded as an exception to item 2).

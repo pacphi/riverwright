@@ -58,7 +58,7 @@ its lines are superseded by this note (ruling R40):
 - Report clearly when a `receipt-consumed` line appended by someone else blocks the human's own push (Task 17 F6,
   R35).
 - Real submit runs live under the account home (`~/.riverwright`); a run under a custom `RIVERWRIGHT_HOME` cannot
-  pass the submit proof until the owner decides R21 (R20, R21).
+  pass the submit proof, because the vault always lives in the account home (owner decision 2026-10-29; R20, R21, R41).
 
 ## Plan 2b: git, the push and the clone
 
@@ -120,9 +120,7 @@ Present one at a time.
   window is kept and recorded (R34).
 - R32: decided 2026-10-29. The owner chose to keep it: the push-key `ssh` ignores the user's and the system's SSH
   configuration, so host aliases, custom ports and jump hosts do not apply to that push.
-- R21: the split home (`ledger verify` and the submit proof read only the account home). When decided, the message
-  should name the vault path it checked: with a vault in both homes, `ledger verify` now says "the receipt signature
-  does not verify", which reads as tampering (final review recommendation 3).
+- R21: decided 2026-10-29 (R41). The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. The remaining wish: when a vault exists, `ledger verify` should name the vault path it checked, because "the receipt signature does not verify" reads as tampering (final review recommendation 3).
 - The vault-fingerprint warning: record the vault key's fingerprint at setup and have `ledger verify`, `doctor` and
   the gate warn when it changes (R36, final review recommendation 2).
 - Whether to keep `consumeReceipt` and the `claimed` state: kept for ADR-0014 option B; remove if option A is chosen
@@ -197,7 +195,7 @@ The rulings were made during the Plan 2a build. Tracked documents and code comme
 | R18 | A recorded approval is never proof for a public gate; the submit station needs a receipt |
 | R19 | Actor labels: `tty` is human, `host-ask` is the agent with `confirmedVia: "host-prompt"` |
 | R20 | The submit proof reads the account home only; `--home` only through the test seam |
-| R21 | `ledger verify` reads the account home only; the split home awaits the owner |
+| R21 | `ledger verify` reads the account home only. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. (R41) |
 | R22 | `ledger verify` exits 2 when receipts exist and no vault was found; never "Ledger intact" |
 | R23 | The credential hook rule is always in scope |
 | R24 | Match the credential subcommand, fail closed on shapes a static rule cannot resolve |

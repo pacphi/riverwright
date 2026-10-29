@@ -256,7 +256,7 @@ What is built (Plan 2a):
   workspace (`~/.riverwright` of the account as the operating system records it), never from `RIVERWRIGHT_HOME`,
   `HOME` or a `--home` flag (refused from the command line), and `--run` must resolve, symlinks followed, to
   `<home>/<owner>/<repo>/runs/issue-<n>` with a matching run id. A run kept under a custom `RIVERWRIGHT_HOME`
-  therefore cannot pass the submit station; it fails closed. This awaits the owner's decision.
+  therefore cannot pass the submit station; it fails closed. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split.
 - **When the submit station can begin** (ruling R40). The proof needs the newest receipt to be **unused**, and the
   gate writes the receipt just before its action and marks it used before `runPublicAction` returns (§7.5). So the
   proof passes only inside the action: before the unlock there is no receipt, and after the gate returns the receipt
@@ -311,11 +311,11 @@ What is built (Plan 2a):
   and `runs/issue-<n>/state.json` must carry the run id `<owner>/<repo>#<n>`. `<home>` is the `--home`
   written into the generated hook (`guard pre-push --home "<home>" -- "$@"`), or else `~/.riverwright` of
   the account as the OS records it; the guard and the host hooks never read `RIVERWRIGHT_HOME` or `HOME`
-  from the environment. Commands a person runs (`init`, `setup`, `evidence`, `credential`) still honor
+  from the environment. Commands a person runs (`init`, `setup`, `evidence`) still honor
   `RIVERWRIGHT_HOME`. The checks that decide whether something public was approved do not: the guard (from its hook's
   `--home` or the account), and `ledger verify` and the submit proof of `state begin submit` (from the account only,
   §6 and §7.5). So a vault sealed under a custom `RIVERWRIGHT_HOME` is not the one `ledger verify` and the submit
-  proof read; they fail closed rather than trust a home the environment chose. This awaits the owner's decision.
+  proof read; they fail closed rather than trust a home the environment chose. The owner decided on 2026-10-29 that the vault always lives in the account home; credential setup, status and remove follow the same rule, so there is no split. `credential setup`, `status` and `remove` read the home from the password database only and refuse `--home` from the command line (ruling R41).
 - The fork remote does not exist until the submit gate; `riverwright submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
 - Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live under
