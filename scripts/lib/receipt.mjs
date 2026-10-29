@@ -210,9 +210,11 @@ export function findNewestValidReceipt({ ledgerDir, publicKey, gate, run, nowMs,
 }
 
 // The atomic claim. Under the ledger lock it finds and re-verifies the receipt, checks it is unconsumed, and
-// appends `receipt-consumed`; a second caller (or a second process) then finds it used. Call it BEFORE the
-// network action, with outcome "claimed", so a crash cannot leave the receipt reusable, then record the final
-// outcome with markConsumed. Throws RECEIPT_REFUSED with the reason when no receipt qualifies.
+// appends `receipt-consumed`; a second caller (or a second process) then finds it used. The public gate does
+// NOT claim before the action (R12): it runs the action while the receipt is still unused, so the pre-push
+// guard can see it, and records the outcome once afterwards. A crash mid-action therefore leaves the receipt
+// usable until it expires, bound to the exact commit, branch and fork (ADR-0014). Throws RECEIPT_REFUSED with
+// the reason when no receipt qualifies.
 export function consumeReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, at, outcome = 'claimed' }) {
   if (!['claimed', 'succeeded', 'failed'].includes(outcome)) throw bad('outcome must be claimed, succeeded or failed');
   let receipt;

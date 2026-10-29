@@ -256,7 +256,7 @@ What is built (Plan 2a):
   workspace (`~/.riverwright` of the account as the operating system records it), never from `RIVERWRIGHT_HOME`,
   `HOME` or a `--home` flag (refused from the command line), and `--run` must resolve, symlinks followed, to
   `<home>/<owner>/<repo>/runs/issue-<n>` with a matching run id. A run kept under a custom `RIVERWRIGHT_HOME`
-  therefore cannot pass the submit station; it fails closed.
+  therefore cannot pass the submit station; it fails closed. This awaits the owner's decision.
 
 ## 7. Guardrails
 
@@ -309,7 +309,7 @@ What is built (Plan 2a):
   `RIVERWRIGHT_HOME`. The checks that decide whether something public was approved do not: the guard (from its hook's
   `--home` or the account), and `ledger verify` and the submit proof of `state begin submit` (from the account only,
   §6 and §7.5). So a vault sealed under a custom `RIVERWRIGHT_HOME` is not the one `ledger verify` and the submit
-  proof read; they fail closed rather than trust a home the environment chose.
+  proof read; they fail closed rather than trust a home the environment chose. This awaits the owner's decision.
 - The fork remote does not exist until the submit gate; `riverwright submit` alone supplies credentials for
   its own push (`-c credential.helper=…` scoped to that command).
 - Agent-writable state is not a consent authority. `state.json`, the ledger and setup backups live under
@@ -556,7 +556,7 @@ saved `sk-` type, so an edited config cannot point at an ordinary key. The push 
 (`-F NUL` on Windows), set as `GIT_SSH_COMMAND` in Riverwright's own spawn, never through the agent's shell. It
 ignores the user's and the system's SSH configuration, so no other identity, proxy command or PKCS#11 provider can
 be added (ignoring a file is not editing it, so ADR-0008 holds). The cost: the owner's host aliases, ports and
-`ProxyJump` do not apply to this one push. Riverwright cannot tell from the public key whether the key was made to
+`ProxyJump` do not apply to this one push. This awaits the owner's decision. Riverwright cannot tell from the public key whether the key was made to
 require a touch (`-O verify-required`). The push that uses this key arrives with `submit` (Plan 2b), and the touch
 and PIN behavior are checked by hand (Plan 2a, Task 16); `-F NUL` on Windows is tested only as text.
 

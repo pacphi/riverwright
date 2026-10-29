@@ -126,11 +126,15 @@ not yet through the owner's manual checks (Task 16) or the independent security 
   `doctor` exists the report is `credential status`. Item 6 says the key "only spawns ssh"; the built command also
   isolates ssh from the user's and the system's SSH configuration (`-F /dev/null` and options that turn off other
   identities, the agent, certificates, PKCS#11 and proxy commands), so the owner's SSH host aliases and `ProxyJump`
-  do not apply to that push. The terminal prompt also refuses a terminal that cannot hide typing.
+  do not apply to that push. This awaits the owner's decision. The terminal prompt also refuses a terminal that
+  cannot hide typing.
 - **Residual risks found while building**, in addition to those stated above: removing the tail of the ledger
   revives a used receipt until it expires (10 minutes), because nothing the agent cannot write remembers the newer
   head; and because the receipt is written before the action and recorded as used only afterwards (so the guard
   sees it unused during the gate's own push), a crash during the action leaves it usable for up to 10 minutes,
   bound to the exact commit, branch and fork. `ledger verify` and the submit proof read the vault from the account's
   own workspace, never from `RIVERWRIGHT_HOME`, so with a vault sealed under a custom `RIVERWRIGHT_HOME` they fail
-  closed. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).
+  closed. This awaits the owner's decision. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).
+- **Decision of record.** The 11-field receipt and the crash window above change what item 2 and item 4 say. They
+  are written up, with options, in [ADR-0014](0014-receipt-fields-and-crash-window.md), which is Proposed until
+  the owner decides.
