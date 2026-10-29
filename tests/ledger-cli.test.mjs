@@ -328,3 +328,13 @@ test('the real claim and final-outcome functions produce a ledger that verifies'
   assert.equal(r.code, 0, r.stderr);
   void issueReceipt;
 });
+
+test('ledger verify names a JSON null line as a problem, exit 1, no stack (final review M1)', async () => {
+  const dir = tmpDir();
+  appendEvent(dir, { type: 'note', at: 't' });
+  fs.appendFileSync(ledgerFile(dir), 'null\n');
+  const r = await callMain(['ledger', 'verify', '--run', dir], noAccount);
+  assert.equal(r.code, 1, r.stderr);
+  assert.match(r.stderr, /line 2: not a JSON object/);
+  assert.doesNotMatch(`${r.stdout}${r.stderr}`, /TypeError|unexpected error|\n\s+at /);
+});

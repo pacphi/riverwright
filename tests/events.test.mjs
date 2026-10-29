@@ -167,3 +167,17 @@ for (const [name, bad] of [['has no seq', '{"schema":"riverwright-event/1"}'], [
     assert.equal(fs.readFileSync(eventsFile(d), 'utf8'), before);
   });
 }
+
+// Final review M1: a line that parses as JSON but is not an object (null, a number, an array) is a problem on
+// that line, never a TypeError.
+for (const bad of ['null', '7', '"text"', '[1,2]']) {
+  test(`verifyChain reports a ${bad} line as "not a JSON object" instead of throwing`, () => {
+    const d = tmpDir();
+    add(d);
+    fs.appendFileSync(eventsFile(d), `${bad}\n`);
+    const v = verifyChain(d);
+    assert.equal(v.ok, false);
+    assert.deepEqual(v.problems.filter((p) => p.line === 2).map((p) => p.reason), ['not a JSON object']);
+    assert.equal(v.count, 2);
+  });
+}

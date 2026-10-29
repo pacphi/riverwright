@@ -137,6 +137,13 @@ export function verifyChain(dir, { expectHead = null, expectSeq = null } = {}) {
       prev = lineHash(line);
       return;
     }
+    // Final review M1: `null`, a number, a string or an array parses but is not an event; report the line
+    // instead of throwing a TypeError on e.schema.
+    if (e === null || typeof e !== 'object' || Array.isArray(e)) {
+      problems.push({ line: n, reason: 'not a JSON object' });
+      prev = lineHash(line);
+      return;
+    }
     if (e.schema !== EVENT_SCHEMA) problems.push({ line: n, reason: `schema is not ${EVENT_SCHEMA}` });
     if (e.seq !== n) problems.push({ line: n, reason: `seq is ${shown(e.seq)}, expected ${n}` });
     if (e.prev !== prev) problems.push({ line: n, reason: `prev does not match the hash of line ${n - 1} (an earlier line was edited, removed or reordered)` });
