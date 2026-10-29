@@ -1,6 +1,7 @@
 import fs from 'node:fs';
 import readline from 'node:readline';
 import tty from 'node:tty';
+import { StringDecoder } from 'node:string_decoder';
 import { RiverwrightError } from './errors.mjs';
 
 export function openTerminal({ platform = process.platform, paths } = {}) {
@@ -37,37 +38,65 @@ export async function confirmTyped({ terminal, question, expected }) {
 // Reads one secret line without echo. The terminal must be able to hide typing: a real terminal offers raw
 // mode (input.setRawMode), a test terminal declares noEcho. Anything else is refused, because falling back
 // to an echoing prompt would put the passphrase on screen and in the scrollback.
-// Leftover characters after a newline stay in terminal.pending for the next read.
+// noEcho is test-only: it is ignored for the streams openTerminal creates (tty.ReadStream, fs.ReadStream),
+// so production code cannot use it to skip the echo check.
+// Leftover characters after a newline stay in terminal.pending for the next read. The caller must enforce a
+// minimum length: bare Enter returns an empty string.
+const closedMessage = 'the terminal closed before a passphrase was entered';
+
 export function readSecret({ terminal, question }) {
   const { input, output } = terminal;
   const raw = typeof input.setRawMode === 'function';
-  if (!raw && terminal.noEcho !== true) {
+  const realStream = input instanceof tty.ReadStream || input instanceof fs.ReadStream;
+  const fakeHidesInput = terminal.noEcho === true && !realStream;
+  if (!raw && !fakeHidesInput) {
     return Promise.reject(new RiverwrightError('NO_ECHO_CONTROL', 'This terminal cannot hide what you type, so Riverwright will not ask for a passphrase in it. Run the command in a normal terminal window.'));
   }
   return new Promise((resolve, reject) => {
     let value = '';
-    let esc = 0;
+    let esc = 0; // 0 none, 1 after ESC, 2 inside a CSI sequence, 3 after ESC O (one more character)
+    let settled = false;
     terminal.pending ??= '';
-    if (!terminal.watchingEnd) {
-      terminal.watchingEnd = true;
-      input.once('end', () => { terminal.ended = true; });
-    }
-    const finish = (fn, arg) => {
+    terminal.decoder ??= new StringDecoder('utf8');
+    const markEnded = () => { terminal.ended = true; terminal.pending = ''; };
+    const cleanup = () => {
       input.off('data', onData);
       input.off('end', onEnd);
-      if (raw) input.setRawMode(false);
-      input.pause?.();
-      output.write('\n');
+      input.off('close', onClose);
+      input.off('error', onError);
+      output.off('error', onError);
+      try { if (raw) input.setRawMode(false); } catch { /* the stream is already gone */ }
+      try { input.pause?.(); } catch { /* ignore */ }
+    };
+    const finish = (fn, arg) => {
+      if (settled) return;
+      settled = true;
+      cleanup();
+      try { output.write('\n'); } catch { /* the output is already gone */ }
       fn(arg);
     };
+    const abort = (message) => finish(reject, new RiverwrightError('ABORTED', message));
+    function onError() { finish(reject, new RiverwrightError('TERMINAL_ERROR', 'the terminal failed while a passphrase was being read')); }
+    function onEnd() { markEnded(); abort(closedMessage); }
+    function onClose() { markEnded(); abort(closedMessage); }
     const consume = (text) => {
       const chars = [...text];
       for (let i = 0; i < chars.length; i += 1) {
         const ch = chars[i];
-        if (esc === 1) { esc = ch === '[' ? 2 : 0; continue; }
+        if (terminal.skipLF) {
+          terminal.skipLF = false;
+          if (ch === '\n') continue;
+        }
+        if (esc === 3) { esc = 0; continue; }
         if (esc === 2) { if (/[@-~]/.test(ch)) esc = 0; continue; }
+        if (esc === 1) {
+          if (ch === '[') { esc = 2; continue; }
+          if (ch === 'O') { esc = 3; continue; }
+          esc = 0; // a lone ESC: drop it and handle this character normally
+        }
         if (ch === '\u001b') { esc = 1; continue; }
         if (ch === '\r' || ch === '\n') {
+          terminal.skipLF = ch === '\r';
           terminal.pending = chars.slice(i + 1).join('');
           return { done: 'ok' };
         }
@@ -81,19 +110,27 @@ export function readSecret({ terminal, question }) {
     const handle = (text) => {
       const r = consume(text);
       if (r.done === 'ok') finish(resolve, value);
-      else if (r.done === 'abort') finish(reject, new RiverwrightError('ABORTED', 'cancelled: no passphrase was entered'));
+      else if (r.done === 'abort') abort('cancelled: no passphrase was entered');
       return r.done !== null;
     };
-    const onData = (chunk) => { handle(String(chunk)); };
-    const onEnd = () => finish(reject, new RiverwrightError('ABORTED', 'the terminal closed before a passphrase was entered'));
-    output.write(question);
-    const carried = terminal.pending;
-    terminal.pending = '';
-    if (carried && handle(carried)) return;
-    if (terminal.ended) { finish(reject, new RiverwrightError('ABORTED', 'the terminal closed before a passphrase was entered')); return; }
-    if (raw) input.setRawMode(true);
-    input.on('data', onData);
-    input.on('end', onEnd);
-    input.resume?.();
+    function onData(chunk) {
+      try { handle(typeof chunk === 'string' ? chunk : terminal.decoder.write(chunk)); } catch { onError(); }
+    }
+    try {
+      output.on('error', onError);
+      output.write(question);
+      const carried = terminal.pending;
+      terminal.pending = '';
+      if (carried && handle(carried)) return;
+      if (terminal.ended || input.readableEnded || input.destroyed) { abort(closedMessage); return; }
+      if (raw) input.setRawMode(true);
+      input.on('data', onData);
+      input.on('end', onEnd);
+      input.on('close', onClose);
+      input.on('error', onError);
+      input.resume?.();
+    } catch {
+      onError();
+    }
   });
 }
