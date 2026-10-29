@@ -210,6 +210,20 @@ chain. `riverwright ledger verify` walks the chain and reports the first break.
 | the adopter (Spec 5) | `adoption-drafted`, `adopted`, `workaround-removed`, `retired` |
 | a person | `reviewed`, `status-changed`, `note` |
 
+Plan 1's names (`run-created`, `station-begin`, `station-complete`, `approval`, `stop`, `reopen`, `guard`, `note`)
+remain valid event names, and Plan 2a adds `receipt-consumed` and `unlock-refused`. `approved` carries a signed
+receipt ([core spec §7.5](core-single-issue-pipeline.md)); `approval` is the plain `checkpoint-1` record. These
+eleven are the names the runtime accepts today (`scripts/lib/ledger.mjs`); the others in the table arrive with the
+commands that write them (`pr-opened` and `posted` with `submit` and `post` in Plan 2b).
+
+**As built (Plan 2a).** Writers take a lock file (`events.lock`, created exclusively, removed when stale after 10
+seconds) and append one line; every event records `actor` with the Riverwright version, and `recordedAt` defaults
+to `at`. The chain is checked by `riverwright ledger verify --run <dir> [--head sha256:<hex>] [--seq <n>]`: with
+`--head` and `--seq` it compares the anchored head against the line at that position, not only the tip, so an anchor
+taken earlier still holds after later events are appended. Its exit codes are 0 (a full pass), 1 (a problem) and 2
+(receipts present but not sign-checked, because there is no vault in the account's own workspace). A receipt signed
+before receipts named their fork and lease is reported as a problem.
+
 **Limits, stated plainly:** the chain makes edits visible, but an agent that can write the file could
 rewrite the whole chain. Two things narrow that. First, the chain head is copied into the registry
 (`ledgerHead`) at each commit, so a rewritten history no longer matches what is in git. Second, the
@@ -284,9 +298,16 @@ metric counts. Every ledger writer in Plan 1 (`appendEvent`) moves to the `river
 from the start.
 
 The `approved` event for a public gate is written by `submit` or `post` itself and carries the signed receipt
-from the unlock ([core spec §7.5](core-single-issue-pipeline.md)): gate, binding, the ledger head and `seq` at
-signing time, a nonce and the signature. `ledger verify` checks the chain, the signatures and that no nonce was
-used twice. This anchors the chain in the human's signature, so a rewrite before a receipt breaks it.
+from the unlock ([core spec §7.5](core-single-issue-pipeline.md)): gate, run, binding, and for the submit gate the
+branch, the fork and an optional lease, then the ledger head and `seq` at signing time, the time, a nonce and the
+signature. `ledger verify` checks the chain, the signatures and that no nonce was used twice. This anchors the chain
+in the human's signature, so a rewrite before a receipt breaks it. Removing the tail of the ledger is not detected
+without an anchor the agent cannot write (core spec §7.5, "Limits").
+
+Status: the `riverwright-event/1` shape, the chained writer, receipts and `ledger verify` are built by Plan 2a
+(Tasks 1, 3 and 10, on branch `plan-2a-security`). `ledger verify` reads the public key from the vault of the
+account's own workspace only, never from `RIVERWRIGHT_HOME`. Registering the thread and writing `pr-opened` belong
+to `submit` in Plan 2b.
 
 ## 14. Decided and deferred
 
