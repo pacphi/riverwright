@@ -9,6 +9,17 @@ import { main } from '../scripts/lib/cli.mjs';
 export const ROOT = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 export const RIVERWRIGHT = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
+// A terminal for readSecret: `noEcho` declares that nothing typed is echoed. Each entry of `secrets` is one
+// typed line. Real terminals never carry this flag; they must offer raw mode (see readSecret).
+export function fakeSecretTerminal(secrets) {
+  const input = new PassThrough();
+  const output = new PassThrough();
+  if (secrets.length) input.end(secrets.map((s) => `${s}\n`).join(''));
+  const written = [];
+  output.on('data', (d) => written.push(String(d)));
+  return { input, output, written, noEcho: true, close() {} };
+}
+
 export function fakeTerminal(answer) {
   const input = new PassThrough();
   const output = new PassThrough();
