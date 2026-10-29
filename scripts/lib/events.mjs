@@ -117,6 +117,8 @@ export function verifyChain(dir, { expectHead = null, expectSeq = null } = {}) {
   const problems = [];
   if (text === null || text === '') {
     if (expectSeq) problems.push({ line: 0, reason: `the ledger is empty but seq ${expectSeq} was anchored (truncated)` });
+    // An empty ledger's head is the genesis head; any other anchored head means its history was removed (C2).
+    if (expectHead && expectHead !== GENESIS) problems.push({ line: 0, reason: 'the ledger is empty or missing but a different anchored head was given (its history was removed)' });
     return { ok: problems.length === 0, count: 0, seq: 0, head: GENESIS, problems };
   }
   const ls = text.split('\n');

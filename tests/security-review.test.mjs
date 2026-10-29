@@ -8,7 +8,9 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { classifyCommand } from '../scripts/lib/hooks/classify.mjs';
 import { lex } from '../scripts/lib/hooks/shell.mjs';
-import { RIVERWRIGHT, tmpDir } from './helpers.mjs';
+import { GENESIS, eventsFile, verifyChain } from '../scripts/lib/events.mjs';
+import { appendEvent } from '../scripts/lib/ledger.mjs';
+import { RIVERWRIGHT, callMain, tmpDir } from './helpers.mjs';
 
 const hermeticDir = tmpDir('rw-t17-');
 const HERMETIC_ENV = { HOME: hermeticDir, GIT_CONFIG_NOSYSTEM: '1' };
@@ -81,4 +83,39 @@ test('C1: the real hook denies the NUL spellings (exit 2)', () => {
     const r = realHook(c, { home, cwd: worktree });
     assert.equal(r.status, 2, c);
   }
+});
+
+// C2 (Codex): an empty or missing ledger ignored a supplied head anchor, so emptying events.ndjson hid the whole
+// consent history from `ledger verify --head H`.
+const SAVED_HEAD = `sha256:${'a'.repeat(64)}`;
+const noAccount = { testing: { userInfo: () => ({ homedir: tmpDir('rw-account-') }) } };
+
+test('C2: verifyChain fails an empty or missing ledger when a non-genesis head is anchored', () => {
+  const missing = tmpDir('rw-ledger-');
+  const empty = tmpDir('rw-ledger-');
+  fs.writeFileSync(eventsFile(empty), '');
+  for (const dir of [missing, empty]) {
+    const r = verifyChain(dir, { expectHead: SAVED_HEAD });
+    assert.equal(r.ok, false, dir);
+    assert.match(r.problems[0].reason, /empty.*anchored head|anchored head.*empty/i);
+    // The genesis head is what an empty ledger really has.
+    assert.equal(verifyChain(dir, { expectHead: GENESIS }).ok, true);
+    assert.equal(verifyChain(dir).ok, true);
+  }
+});
+
+test('C2: ledger verify --head on an emptied or missing ledger exits 1 and says why', async () => {
+  const kept = tmpDir('rw-ledger-');
+  for (const type of ['run-created', 'note']) appendEvent(kept, { type, at: 't' });
+  const head = verifyChain(kept).head;
+  fs.writeFileSync(eventsFile(kept), '');
+  const gone = tmpDir('rw-ledger-');
+  for (const dir of [kept, gone]) {
+    const r = await callMain(['ledger', 'verify', '--run', dir, '--head', dir === kept ? head : SAVED_HEAD], noAccount);
+    assert.equal(r.code, 1, dir);
+    assert.match(r.stderr, /Ledger check failed.*empty.*anchored head/);
+    assert.doesNotMatch(r.stdout, /Ledger intact/);
+  }
+  const genesis = await callMain(['ledger', 'verify', '--run', gone, '--head', GENESIS], noAccount);
+  assert.equal(genesis.code, 0);
 });
