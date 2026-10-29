@@ -20,8 +20,9 @@ function walkTo(state, target, head = A) {
     if (st === target) return s;
     if (['passed', 'skipped'].includes(s.stations[st].status)) continue;
     const gate = GATE_BEFORE[st];
-    if (gate) s = recordApproval(s, { gate, sha: head, mode: 'host-ask', now: 't' });
-    s = beginStation(s, st, { now: 't', headSha: head });
+    // checkpoint-1 is a recorded approval; the public submit gate is proved by a receipt (publicProof).
+    if (gate === 'checkpoint-1') s = recordApproval(s, { gate, sha: head, mode: 'host-ask', now: 't' });
+    s = beginStation(s, st, { now: 't', headSha: head, publicProof: () => true });
     s = completeStation(s, st, 'passed', { now: 't' });
   }
   return s;
@@ -51,15 +52,22 @@ test('root cause needs a checkpoint-1 approval for the same commit', () => {
   assert.equal(beginStation(approved, 'root-cause', { now: 't', headSha: B }).current, 'root-cause');
 });
 
-test('submit needs a submit-gate approval for the commit being pushed', () => {
+test('submit needs proof from a receipt for the commit being pushed, not a state.json entry', () => {
   const s = walkTo(fresh(), 'submit');
   assert.throws(() => beginStation(s, 'submit', { now: 't', headSha: B }), /submit-gate has no approval/);
+  assert.throws(() => beginStation(s, 'submit', { now: 't', headSha: B, publicProof: () => false }), /submit-gate has no approval/);
+  assert.equal(beginStation(s, 'submit', { now: 't', headSha: B, publicProof: (g, sha) => g === 'submit-gate' && sha === B }).current, 'submit');
+  // A hand-written entry, in any mode, is not proof.
+  for (const mode of ['host-ask', 'tty', 'unlock']) {
+    const forged = recordApproval(s, { gate: 'submit-gate', sha: A, mode, now: 't' });
+    assert.throws(() => beginStation(forged, 'submit', { now: 't', headSha: A }), /submit-gate has no approval/, mode);
+    assert.throws(() => beginStation(forged, 'submit', { now: 't', headSha: A, publicProof: () => false }), /submit-gate has no approval/, mode);
+  }
 });
 
 test('a full walk ends in "submitted"', () => {
   let s = walkTo(fresh(), 'submit');
-  s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' });
-  s = completeStation(beginStation(s, 'submit', { now: 't', headSha: A }), 'submit', 'passed', { now: 't' });
+  s = completeStation(beginStation(s, 'submit', { now: 't', headSha: A, publicProof: () => true }), 'submit', 'passed', { now: 't' });
   assert.equal(s.status, 'submitted');
   assert.equal(nextStation(s), null);
 });
@@ -96,8 +104,8 @@ test('stopping marks the station in progress as failed and rejects unknown reaso
 
 test('a submitted run reopens at fix for maintainer changes and needs a new submit approval', () => {
   let s = walkTo(fresh(), 'submit');
-  s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'host-ask', now: 't' });
-  s = completeStation(beginStation(s, 'submit', { now: 't', headSha: A }), 'submit', 'passed', { now: 't' });
+  s = recordApproval(s, { gate: 'submit-gate', sha: A, mode: 'unlock', now: 't' });
+  s = completeStation(beginStation(s, 'submit', { now: 't', headSha: A, publicProof: () => true }), 'submit', 'passed', { now: 't' });
   s = reopenForChanges(s, { now: 't2' });
   assert.equal(s.status, 'active');
   assert.equal(nextStation(s), 'fix');

@@ -6,6 +6,7 @@ import { preset } from './presets.mjs';
 import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
 import { HOSTS, assertHost } from './hosts.mjs';
+import { PUBLIC_GATES } from './receipt.mjs';
 
 // Station names are the story contract (docs/story/paddling-upstream.html data-station values).
 export const STATIONS = ['start', 'intake', 'recon', 'environment', 'reproduce', 'root-cause', 'fix', 'review', 'writeup', 'submit'];
@@ -45,7 +46,7 @@ function assertActive(state) {
   if (state.status !== 'active') throw new RiverwrightError('RUN_NOT_ACTIVE', `run ${state.runId} is ${state.status}`);
 }
 
-export function beginStation(state, name, { now, host = null, model = null, headSha } = {}) {
+export function beginStation(state, name, { now, host = null, model = null, headSha, publicProof = null } = {}) {
   assertActive(state);
   assertHost(host);
   if (!STATIONS.includes(name)) throw new RiverwrightError('UNKNOWN_STATION', `unknown station "${name}"`);
@@ -55,7 +56,10 @@ export function beginStation(state, name, { now, host = null, model = null, head
   const gate = GATE_BEFORE[name];
   if (gate) {
     if (!headSha) throw new RiverwrightError('GATE_NEEDS_SHA', `${name} needs --head <commit> so the ${gate} approval can be checked`);
-    if (!isApprovalValid(state, gate, { sha: headSha })) {
+    // A public gate is proved by a signed receipt in the ledger, never by state.json, which an agent can
+    // write (ADR-0010). The caller supplies publicProof(gate, sha); without it a public gate cannot pass.
+    const approved = PUBLIC_GATES.includes(gate) ? publicProof?.(gate, headSha) === true : isApprovalValid(state, gate, { sha: headSha });
+    if (!approved) {
       throw new RiverwrightError('GATE_NOT_APPROVED', `${gate} has no approval for commit ${String(headSha).slice(0, 12)}`);
     }
   }

@@ -46,6 +46,7 @@ export function checkBinding(binding) {
   return { kind: binding.kind, value: binding.value };
 }
 
+// `branch` support is now used only by gate.mjs, which records the unlock approval with the run branch.
 export function recordApproval(state, { gate, sha, content, binding: given, mode, host = null, now, branch }) {
   if (!GATES.includes(gate)) throw new RiverwrightError('UNKNOWN_GATE', `unknown gate "${gate}" (use ${GATES.join(', ')})`);
   if (!APPROVAL_MODES.includes(mode)) throw new RiverwrightError('UNKNOWN_MODE', `unknown approval mode "${mode}" (use host-ask, tty or unlock)`);

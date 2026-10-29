@@ -6,6 +6,11 @@ import { appendEvent } from '../ledger.mjs';
 import { jsonPrintable } from '../printable.mjs';
 import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
+import { makeBinding } from '../approvals.mjs';
+import { findNewestValidReceipt } from '../receipt.mjs';
+import { readVault } from '../vault.mjs';
+import { ledgerDirFor } from '../ledger.mjs';
+import { workspaceHomeFromArg } from '../paths.mjs';
 
 const USAGE = 'usage: riverwright state <create|get|begin|complete|stop|reopen> --run <dir> [options]';
 
@@ -16,7 +21,7 @@ export async function run(args, io) {
     allowPositionals: true,
     options: {
       run: { type: 'string' }, id: { type: 'string' }, kind: { type: 'string', default: 'real' }, preset: { type: 'string', default: 'balanced' },
-      host: { type: 'string' }, model: { type: 'string' }, head: { type: 'string' }, note: { type: 'string' },
+      host: { type: 'string' }, model: { type: 'string' }, head: { type: 'string' }, home: { type: 'string' }, note: { type: 'string' },
     },
   });
   // The run is named on the command line, where the human sees it; no environment variable chooses it.
@@ -39,7 +44,23 @@ export async function run(args, io) {
       return 0;
     case 'begin': {
       const [station] = positionals;
-      state = saveState(dir, beginStation(loadState(dir), station, { now, host, model, headSha: values.head }));
+      const current = loadState(dir);
+      // A public gate (the submit station) is proved by the newest signed, unused receipt in the ledger for this
+      // run and this commit, checked against the vault key. state.json is never consulted for it. Like the
+      // guard, the workspace comes from --home or the account's home, never from the environment.
+      const publicProof = (gate, sha) => {
+        const binding = makeBinding({ sha });
+        try {
+          const found = findNewestValidReceipt({
+            ledgerDir: ledgerDirFor(dir), publicKey: readVault(workspaceHomeFromArg(values.home)).publicKey, gate, run: current.runId, nowMs: Date.parse(now), binding,
+          });
+          return found.ok;
+        } catch (e) {
+          if (e instanceof RiverwrightError) return false;
+          throw e;
+        }
+      };
+      state = saveState(dir, beginStation(current, station, { now, host, model, headSha: values.head, publicProof }));
       appendEvent(dir, { type: 'station-begin', at: now, station, host, model });
       break;
     }
