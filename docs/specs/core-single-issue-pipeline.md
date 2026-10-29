@@ -573,7 +573,7 @@ saved `sk-` type, so an edited config cannot point at an ordinary key. The push 
 (`-F NUL` on Windows), set as `GIT_SSH_COMMAND` in Riverwright's own spawn, never through the agent's shell. It
 ignores the user's and the system's SSH configuration, so no other identity, proxy command or PKCS#11 provider can
 be added (ignoring a file is not editing it, so ADR-0008 holds). The cost: the owner's host aliases, ports and
-`ProxyJump` do not apply to this one push. This awaits the owner's decision. Riverwright cannot tell from the public key whether the key was made to
+`ProxyJump` do not apply to this one push. The owner chose to keep this on 2026-10-29. Riverwright cannot tell from the public key whether the key was made to
 require a touch (`-O verify-required`). The push that uses this key arrives with `submit` (Plan 2b), and the touch
 and PIN behavior are checked by hand (Plan 2a, Task 16); `-F NUL` on Windows is tested only as text.
 

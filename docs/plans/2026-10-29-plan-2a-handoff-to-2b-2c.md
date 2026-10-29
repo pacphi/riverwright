@@ -118,7 +118,8 @@ Present one at a time.
 
 - ADR-0014: decided 2026-10-29. The owner accepted option A: the eleven signed fields are official and the crash
   window is kept and recorded (R34).
-- R32: the push-key `ssh` ignores the user's and the system's SSH configuration.
+- R32: decided 2026-10-29. The owner chose to keep it: the push-key `ssh` ignores the user's and the system's SSH
+  configuration, so host aliases, custom ports and jump hosts do not apply to that push.
 - R21: the split home (`ledger verify` and the submit proof read only the account home). When decided, the message
   should name the vault path it checked: with a vault in both homes, `ledger verify` now says "the receipt signature
   does not verify", which reads as tampering (final review recommendation 3).
@@ -207,7 +208,7 @@ The rulings were made during the Plan 2a build. Tracked documents and code comme
 | R29 | Script and package operands of runtimes count as program position; unreadable pipes into shells stay `unresolvable` |
 | R30 | Further spelling variants parked for Task 17 |
 | R31 | `.superpowers/**` is left out of the Markdown lint |
-| R32 | The push-key `ssh` ignores the user's and the system's SSH configuration; awaits the owner |
+| R32 | The push-key `ssh` ignores the user's and the system's SSH configuration; kept by the owner on 2026-10-29 |
 | R33 | Fast-forward is decided by a hash-checked ancestry walk, and the guard's git gets an allowlisted environment |
 | R34 | Roadmap rules win over the brief; ADR-0014 written as Proposed; R32 and R21 go to the owner |
 | R35 | Task 17 triage: fix C1, C2, C3/F4, F1, F2, F3 and test hygiene; accept F5 and F6 with reasons |

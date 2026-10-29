@@ -128,7 +128,7 @@ Codex re-review) is done; its outcomes are in
   `doctor` exists the report is `credential status`. Item 6 says the key "only spawns ssh"; the built command also
   isolates ssh from the user's and the system's SSH configuration (`-F /dev/null` and options that turn off other
   identities, the agent, certificates, PKCS#11 and proxy commands), so the owner's SSH host aliases and `ProxyJump`
-  do not apply to that push. This awaits the owner's decision. The terminal prompt also refuses a terminal that
+  do not apply to that push. The owner chose to keep this on 2026-10-29. The terminal prompt also refuses a terminal that
   cannot hide typing.
 - **Residual risks found while building**, in addition to those stated above: removing the tail of the ledger
   revives a used receipt until it expires (10 minutes), because nothing the agent cannot write remembers the newer
