@@ -11,7 +11,7 @@ lock, §7.2 the host hooks, §7.5 the sealed credential and the unlock) and the
 [ADR-0010](../adr/0010-sealed-credential-released-by-human-unlock.md),
 [ADR-0011](../adr/0011-generated-plugin-folder-marketplace-at-root.md),
 [ADR-0012](../adr/0012-leased-force-push-for-resubmits.md) and
-[ADR-0014](../adr/0014-receipt-fields-and-crash-window.md) (proposed). Evidence and the Task 17 review outcomes:
+[ADR-0014](../adr/0014-receipt-fields-and-crash-window.md) (accepted, option A). Evidence and the Task 17 review outcomes:
 [research §11](../research/credential-separation.md#11-review-findings-for-plan-2a). This note does not restate the
 specs; where a spec already says something, the line points to it.
 
@@ -116,7 +116,8 @@ its lines are superseded by this note (ruling R40):
 
 Present one at a time.
 
-- ADR-0014: the signed receipt fields and the crash window; option A is recommended (R34).
+- ADR-0014: decided 2026-10-29. The owner accepted option A: the eleven signed fields are official and the crash
+  window is kept and recorded (R34).
 - R32: the push-key `ssh` ignores the user's and the system's SSH configuration.
 - R21: the split home (`ledger verify` and the submit proof read only the account home). When decided, the message
   should name the vault path it checked: with a vault in both homes, `ledger verify` now says "the receipt signature

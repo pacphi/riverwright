@@ -138,5 +138,5 @@ Codex re-review) is done; its outcomes are in
   own workspace, never from `RIVERWRIGHT_HOME`, so with a vault sealed under a custom `RIVERWRIGHT_HOME` they fail
   closed. This awaits the owner's decision. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).
 - **Decision of record.** The 11-field receipt and the crash window above change what item 2 and item 4 say. They
-  are written up, with options, in [ADR-0014](0014-receipt-fields-and-crash-window.md), which is Proposed until
-  the owner decides.
+  are written up in [ADR-0014](0014-receipt-fields-and-crash-window.md), which the owner accepted on 2026-10-29
+  (option A: the crash window is kept and recorded as an exception to item 2).

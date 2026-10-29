@@ -1,7 +1,7 @@
 ---
 id: ADR-0014
 title: The signed receipt has eleven fields, and a receipt stays usable after a crash mid-action until it expires
-status: Proposed
+status: Accepted
 date: 2026-10-29
 authors:
   - pacphi
