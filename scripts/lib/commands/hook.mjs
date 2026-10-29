@@ -51,7 +51,9 @@ export async function run([host, ...rest], io) {
     if (verdict.outward && verdict.rule === 'riverwright-credential') {
       // Always in scope (R23): the credential command acts on the account's vault wherever it runs, and a hook
       // sees only an agent's tool calls; the human runs it in their own terminal, which no hook sees.
-      reason = `Blocked by Riverwright (riverwright-credential): ${verdict.detail}. An agent never runs this command; you run "riverwright credential" yourself, in your own terminal.`;
+      // Final review M5: most of these denials are ordinary work (`node "$S" "$A"`), so the reason ends with what to
+      // do when the command was not a credential command.
+      reason = `Blocked by Riverwright (riverwright-credential): ${verdict.detail}. If this was not a credential command, write the values out in full and run it again.`;
     } else if (verdict.outward && verdict.rule === 'riverwright-publish-env') {
       // Always in scope too (Task 17 F3): the passphrase prompt runs wherever the command runs.
       reason = `Blocked by Riverwright (riverwright-publish-env): ${verdict.detail}.`;

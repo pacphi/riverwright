@@ -875,6 +875,18 @@ test('the hook denies riverwright credential outside the workspace too, with or 
   }
 });
 
+// Final review M5: most of these denials hit ordinary agent work (`node "$S" "$A"`), not a credential command, so
+// the reason ends with what to do then, and does not tell the agent it was running the credential command.
+test('the credential denial ends with the workaround for a command that was not a credential command', async () => {
+  for (const c of ['node "$SCRIPT" "$ARG"', 'rw credential setup']) {
+    const r = await callMain(['hook', 'claude-code', '--home', idleHome], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
+    assert.equal(r.code, 2, c);
+    const reason = JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason;
+    assert.match(reason, /If this was not a credential command, write the values out in full and run it again\.$/, c);
+    assert.doesNotMatch(reason, /An agent never runs this command/, c);
+  }
+});
+
 test('the hook denies a symlinked launcher run from the payload working directory', posixOnly, async () => {
   const dir = tmpDir('rw-links-');
   fs.symlinkSync(path.join(ROOT, 'bin', 'riverwright'), path.join(dir, 'tool'));

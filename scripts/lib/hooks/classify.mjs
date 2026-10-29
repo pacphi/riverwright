@@ -531,7 +531,7 @@ const RIVERWRIGHT_NAMES = new Set(['riverwright', 'rw']);
 const CANDIDATE_NAMES = ['riverwright', 'rw', ...['mjs', 'cmd', 'exe', 'bat', 'com', 'ps1', 'js'].flatMap((x) => [`riverwright.${x}`, `rw.${x}`]), 'cli.mjs', 'credential.mjs'];
 const CREDENTIAL_DETAIL = 'riverwright credential (sealing, replacing or removing your credential is something you do yourself, in your own terminal)';
 // A slot denial is sometimes a false positive (rm "$A" "$B"), so it says how to get past one.
-const SLOT_DETAIL = 'riverwright credential, or a word that could be riverwright followed by one that could be "credential" (a variable, substitution, glob or brace). Sealing, replacing or removing your credential is something you do yourself, in your own terminal. If this command is not that, write the values out in full instead of variables or patterns';
+const SLOT_DETAIL = 'riverwright credential, or a word that could be riverwright followed by one that could be "credential" (a variable, substitution, glob or brace). Sealing, replacing or removing your credential is something you do yourself, in your own terminal';
 const GLOB = /[*?[]/;
 const EXTGLOB = /[@!+?*]\(/;
 // Text worth lexing again as a command for this rule: it could name riverwright or credential.
