@@ -4,7 +4,7 @@
 import os from 'node:os';
 import path from 'node:path';
 import { isInside, realish } from '../paths.mjs';
-import { lex } from './shell.mjs';
+import { lex, readingsOf } from './shell.mjs';
 
 const KNOWN_VAR = /\$\{(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\}|\$env:(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\b|\$(HOME|RIVERWRIGHT_HOME|PWD|USERPROFILE)\b|%(HOME|RIVERWRIGHT_HOME|USERPROFILE)%/gi;
 
@@ -28,8 +28,9 @@ function candidates(word) {
   return out;
 }
 
+// ctx.lex: the lex options of the reading being walked (readingsOf), passed on to every nested text.
 function walk(text, ctx, depth) {
-  const { commands } = lex(text);
+  const { commands } = lex(text, ctx.lex);
   let cwd = ctx.cwd;
   for (const cmd of commands) {
     const words = [...cmd.words, ...cmd.redirects, ...cmd.herestrings];
@@ -66,7 +67,9 @@ export function mentionsHome(command, home, platform) {
 export function touchesHome(command, { home, cwd, env = {}, platform = process.platform }) {
   const userHome = env.HOME || env.USERPROFILE || os.homedir();
   const vars = { HOME: userHome, USERPROFILE: env.USERPROFILE || userHome, RIVERWRIGHT_HOME: home, PWD: cwd };
-  // cmd.exe and PowerShell paths use backslashes, which a POSIX lexer would read as escapes.
-  const text = platform === 'win32' ? String(command).replace(/\\/g, '/') : String(command);
-  return mentionsHome(command, home, platform) || walk(text, { home, cwd, vars }, 0);
+  if (mentionsHome(command, home, platform)) return true;
+  // The same readings the classifier checks (readingsOf: each NUL reading, and on Windows the "/" reading, since cmd.exe
+  // and PowerShell paths use backslashes, which a POSIX lexer would read as escapes). Any reading that reaches the
+  // workspace puts the command in scope.
+  return readingsOf(command, platform).some(([text, lexOpts]) => walk(text, { home, cwd, vars, lex: lexOpts }, 0));
 }

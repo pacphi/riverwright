@@ -36,6 +36,20 @@ function findClose(src, start, open = '(', close = ')') {
   return -1;
 }
 
+// Every reading of a command line a shell might act on, as [text, lex options] pairs. The classifier (classify.mjs)
+// and the scope check (scope.mjs) both use these, so they never disagree about what a command says.
+//   - A NUL (C1): bash cuts an ANSI-C segment at it, zsh and execve cut the whole word at it (see lex), and a raw NUL
+//     in the text may be dropped by the shell that reads it.
+//   - On Windows a backslash separates path segments and does not escape, so the text is also read with "/".
+export function readingsOf(text, platform = process.platform) {
+  const t = String(text ?? '');
+  const readings = [[t, {}]];
+  if (t.includes("$'") || t.includes('\0')) readings.push([t, { nul: 'word' }]);
+  if (t.includes('\0')) readings.push([t.replaceAll('\0', ''), {}]);
+  if (platform === 'win32' && t.includes('\\')) readings.push(...readings.map(([x, l]) => [x.replace(/\\/g, '/'), l]));
+  return readings;
+}
+
 // NUL handling (Task 17 C1). A NUL cannot reach a program: execve ends every argument at its first NUL. Shells differ
 // before that. bash cuts an ANSI-C $'...' segment at a decoded NUL and keeps the rest of the word ($'ab\0cd'ef is abef);
 // zsh keeps the NUL in the word, so the program receives only the text before it (ab). `nul` picks the reading:

@@ -8,7 +8,8 @@ import path from 'node:path';
 import { spawnSync } from 'node:child_process';
 import { pathToFileURL } from 'node:url';
 import { classifyCommand } from '../scripts/lib/hooks/classify.mjs';
-import { lex } from '../scripts/lib/hooks/shell.mjs';
+import { lex, readingsOf } from '../scripts/lib/hooks/shell.mjs';
+import { touchesHome } from '../scripts/lib/hooks/scope.mjs';
 import { GENESIS, eventsFile, verifyChain } from '../scripts/lib/events.mjs';
 import { appendEvent } from '../scripts/lib/ledger.mjs';
 import { createState, hasActiveRun, saveState, stateFile } from '../scripts/lib/state.mjs';
@@ -421,6 +422,39 @@ test('R37: the real hook denies a wrapped, prefixed or chained submit outside th
     assert.equal(r.status, 2, c);
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-publish-env/, c);
   }
+});
+
+// Parity (automated finding on the C1 fix): classify.mjs reads a NUL-bearing command several ways, but the scope check
+// (scope.mjs touchesHome) lexed it once (bash's reading), so the two could disagree about where the command reaches.
+// Both now take their readings from one helper, and a command is in scope when any reading reaches the workspace.
+test('parity: one readingsOf helper gives the NUL and Windows readings', () => {
+  assert.deepEqual(readingsOf('git push', 'linux'), [['git push', {}]]);
+  assert.deepEqual(readingsOf("rw $'a\\0b'", 'linux'), [["rw $'a\\0b'", {}], ["rw $'a\\0b'", { nul: 'word' }]]);
+  assert.deepEqual(readingsOf('a\0b', 'linux'), [['a\0b', {}], ['a\0b', { nul: 'word' }], ['ab', {}]]);
+  assert.deepEqual(readingsOf('a\\b', 'win32'), [['a\\b', {}], ['a/b', {}]]);
+});
+
+test('parity: the scope check counts a command that reaches the workspace under any NUL reading', () => {
+  const home = tmpDir('rw-scope-home-');
+  const cwd = tmpDir('rw-scope-cwd-');
+  // bash: $'\0' is cut to nothing, so the word is "$RIVERWRIGHT_HOMEx" (another variable). zsh and execve: the word ends
+  // at the NUL, so it is "$RIVERWRIGHT_HOME", the workspace.
+  const cmd = "git -C $RIVERWRIGHT_HOME$'\\0'x push origin HEAD";
+  assert.equal(lex(cmd).commands[0].words[2].value, '$RIVERWRIGHT_HOMEx');
+  assert.equal(lex(cmd, { nul: 'word' }).commands[0].words[2].value, '$RIVERWRIGHT_HOME');
+  assert.equal(touchesHome(cmd, { home, cwd, env: { HOME: cwd } }), true);
+  assert.equal(touchesHome('git -C $RIVERWRIGHT_HOMEx push origin HEAD', { home, cwd, env: { HOME: cwd } }), false);
+});
+
+test('parity: the real hook denies a push that reaches the workspace only under the zsh NUL reading', async () => {
+  const home = tmpDir('rw-scope-home-');
+  const outside = tmpDir('user-project-');
+  const command = "git -C $RIVERWRIGHT_HOME$'\\0'x push origin HEAD";
+  const r = await callMain(['hook', 'claude-code', '--home', home], {
+    stdin: hookPayload(command, outside), env: { HOME: outside, USERPROFILE: outside }, cwd: outside, testing: { userInfo: () => ({ homedir: outside }) },
+  });
+  assert.equal(r.code, 2, r.stdout);
+  assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /git-push/);
 });
 
 // Test hygiene (Task 17): the hook resolves "~" in the account home given by the in-process seam, not the real one.

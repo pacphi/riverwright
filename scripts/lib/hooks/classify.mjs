@@ -4,7 +4,7 @@ import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { realish } from '../paths.mjs';
 import { readBounded } from '../fsx.mjs';
-import { lex, isDynamic, hasUnresolved, unCaret } from './shell.mjs';
+import { lex, isDynamic, hasUnresolved, unCaret, readingsOf } from './shell.mjs';
 import { outward, unresolvable, nameOf, codeLooksOutward, classifyGh, classifyHttp } from './github.mjs';
 
 export { hasUnresolved };
@@ -1740,15 +1740,10 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
   const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
   const cwds = [path.resolve(cwd)];
   const opts = { cwd, cwds, env: env ?? {}, platform, launchers, userInfo, realCache: new Map(), dirCache: new Map(), gitCache: new Map(), lex: {} };
-  // Each reading is classified and the strongest verdict kept; an extra reading can only add denials.
-  //   - On Windows a backslash separates path segments and does not escape, so
-  //     "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is also read with "/" (the program it is).
-  //   - A NUL (C1): bash cuts an ANSI-C segment at it, zsh and execve cut the whole word at it (see lex), and a raw NUL
-  //     in the text may be dropped by the shell that reads it. Each of those readings is checked.
-  const readings = [[text, {}]];
-  if (text.includes("$'") || text.includes('\0')) readings.push([text, { nul: 'word' }]);
-  if (text.includes('\0')) readings.push([text.replaceAll('\0', ''), {}]);
-  if (platform === 'win32' && text.includes('\\')) readings.push(...readings.map(([t, l]) => [t.replace(/\\/g, '/'), l]));
+  // Each reading (readingsOf: the NUL readings of C1, and on Windows the "/" reading, so
+  // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is) is classified and the
+  // strongest verdict kept; an extra reading can only add denials. The scope check uses the same readings.
+  const readings = readingsOf(text, platform);
   try {
     let found = null;
     // A second round when the command changed directory: every directory it names then counts from the start (a cd
