@@ -7,9 +7,8 @@ import { runFile } from '../exec.mjs';
 import { workspaceHomeFromArg, isInside, realish, runDirForPath } from '../paths.mjs';
 import { loadState } from '../state.mjs';
 import { appendEvent, ledgerDirFor } from '../ledger.mjs';
-import { readEvents } from '../events.mjs';
 import { readVault } from '../vault.mjs';
-import { findValidReceipt } from '../receipt.mjs';
+import { findNewestValidReceipt, newestReceiptEvent } from '../receipt.mjs';
 import { parsePrePushLines, decidePrePush } from '../guard.mjs';
 import { nowIso } from '../clock.mjs';
 
@@ -36,7 +35,6 @@ async function runFromRepository(io, home) {
 }
 
 const GATE = 'submit-gate';
-const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e);
 
 // Consent for a push is the NEWEST submit-gate receipt for this run in the ledger, if it is signed, anchored,
 // unused and current, verified against the vault's public key (ADR-0010, spec §7.1; ruling R17). state.json is
@@ -56,12 +54,10 @@ function unlockedReceipt({ home, dir, run, nowMs }) {
   try {
     const ledgerDir = ledgerDirFor(dir);
     const { publicKey } = readVault(home);
-    const newest = readEvents(ledgerDir)
-      .filter((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.gate === GATE && e.data.receipt.run === run)
-      .at(-1);
+    const newest = newestReceiptEvent(ledgerDir, GATE, run);
     if (!newest) return { receipt: null, why: 'no receipt for this gate and run: unlock through "riverwright submit"' };
     if (newest.data.receipt.binding?.kind !== 'sha' || typeof newest.data.receipt.binding.value !== 'string') return { receipt: null, why: 'the newest receipt is not bound to a commit' };
-    const found = findValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: newest.data.receipt.binding, seq: newest.seq });
+    const found = findNewestValidReceipt({ ledgerDir, publicKey, gate: GATE, run, nowMs, binding: newest.data.receipt.binding });
     return found.ok ? { receipt: found.receipt } : { receipt: null, why: found.reason };
   } catch (e) {
     return { receipt: null, why: e instanceof RiverwrightError ? e.message : 'the receipt could not be checked' };

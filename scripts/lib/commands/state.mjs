@@ -10,7 +10,7 @@ import { makeBinding } from '../approvals.mjs';
 import { findNewestValidReceipt } from '../receipt.mjs';
 import { readVault } from '../vault.mjs';
 import { ledgerDirFor } from '../ledger.mjs';
-import { workspaceHomeFromArg } from '../paths.mjs';
+import { workspaceHomeFromArg, runIdForRunDir } from '../paths.mjs';
 
 const USAGE = 'usage: riverwright state <create|get|begin|complete|stop|reopen> --run <dir> [options]';
 
@@ -24,6 +24,13 @@ export async function run(args, io) {
       host: { type: 'string' }, model: { type: 'string' }, head: { type: 'string' }, home: { type: 'string' }, note: { type: 'string' },
     },
   });
+  // --home is honored only through the in-process test seam (io.testing, never set by scripts/riverwright.mjs),
+  // as the guard does for runDir. From real argv it is refused, so a caller cannot choose the vault that proves
+  // a public gate (ruling R20).
+  const testHome = io.testing?.allowHomeOverride === true ? values.home : undefined;
+  if (values.home !== undefined && testHome === undefined) {
+    throw new RiverwrightError('BAD_FLAG', `"--home" is not accepted here: the submit proof always comes from your account's own Riverwright workspace. ${USAGE}`);
+  }
   // The run is named on the command line, where the human sees it; no environment variable chooses it.
   const dir = values.run;
   if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory>');
@@ -46,13 +53,18 @@ export async function run(args, io) {
       const [station] = positionals;
       const current = loadState(dir);
       // A public gate (the submit station) is proved by the newest signed, unused receipt in the ledger for this
-      // run and this commit, checked against the vault key. state.json is never consulted for it. Like the
-      // guard, the workspace comes from --home or the account's home, never from the environment.
+      // run and this commit, checked against the vault key. state.json is never consulted for it. The vault and the
+      // ledger are the account's real ones: the home comes from the password database (as in the guard), never from
+      // the environment or a flag, and --run must resolve (symlinks followed) to <home>/<owner>/<repo>/runs/issue-<n>
+      // with a state.json runId that matches that path (ruling R20).
       const publicProof = (gate, sha) => {
         const binding = makeBinding({ sha });
         try {
+          const home = workspaceHomeFromArg(testHome);
+          const located = runIdForRunDir(home, dir);
+          if (!located || located.runId !== current.runId) return false;
           const found = findNewestValidReceipt({
-            ledgerDir: ledgerDirFor(dir), publicKey: readVault(workspaceHomeFromArg(values.home)).publicKey, gate, run: current.runId, nowMs: Date.parse(now), binding,
+            ledgerDir: ledgerDirFor(located.dir), publicKey: readVault(home).publicKey, gate, run: current.runId, nowMs: Date.parse(now), binding,
           });
           return found.ok;
         } catch (e) {

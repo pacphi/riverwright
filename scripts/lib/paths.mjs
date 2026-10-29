@@ -84,3 +84,15 @@ export function runDirForPath(home, p) {
   if (area !== 'worktrees' || !/^issue-\d+$/.test(issue ?? '')) return null;
   return path.join(realish(home), owner, repo, 'runs', issue);
 }
+
+// A run directory is <home>/<owner>/<repo>/runs/issue-<n>. Returns { dir, runId } with `dir` fully resolved
+// (symlinks followed), or null when the directory, once resolved, is not at that position under `home`.
+// A symlink that leaves the home therefore never qualifies.
+export function runIdForRunDir(home, p) {
+  const real = realish(p);
+  const parts = path.relative(realish(home), real).split(path.sep);
+  if (parts.length !== 4 || parts[2] !== 'runs' || parts.some((x) => x === '..' || x === '')) return null;
+  const m = /^issue-([1-9]\d*)$/.exec(parts[3]);
+  if (!m || !NAME.test(parts[0]) || !NAME.test(parts[1])) return null;
+  return { dir: real, runId: `${parts[0]}/${parts[1]}#${m[1]}` };
+}

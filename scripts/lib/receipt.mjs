@@ -168,13 +168,18 @@ export function findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, bindi
   return { ok: false, reason: first };
 }
 
+// The newest `approved` event (by ledger position) for this gate and run, or undefined. Not verified.
+export function newestReceiptEvent(ledgerDir, gate, run) {
+  return readEvents(ledgerDir)
+    .filter((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.gate === gate && e.data.receipt.run === run)
+    .at(-1);
+}
+
 // Whether the NEWEST receipt for this gate and run (by ledger position) is signed, anchored, unused, current and
 // bound to `binding`. An older receipt never stands in for a newer one that failed (ruling R17). Same result
 // shape as findValidReceipt.
 export function findNewestValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding }) {
-  const newest = readEvents(ledgerDir)
-    .filter((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.gate === gate && e.data.receipt.run === run)
-    .at(-1);
+  const newest = newestReceiptEvent(ledgerDir, gate, run);
   if (!newest) return { ok: false, reason: 'no receipt for this gate and run: unlock through "riverwright submit" or "riverwright post"' };
   return findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, seq: newest.seq });
 }
