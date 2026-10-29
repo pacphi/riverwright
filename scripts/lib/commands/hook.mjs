@@ -45,8 +45,12 @@ export async function run([host, ...rest], io) {
       reason = 'Riverwright could not read this command, so it is blocked while a Riverwright run is active or inside its workspace.';
     }
   } else {
-    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform });
-    if (verdict.outward && inScope) {
+    const verdict = classifyCommand(command, { trustedLauncher: TRUSTED_LAUNCHER, platform: io.platform, cwd: where });
+    if (verdict.outward && verdict.rule === 'riverwright-credential') {
+      // Always in scope (R23): the credential command acts on the account's vault wherever it runs, and a hook
+      // sees only an agent's tool calls; the human runs it in their own terminal, which no hook sees.
+      reason = `Blocked by Riverwright (riverwright-credential): ${verdict.detail}. An agent never runs this command; you run "riverwright credential" yourself, in your own terminal.`;
+    } else if (verdict.outward && inScope) {
       reason = `Blocked by Riverwright (${verdict.rule}): ${verdict.detail}. Public actions go through "riverwright submit" or "riverwright post" after your approval.`;
     } else if (verdict.outward && hasUnresolved(command) && hasActiveRun(home)) {
       reason = `Blocked by Riverwright (unresolvable-with-active-run): ${verdict.detail}, and the command depends on a variable or substitution that could point into the workspace while a run is active. Write the path out in full.`;

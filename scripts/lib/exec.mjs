@@ -78,15 +78,6 @@ function assertQuotablePath(p, what) {
   if (UNQUOTABLE.test(p)) throw new RiverwrightError('UNSAFE_PATH', `path ${JSON.stringify(p)} cannot be quoted safely in every shell`);
 }
 
-// Fails OPEN when node is missing (the shell exits 127, which most hosts treat as "allow").
-// Host adapters must use launcherHookCommand instead.
-export function buildHookCommand(scriptPath, host) {
-  if (!HOSTS.includes(host)) throw new RiverwrightError('UNKNOWN_HOST', `unknown host "${host}"`);
-  const p = String(scriptPath);
-  assertQuotablePath(p, 'hook script path');
-  return `node "${p}" hook ${host}`;
-}
-
 export const HOOK_SHELLS = ['sh', 'cmd', 'powershell'];
 
 // PowerShell's own status is 0 when a program cannot be started, and `exit $LASTEXITCODE` then exits 0

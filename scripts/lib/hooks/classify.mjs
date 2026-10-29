@@ -1,4 +1,5 @@
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
 import { realish } from '../paths.mjs';
 import { lex, isDynamic, hasUnresolved } from './shell.mjs';
 import { outward, unresolvable, nameOf, codeLooksOutward, classifyGh, classifyHttp } from './github.mjs';
@@ -9,6 +10,20 @@ export { hasUnresolved };
 // A false alarm blocks one command inside the workspace; a miss could publish without approval.
 // Anything the classifier cannot fully resolve (a variable or substitution as the program or git/gh
 // subcommand, eval, a shell reading code from a pipe) is outward with rule "unresolvable".
+//
+// The riverwright-credential rule (an agent running "riverwright credential") applies everywhere, not only
+// in the workspace, and outranks every other rule in the same command. Its honest limits: it is a static
+// reading of one command line, so it cannot see
+//   - code inside a script file, Makefile or package.json that the command runs (sh ./x.sh, make, npm run);
+//   - a renamed or copied launcher that cannot be resolved by path: a plain copy (cp bin/riverwright /tmp/x),
+//     a hard link, or a bare program name found through PATH (only a path that realpath resolves to the
+//     launcher files is recognised);
+//   - arguments built from pieces inside inline code ('cred' + 'ential' with no other riverwright marker);
+//   - a deliberate forger running as the same user, who can always reach the vault another way.
+// The passphrase, typed by the human in their own terminal, is the real protection (ADR-0010); this rule stops
+// accidents and prompt injection. Where a word cannot be resolved (a glob, a brace, a variable, a substitution)
+// it fails closed: a program word that could be riverwright with an argument that is or could expand to
+// "credential" is denied.
 
 const MAX_INPUT = 256 * 1024;
 const MAX_DEPTH = 8;
@@ -219,7 +234,7 @@ function pipedText(prev) {
 
 function classifyInterpreter(prog, spec, args, cmd, ctx) {
   const judge = (code) => {
-    if (INLINE_CREDENTIAL.test(code)) return outward('riverwright-credential', CREDENTIAL_DETAIL);
+    if (inlineCredential(code)) return credentialVerdict(CREDENTIAL_DETAIL);
     return codeLooksOutward(code) ? outward('inline-code', `${prog} inline code reaches GitHub or runs git/gh`) : null;
   };
   const run = (w) => {
@@ -245,16 +260,43 @@ function classifyInterpreter(prog, spec, args, cmd, ctx) {
   return classifyStdinCode(prog, cmd, ctx, judge);
 }
 
+// The words of the program a wrapper chain (nice, sudo, timeout 5, ...) finally runs.
+function throughWrappers(words) {
+  let ws = words;
+  for (let guard = 0; guard < 16 && ws.length; guard += 1) {
+    const p = programName(ws[0]);
+    if (p === null || !Object.hasOwn(WRAPPERS, p)) break;
+    ws = ws.slice(1 + wrapperSkip(p, ws.slice(1)));
+  }
+  return ws;
+}
+
+// xargs, parallel and find -exec run riverwright with arguments they supply (stdin, a file, a file name): any of
+// them could be "credential".
+function feedsRiverwright(words, ctx) {
+  const ws = throughWrappers(words);
+  return ws.length > 0 && mayBeRiverwright(ws[0], ctx);
+}
+
 function classifyXargs(args, ctx) {
   let i = 0;
+  let replace = null;
   for (; i < args.length; i += 1) {
     const t = nameOf(args[i]);
-    if (['-I', '-n', '-L', '-P', '-s', '-d', '-E', '-a'].includes(t)) { i += 1; continue; }
+    if (t === '-I') { replace = nameOf(args[i + 1]); i += 1; continue; }
+    if (t.startsWith('-I')) { replace = t.slice(2); continue; }
+    if (['-n', '-L', '-P', '-s', '-d', '-E', '-a'].includes(t)) { i += 1; continue; }
+    if (/^-i/.test(t)) { replace = t.slice(2) || '{}'; continue; }
+    if (t === '--replace' || t.startsWith('--replace=')) { replace = t.includes('=') ? t.slice(10) : '{}'; continue; }
     if (t.startsWith('-')) continue;
     break;
   }
   const rest = args.slice(i);
   if (!rest.length) return null;
+  if (feedsRiverwright(rest, ctx)) return credentialVerdict('xargs supplies the arguments to riverwright (they could be "credential")');
+  if (replace && nameOf(rest[0]).includes(replace) && rest.slice(1).some(mayBeCredential)) {
+    return credentialVerdict('xargs supplies the program, and an argument is (or could expand to) "credential"');
+  }
   const p = programName(rest[0]);
   if (p === null || ['git', 'gh', 'env', 'sudo', 'xargs', 'hub', ...EVALUATORS, ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p))) {
     return unresolvable(`xargs supplies the arguments to ${p ?? 'a variable program'}`);
@@ -271,12 +313,48 @@ function classifyAssignments(args, ctx) {
   return null;
 }
 
+// How many of a wrapper's arguments are its own options and positionals before the program it runs.
+function wrapperSkip(prog, args) {
+  const valued = WRAPPERS[prog];
+  let skip = WRAPPER_POSITIONALS[prog] ?? 0;
+  let i = 0;
+  for (; i < args.length; i += 1) {
+    const t = nameOf(args[i]);
+    if (valued.includes(t)) { i += 1; continue; }
+    if (t.startsWith('-') && t !== '-') continue;
+    if (skip > 0) { skip -= 1; continue; }
+    break;
+  }
+  return i;
+}
+
+const PARALLEL_VALUE_OPTS = new Set(['-j', '--jobs', '-P', '--max-procs', '-S', '--sshlogin', '--sshloginfile', '--slf', '-a', '--arg-file', '--colsep', '-C', '-d', '--delimiter', '-E', '-I', '--delay', '--timeout', '--joblog', '--results', '-n', '-N', '-L', '--max-args', '--tmpdir', '--workdir', '--tag-string']);
+
+// GNU parallel: the command comes before ::: / ::::, possibly as one quoted string.
+function classifyParallel(args, ctx) {
+  const end = args.findIndex((w) => /^::::?\+?$/.test(nameOf(w)));
+  const own = args.slice(0, end === -1 ? undefined : end);
+  let i = 0;
+  for (; i < own.length; i += 1) {
+    const t = nameOf(own[i]);
+    if (PARALLEL_VALUE_OPTS.has(t)) { i += 1; continue; }
+    if (t.startsWith('-')) continue;
+    break;
+  }
+  if (i >= own.length) return null;
+  const inner = /\s/.test(nameOf(own[i])) ? (lex(nameOf(own[i])).commands[0]?.words ?? []) : own.slice(i);
+  return feedsRiverwright(inner, ctx) ? credentialVerdict('parallel supplies the arguments to riverwright (they could be "credential")') : null;
+}
+
 function classifyInvocation(words, cmd, ctx) {
+  const cred = credentialAtProgram(words, ctx);
+  if (cred) return cred;
   const prog = programName(words[0]);
   if (prog === null) return ctx.strict ? unresolvable('the program is a variable or substitution') : null;
   const args = words.slice(1);
   if (EVALUATORS.has(prog)) return unresolvable(`${prog} runs text the classifier cannot see`);
   if (prog === 'env') {
+    let envVerdict = null;
     let i = 0;
     for (; i < args.length; i += 1) {
       const t = nameOf(args[i]);
@@ -288,22 +366,14 @@ function classifyInvocation(words, cmd, ctx) {
       }
       if (t.startsWith('-')) continue;
       const m = /^([A-Za-z_][A-Za-z0-9_]*)=/.exec(t);
-      if (m) { const v = checkEnvName(m[1]); if (v) return v; continue; }
+      if (m) { envVerdict = envVerdict ?? checkEnvName(m[1]); continue; }
       break;
     }
-    return args.length > i ? classifyInvocation(args.slice(i), cmd, ctx) : null;
+    const inner = args.length > i ? classifyInvocation(args.slice(i), cmd, ctx) : null;
+    return prefer(envVerdict, inner);
   }
   if (Object.hasOwn(WRAPPERS, prog)) {
-    const valued = WRAPPERS[prog];
-    let skip = WRAPPER_POSITIONALS[prog] ?? 0;
-    let i = 0;
-    for (; i < args.length; i += 1) {
-      const t = nameOf(args[i]);
-      if (valued.includes(t)) { i += 1; continue; }
-      if (t.startsWith('-') && t !== '-') continue;
-      if (skip > 0) { skip -= 1; continue; }
-      break;
-    }
+    const i = wrapperSkip(prog, args);
     if (prog === 'command' && args.some((w) => ['-v', '-V'].includes(nameOf(w)))) return null;
     return args.length > i ? classifyInvocation(args.slice(i), cmd, ctx) : null;
   }
@@ -314,6 +384,10 @@ function classifyInvocation(words, cmd, ctx) {
       if (!m) continue;
       if (isDynamic(w) && ctx.strict) return unresolvable('an alias is defined from a variable or substitution');
       const inner = lex(m[2]).commands[0];
+      // bash expands an alias defined earlier in the same script (shopt -s expand_aliases).
+      if (inner && throughWrappers(inner.words).length && mayBeRiverwright(throughWrappers(inner.words)[0], ctx)) {
+        return credentialVerdict(`alias ${m[1]} runs riverwright (its arguments could be "credential")`);
+      }
       const p = inner && programName(inner.words[0]);
       if (p && (['git', 'gh', 'env', 'sudo', 'xargs', 'hub', ...EVALUATORS, ...SHELLS, ...HTTP_CLIENTS].includes(p) || INTERPRETERS.some((s) => s.test.test(p)))) {
         return outward('shell-alias', `alias ${m[1]} runs ${p}`);
@@ -322,12 +396,16 @@ function classifyInvocation(words, cmd, ctx) {
     return null;
   }
   if (prog === 'xargs') return classifyXargs(args, ctx);
+  if (prog === 'parallel') return classifyParallel(args, ctx);
   if (prog === 'find') {
     const k = args.findIndex((w) => ['-exec', '-execdir', '-ok', '-okdir'].includes(nameOf(w)));
     if (k === -1) return null;
     const end = args.findIndex((w, j) => j > k && [';', '+'].includes(nameOf(w)));
     if (end === k + 1 || k + 1 >= args.length) return null;
-    return classifyInvocation(args.slice(k + 1, end === -1 ? undefined : end), { words: [], stdin: null, heredocs: [], herestrings: [] }, ctx);
+    const run = args.slice(k + 1, end === -1 ? undefined : end);
+    // A found file can be named "credential" (find credential -prune -exec rw {} remove).
+    if (run.some((w) => nameOf(w).includes('{}')) && feedsRiverwright(run, ctx)) return credentialVerdict('find -exec supplies file names to riverwright (a file can be named "credential")');
+    return classifyInvocation(run, { words: [], stdin: null, heredocs: [], herestrings: [] }, ctx);
   }
   if (prog === 'git') return classifyGit(args, ctx);
   if (prog.startsWith('git-')) return classifyGit([{ value: prog.slice(4), dynamic: false }, ...args], ctx);
@@ -345,50 +423,233 @@ function classifyInvocation(words, cmd, ctx) {
 }
 
 // "riverwright credential ..." seals, replaces or removes the credential. The human runs it in their own
-// terminal, so an agent's shell command that names it is denied in any spelling: the launcher, an absolute
-// or relative path, "rw", node running scripts/riverwright.mjs, npx or pnpm exec. Every word of a simple command
-// is checked (not only the first), so wrappers, option values and runners cannot hide the program.
-// base() lowercases and drops .exe/.cmd/.bat, so upper case and Windows names are caught too. A word that
-// names the subcommand through a variable is refused as unresolvable, because it could be "credential".
-const RIVERWRIGHT_PROGRAM = /^(?:riverwright|rw)(?:\.mjs)?$/;
+// terminal, so an agent's shell command that names it is denied in any spelling, wherever it runs.
+// Two checks work together:
+//   - word-wide (classifyRiverwrightCredential): any word that could be the program (the launcher, a path to it,
+//     "rw", a versioned package, a glob or brace that could expand to it, a path that resolves to the launcher
+//     files) followed by a word that is "credential" after brace expansion. Wrappers, option values and
+//     runners cannot hide the program from it.
+//   - program position (credentialAtProgram, called by classifyInvocation, so env, sudo, wrappers, xargs and
+//     find -exec reach it too, plus npx/pnpm/npm/yarn/bunx and node/bun/deno running a script): the program is
+//     riverwright and an argument is or could expand to "credential", or its subcommand is a variable; or the
+//     program itself is a variable or substitution and an argument is or could expand to "credential".
+// base() lowercases and drops .exe/.cmd/.bat, so upper case and Windows names are caught too.
+const RIVERWRIGHT_NAMES = new Set(['riverwright', 'rw']);
+const RIVERWRIGHT_CANDIDATES = ['riverwright', 'rw', ...['mjs', 'cmd', 'exe', 'bat', 'ps1', 'js'].flatMap((x) => [`riverwright.${x}`, `rw.${x}`])];
 const RIVERWRIGHT_VALUE_OPTS = new Set(['--home', '--run', '--workspace']);
 const CREDENTIAL_DETAIL = 'riverwright credential (sealing, replacing or removing your credential is something you do yourself, in your own terminal)';
+const GLOB = /[*?[]/;
 
-function classifyRiverwrightCredential(words, ctx) {
-  for (let j = 0; j < words.length; j += 1) {
-    if (isDynamic(words[j]) || !RIVERWRIGHT_PROGRAM.test(base(nameOf(words[j])))) continue;
-    const args = words.slice(j + 1);
-    if (args.some((w) => !isDynamic(w) && nameOf(w).toLowerCase() === 'credential')) return outward('riverwright-credential', CREDENTIAL_DETAIL);
-    if (!ctx.strict) continue;
-    for (let k = 0; k < args.length; k += 1) {
-      const t = nameOf(args[k]);
-      if (!isDynamic(args[k]) && RIVERWRIGHT_VALUE_OPTS.has(t.toLowerCase())) { k += 1; continue; }
-      if (!isDynamic(args[k]) && t.startsWith('-')) continue;
-      if (isDynamic(args[k])) return unresolvable('the riverwright subcommand is a variable or substitution (it could be "credential")');
-      break;
+// The launcher's own files. A program word, or the script node runs, whose real path is one of these is
+// riverwright whatever it is called (a symlink named anything).
+const LAUNCHER_FILES = ['../../../bin/riverwright', '../../../bin/riverwright.cmd', '../../../bin/rw', '../../../bin/rw.cmd', '../../riverwright.mjs', '../cli.mjs', '../commands/credential.mjs']
+  .map((rel) => realish(fileURLToPath(new URL(rel, import.meta.url))));
+
+const credentialVerdict = (why) => outward('riverwright-credential', why);
+const isCredential = (v) => v?.rule === 'riverwright-credential';
+const prefer = (found, v) => (!found || (isCredential(v) && !isCredential(found)) ? (v ?? found) : found);
+const mentionsCredential = (s) => /credential/i.test(String(s).replace(/["'`\\^]/g, ''));
+
+// The name a program or package word stands for: its base name without .exe/.cmd/.mjs, a package version
+// (riverwright@latest, @scope/riverwright@1.2.3) or a tarball suffix.
+function riverwrightName(v) {
+  return base(v).replace(/(?!^)@[^@]*$/, '').replace(/\.(mjs|cjs|js|tgz|tar\.gz)$/, '');
+}
+
+// The words a word can become through brace expansion ({a,b}, nesting; a {x..y} sequence counts as "*").
+// Quoting is already removed by the lexer, so a quoted brace is expanded too (fails closed).
+function braceAlternatives(v) {
+  const out = [];
+  const walk = (s) => {
+    if (out.length > 256) return;
+    for (let i = 0; i < s.length; i += 1) {
+      if (s[i] !== '{') continue;
+      let depth = 0;
+      let j = i;
+      const commas = [];
+      for (; j < s.length; j += 1) {
+        if (s[j] === '{') depth += 1;
+        else if (s[j] === '}') { depth -= 1; if (depth === 0) break; }
+        else if (s[j] === ',' && depth === 1) commas.push(j);
+      }
+      if (j >= s.length) break;
+      const pre = s.slice(0, i);
+      const post = s.slice(j + 1);
+      if (commas.length) {
+        let from = i + 1;
+        for (const c of [...commas, j]) { walk(pre + s.slice(from, c) + post); from = c + 1; }
+        return;
+      }
+      if (/^[^{}]*\.\.[^{}]*$/.test(s.slice(i + 1, j))) { walk(`${pre}*${post}`); return; }
     }
+    out.push(s);
+  };
+  walk(String(v));
+  // Too many to check one by one: it could be anything.
+  return out.length > 256 ? ['*'] : out;
+}
+
+// A glob as an anchored, case-insensitive regex. Any [...] class counts as any one character.
+function globRegex(s) {
+  let r = '';
+  for (let i = 0; i < s.length; i += 1) {
+    const c = s[i];
+    if (c === '*') r += '.*';
+    else if (c === '?') r += '.';
+    else if (c === '[' && s.indexOf(']', i + 2) !== -1) { r += '.'; i = s.indexOf(']', i + 2); }
+    else r += c.replace(/[.*+?^${}()|[\]\\/]/g, '\\$&');
+  }
+  return new RegExp(`^${r}$`, 'is');
+}
+
+// A word that is "credential", or could expand to it (brace, glob, a PowerShell comma list 'credential','setup').
+function mayBeCredential(w) {
+  if (!w || isDynamic(w)) return false;
+  return braceAlternatives(nameOf(w)).some((a) => a.split(',').some((part) => (GLOB.test(part) ? globRegex(part).test('credential') : part.toLowerCase() === 'credential')));
+}
+
+// A path that resolves (realpath, against the command's working directory) to one of the launcher files. A
+// bare name is a path only where a script runner takes it (node a.mjs); as a program it is looked up in PATH.
+function resolvesToLauncher(v, ctx, script = false) {
+  if ((!script && !/[\\/]/.test(v)) || GLOB.test(v) || /[{}]/.test(v) || v.includes('\0')) return false;
+  try {
+    return ctx.opts.launchers.has(realish(path.resolve(ctx.opts.cwd, v)));
+  } catch {
+    return false;
+  }
+}
+
+// A word that is, or could be, the riverwright program. `loose` (the word-wide scan) ignores a glob with no
+// literal letter in its last segment ("*"), so "mv * credential" in a user's project is not denied; in program
+// position any glob counts.
+function mayBeRiverwright(w, ctx, { loose = false, script = false } = {}) {
+  if (!w) return false;
+  if (isDynamic(w)) {
+    const p = programName(w);
+    return p !== null && RIVERWRIGHT_NAMES.has(riverwrightName(p));
+  }
+  const v = nameOf(w);
+  const hit = braceAlternatives(v).some((a) => {
+    const seg = a.split(/[\\/]/).pop();
+    if (!GLOB.test(seg)) return RIVERWRIGHT_NAMES.has(riverwrightName(seg));
+    if (loose && !/[a-z0-9]/i.test(seg.replace(/\[[^\]]*\]/g, ''))) return false;
+    const re = globRegex(seg.replace(/(?!^)@[^@]*$/, ''));
+    return RIVERWRIGHT_CANDIDATES.some((c) => re.test(c));
+  });
+  return hit || resolvesToLauncher(v, ctx, script);
+}
+
+// riverwright is the program: an argument that is or could expand to "credential" is denied, and so is a
+// subcommand given as a variable (it could be "credential"). Values of --home/--run/--workspace are skipped,
+// so `riverwright --home "$H" state get` stays allowed.
+function riverwrightArgs(args, ctx) {
+  if (args.some(mayBeCredential)) return credentialVerdict(CREDENTIAL_DETAIL);
+  if (!ctx.strict) return null;
+  for (let k = 0; k < args.length; k += 1) {
+    const t = nameOf(args[k]);
+    if (!isDynamic(args[k]) && RIVERWRIGHT_VALUE_OPTS.has(t.toLowerCase())) { k += 1; continue; }
+    if (!isDynamic(args[k]) && t.startsWith('-')) continue;
+    if (isDynamic(args[k])) return credentialVerdict('the riverwright subcommand is a variable or substitution (it could be "credential")');
+    break;
   }
   return null;
 }
 
-// Inline code (node -e, python -c) that starts riverwright with "credential" next to it, as a string or an argument list.
-const INLINE_CREDENTIAL = /(?:^|[^\w-])(?:riverwright|rw)(?:\.mjs|\.cmd)?['"`\[\])\s,]+['"`]?credential\b/i;
+const RUNNER_VALUE_OPTS = new Set(['-p', '--package', '-c', '--call', '--registry', '--cache', '--userconfig', '--prefix', '-w', '--workspace', '-C', '--dir', '--filter', '-F']);
+const SCRIPT_RUNNERS = /^(node|nodejs|bun|deno)$/;
 
+// The index (in args) of the package or script a runner starts, or -1.
+function runnerTarget(prog, args) {
+  const firstOperand = (from, values) => {
+    for (let i = from; i < args.length; i += 1) {
+      const t = nameOf(args[i]);
+      if (values.has(t)) { i += 1; continue; }
+      if (t.startsWith('-') && t !== '-') continue;
+      return i;
+    }
+    return -1;
+  };
+  if (['npx', 'bunx', 'pnpx'].includes(prog)) return firstOperand(0, RUNNER_VALUE_OPTS);
+  if (['pnpm', 'npm', 'yarn'].includes(prog)) {
+    const k = firstOperand(0, RUNNER_VALUE_OPTS);
+    if (k === -1 || isDynamic(args[k])) return k;
+    if (!['exec', 'dlx', 'x', 'run'].includes(nameOf(args[k]).toLowerCase())) return -1;
+    return firstOperand(k + 1, RUNNER_VALUE_OPTS);
+  }
+  if (SCRIPT_RUNNERS.test(prog)) {
+    const spec = INTERPRETERS.find((s) => s.test.test(prog));
+    const values = new Set(spec ? spec.values : []);
+    // Inline code (-e, --eval, -p) is classifyInterpreter's job.
+    if (args.some((w) => spec && spec.code.some((f) => nameOf(w) === f || nameOf(w).startsWith(`${f}=`)))) return -1;
+    let k = firstOperand(0, values);
+    if (k !== -1 && ['run', 'x'].includes(nameOf(args[k]))) k = firstOperand(k + 1, values);
+    if (k !== -1 && prog === 'deno' && nameOf(args[k]) === 'eval') return -1;
+    return k;
+  }
+  return -1;
+}
+
+// The program of an invocation, seen through riverwright-like names, runners and variables.
+function credentialAtProgram(words, ctx) {
+  const w0 = words[0];
+  if (!w0) return null;
+  const args = words.slice(1);
+  const prog = programName(w0);
+  if (prog === null) {
+    return args.some(mayBeCredential) ? credentialVerdict('the program is a variable or substitution and an argument is (or could expand to) "credential"') : null;
+  }
+  if (mayBeRiverwright(w0, ctx)) return riverwrightArgs(args, ctx);
+  const k = runnerTarget(prog, args);
+  if (k === -1) return null;
+  const target = args[k];
+  const rest = args.slice(k + 1);
+  if (isDynamic(target) && programName(target) === null) {
+    return rest.some(mayBeCredential) ? credentialVerdict(`${prog} runs a package or script named by a variable, and an argument is (or could expand to) "credential"`) : null;
+  }
+  return mayBeRiverwright(target, ctx, { script: SCRIPT_RUNNERS.test(prog) }) ? riverwrightArgs(rest, ctx) : null;
+}
+
+// Word-wide: a word that could be riverwright followed by a word that is "credential" after brace expansion
+// and comma splitting.
+function classifyRiverwrightCredential(words, ctx) {
+  const expanded = words.flatMap((w) => (isDynamic(w)
+    ? [w]
+    : braceAlternatives(nameOf(w)).flatMap((a) => a.split(',')).map((value) => ({ value, dynamic: false, quoted: w.quoted, subs: [] }))));
+  // Only words before the last "credential" can be its program; this also keeps the realpath checks to
+  // commands that name it.
+  let last = -1;
+  expanded.forEach((x, k) => { if (!isDynamic(x) && nameOf(x).toLowerCase() === 'credential') last = k; });
+  for (let j = 0; j < last; j += 1) {
+    if (!isDynamic(expanded[j]) && mayBeRiverwright(expanded[j], ctx, { loose: true })) return credentialVerdict(CREDENTIAL_DETAIL);
+  }
+  return null;
+}
+
+// Inline code (node -e, python -c, perl -e, ruby -e, deno eval, bun -e) that starts riverwright with "credential"
+// next to it, or near it in an argument list, or that loads the CLI or the credential command directly.
+const INLINE_CREDENTIAL = /(?:^|[^\w-])(?:riverwright|rw)(?:\.mjs|\.cmd)?['"`\[\])\s,]+['"`]?credential\b/i;
+const INLINE_NEAR = /\briverwright\b[\s\S]{0,160}?\bcredential\b|['"`]rw(?:\.cmd|\.mjs)?['"`][\s\S]{0,160}?\bcredential\b/i;
+const INLINE_CLI = /(?:commands[\\/]+credential|lib[\\/]+cli)\.m?js\b/i;
+const inlineCredential = (code) => INLINE_CREDENTIAL.test(code) || INLINE_NEAR.test(code) || INLINE_CLI.test(code);
+
+// Every part of a simple command is classified. The first verdict found is kept, except that a
+// riverwright-credential verdict replaces any other (it applies everywhere; the others only in scope).
 function classifySimple(cmd, ctx) {
+  let found = null;
+  const take = (v) => { found = prefer(found, v); return isCredential(found); };
   const all = [...cmd.words, ...cmd.redirects, ...cmd.herestrings];
   // Substitutions run before the command itself.
   for (const w of all) {
     for (const sub of w.subs) {
-      const v = classifyScript(sub, ctx.deeper(ctx.strict));
-      if (v) return v;
+      if (take(classifyScript(sub, ctx.deeper(ctx.strict)))) return found;
     }
   }
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too.
   if (ctx.depth < 4) {
     for (const w of all) {
-      if (/\s/.test(w.value)) { const v = classifyScript(w.value, ctx.deeper(false)); if (v) return v; }
+      if (/\s/.test(w.value) && take(classifyScript(w.value, ctx.deeper(false)))) return found;
     }
-    for (const h of cmd.heredocs) { const v = classifyScript(h.text, ctx.deeper(false)); if (v) return v; }
+    for (const h of cmd.heredocs) { if (take(classifyScript(h.text, ctx.deeper(false)))) return found; }
   }
   let i = 0;
   while (i < cmd.words.length) {
@@ -396,44 +657,42 @@ function classifySimple(cmd, ctx) {
     const t = nameOf(w);
     if (!w.quoted && KEYWORDS.has(t)) { i += 1; continue; }
     const m = /^([A-Za-z_][A-Za-z0-9_]*)\+?=/.exec(t);
-    if (m) { const v = checkEnvName(m[1]); if (v) return v; i += 1; continue; }
+    if (m) { take(checkEnvName(m[1])); i += 1; continue; }
     break;
   }
   if (i < cmd.words.length) {
-    const c = classifyRiverwrightCredential(cmd.words.slice(i), ctx);
-    if (c) return c;
-    const v = classifyInvocation(cmd.words.slice(i), cmd, ctx);
-    if (v) return v;
+    if (take(classifyRiverwrightCredential(cmd.words.slice(i), ctx))) return found;
+    if (take(classifyInvocation(cmd.words.slice(i), cmd, ctx))) return found;
   }
   // A git or gh word anywhere later in the command (sudo -u x git push, find -exec, echo ... | sh).
-  for (let k = i + 1; k < cmd.words.length; k += 1) {
+  for (let k = i + 1; k < cmd.words.length && !found; k += 1) {
     const w = cmd.words[k];
     if (isDynamic(w)) continue;
     const b = base(nameOf(w));
     const lenient = ctx.deeper(false);
-    const v = b === 'git' ? classifyGit(cmd.words.slice(k + 1), lenient) : b === 'gh' ? classifyGh(cmd.words.slice(k + 1), lenient) : null;
-    if (v) return v;
+    take(b === 'git' ? classifyGit(cmd.words.slice(k + 1), lenient) : b === 'gh' ? classifyGh(cmd.words.slice(k + 1), lenient) : null);
   }
-  return null;
+  return found;
 }
 
-function makeCtx(depth, strict, budget) {
-  return { depth, strict, budget, deeper: (s) => makeCtx(depth + 1, s, budget) };
+function makeCtx(depth, strict, budget, opts) {
+  return { depth, strict, budget, opts, deeper: (s) => makeCtx(depth + 1, s, budget, opts) };
 }
 
 function classifyScript(text, ctx) {
   const s = String(text);
   ctx.budget.used += s.length;
   if (ctx.depth > MAX_DEPTH || ctx.budget.used > MAX_WORK) {
+    if (mentionsCredential(s)) return credentialVerdict('the command nests too deeply to check, and it mentions "credential"');
     return ctx.strict ? unresolvable('the command nests too deeply to check') : null;
   }
   const { commands, incomplete } = lex(s);
-  if (incomplete && ctx.strict) return unresolvable('the command has an unterminated quote, substitution or here-document');
+  let found = incomplete && ctx.strict ? unresolvable('the command has an unterminated quote, substitution or here-document') : null;
   for (const cmd of commands) {
-    const v = classifySimple(cmd, ctx);
-    if (v) return v;
+    found = prefer(found, classifySimple(cmd, ctx));
+    if (isCredential(found)) return found;
   }
-  return null;
+  return found;
 }
 
 // Anything that could chain, substitute, expand (%VAR% in cmd), redirect, glob or escape disqualifies
@@ -456,17 +715,22 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
   return isTrusted(toks[i]) && ['submit', 'post'].includes(toks[i + 1]);
 }
 
-export function classifyCommand(command, { trustedLauncher = [], platform = process.platform } = {}) {
+// `cwd` is the command's working directory: a relative program path is resolved against it to see whether it
+// is the launcher.
+export function classifyCommand(command, { trustedLauncher = [], platform = process.platform, cwd = process.cwd() } = {}) {
   const text = String(command ?? '');
-  if (text.length > MAX_INPUT) return unresolvable('the command is too long to check');
-  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
-  const found = classifyScript(text, makeCtx(0, true, { used: 0 }));
-  if (found) return found;
-  // On Windows a backslash separates path segments and does not escape; read that way too, so
-  // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is.
-  if (platform === 'win32' && text.includes('\\')) {
-    const slashed = classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }));
-    if (slashed) return slashed;
+  if (text.length > MAX_INPUT) {
+    return mentionsCredential(text) ? credentialVerdict('the command is too long to check, and it mentions "credential"') : unresolvable('the command is too long to check');
   }
-  return { outward: false };
+  if (isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
+  const launchers = new Set([...LAUNCHER_FILES, ...trustedLauncher.map((p) => realish(p))]);
+  const opts = { cwd, launchers };
+  let found = classifyScript(text, makeCtx(0, true, { used: 0 }, opts));
+  // On Windows a backslash separates path segments and does not escape; read that way too, so
+  // "C:\\tools\\riverwright\\bin\\riverwright.cmd credential setup" is seen as the program it is. This second
+  // reading applies to every rule, not only the credential rule; it can only add denials.
+  if (platform === 'win32' && text.includes('\\') && !isCredential(found)) {
+    found = prefer(found, classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }, opts)));
+  }
+  return found ?? { outward: false };
 }

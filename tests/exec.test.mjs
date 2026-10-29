@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
-import { runFile, quoteCmdArg, cmdShimCommandLine, parseNpmCmdShim, resolveHostLaunch, buildHookCommand, powershellFailClosed, launcherHookCommand } from '../scripts/lib/exec.mjs';
+import { runFile, quoteCmdArg, cmdShimCommandLine, parseNpmCmdShim, resolveHostLaunch, powershellFailClosed, launcherHookCommand } from '../scripts/lib/exec.mjs';
 import { HOSTS } from '../scripts/lib/hosts.mjs';
 import { spawnSync } from 'node:child_process';
 import { ROOT, tmpDir } from './helpers.mjs';
@@ -62,16 +62,9 @@ test('resolveHostLaunch leaves POSIX programs to execFile', () => {
   assert.deepEqual(resolveHostLaunch('codex', { platform: 'darwin', env: {} }), { kind: 'plain', file: 'codex', prefixArgs: [] });
 });
 
-test('buildHookCommand quotes paths with spaces and refuses unsafe paths', () => {
-  assert.equal(
-    buildHookCommand('/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs', 'claude-code'),
-    'node "/Users/Jane Doe/Library/Application Support/riverwright/scripts/riverwright.mjs" hook claude-code',
-  );
-  assert.equal(buildHookCommand('C:\\Program Files\\riverwright\\scripts\\riverwright.mjs', 'cursor'), 'node "C:\\Program Files\\riverwright\\scripts\\riverwright.mjs" hook cursor');
-  for (const bad of ['relative/riverwright.mjs', '/a"b/riverwright.mjs', '/a$HOME/riverwright.mjs', '/a`x`/riverwright.mjs', 'C:\\50%\\riverwright.mjs']) {
-    assert.throws(() => buildHookCommand(bad, 'codex'), /path|absolute/, bad);
-  }
-  assert.throws(() => buildHookCommand('/a/riverwright.mjs', 'notahost'), /unknown host/);
+test('exec.mjs offers no hook-command builder that leaves out --home or fails open (launcherHookCommand only)', async () => {
+  const exec = await import('../scripts/lib/exec.mjs');
+  assert.equal(exec.buildHookCommand, undefined);
 });
 
 const posixOnly = { skip: process.platform === 'win32' };
