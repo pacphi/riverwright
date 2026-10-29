@@ -257,6 +257,12 @@ What is built (Plan 2a):
   `HOME` or a `--home` flag (refused from the command line), and `--run` must resolve, symlinks followed, to
   `<home>/<owner>/<repo>/runs/issue-<n>` with a matching run id. A run kept under a custom `RIVERWRIGHT_HOME`
   therefore cannot pass the submit station; it fails closed. This awaits the owner's decision.
+- **When the submit station can begin** (ruling R40). The proof needs the newest receipt to be **unused**, and the
+  gate writes the receipt just before its action and marks it used before `runPublicAction` returns (§7.5). So the
+  proof passes only inside the action: before the unlock there is no receipt, and after the gate returns the receipt
+  is used. `riverwright submit` therefore begins the submit station in its own process, inside the gate's action and
+  before the push (§7.5 step 6). `riverwright state begin submit` run on its own from the command line is not part of
+  the flow: it passes only while a gate's action is running, so it fails before the unlock and after the gate returns.
 
 ## 7. Guardrails
 
@@ -324,9 +330,12 @@ Generated per host, active only for commands run under the workspace home (the h
 the credential rule below, which applies everywhere. They deny outward `gh` calls
 (`pr create|ready|comment|edit`, `issue create|comment`, `repo fork`, `api` with a write method),
 `git push --no-verify`, `-c core.hooksPath`, and edits to remote or credential config, unless the
-command is `riverwright submit` or `riverwright post` run through the installed launcher's exact real
-path (`bin/riverwright`, `bin/riverwright.cmd` or `scripts/riverwright.mjs`) as one plain command; a
-program merely named `riverwright` gets no exemption, and neither does the `rw` alias.
+command is `riverwright submit` or `riverwright post` as one plain command whose first word is the absolute path
+of an installed launcher file, resolved to its real path (`bin/riverwright`, `bin/riverwright.cmd`, or
+`scripts/riverwright.mjs` run by its own shebang); a program merely named `riverwright` gets no exemption, and
+neither does the `rw` alias. Handing the launcher script to a runtime is not the launcher:
+`node scripts/riverwright.mjs submit` (or `post`) is denied everywhere as `riverwright-publish-env` (ruling R37), so
+skills and documents run the bin launcher directly.
 
 Scope is decided from resolved paths: the payload cwd and every path in the command, after expanding
 `~`, `$HOME`, `${HOME}`, `$RIVERWRIGHT_HOME` and `%USERPROFILE%`, following `cd` and `-C`, and resolving
@@ -471,6 +480,10 @@ public key are authenticated with the ciphertext, so changing any of them makes 
    record; nothing treats it as proof.
 6. Call `action({ token, receipt, attempt, signal, deadline })`. The action (Plan 2b) may pass the token to one child
    process through its environment, never through an argument list or a file, and pushes the exact SHA by name.
+   For the submit gate, `riverwright submit` passes `fork` (the gate refuses a submit gate without one, `BAD_CALL`),
+   and its action **first begins the run's submit station** with the submit proof (§6), in the same process, while
+   the receipt is still unused, and **then pushes** (ruling R40). Beginning the station after `runPublicAction`
+   returns always fails (`GATE_NOT_APPROVED`), because the receipt is used by then.
    The action's result must not contain the token: the gate returns it to the caller unchanged, and only its error
    path is cleaned (Task 17 F5). Plan 2b checks each action's result for the token when it builds the actions.
 7. Record the outcome once: a `receipt-consumed` event with `succeeded` or `failed`. If that record cannot be
