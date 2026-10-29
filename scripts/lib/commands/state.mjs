@@ -3,6 +3,7 @@ import { parseArgs } from 'node:util';
 import { RiverwrightError } from '../errors.mjs';
 import { createState, beginStation, completeStation, stopRun, reopenForChanges, nextStation, loadState, saveState, stateFile } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
+import { jsonPrintable } from '../printable.mjs';
 import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
 
@@ -34,7 +35,7 @@ export async function run(args, io) {
       break;
     }
     case 'get':
-      io.stdout.write(`${JSON.stringify(loadState(dir), null, 2)}\n`);
+      io.stdout.write(`${jsonPrintable(JSON.stringify(loadState(dir), null, 2))}\n`);
       return 0;
     case 'begin': {
       const [station] = positionals;
@@ -62,6 +63,6 @@ export async function run(args, io) {
     default:
       throw new RiverwrightError('USAGE', USAGE);
   }
-  io.stdout.write(`${JSON.stringify({ runId: state.runId, status: state.status, current: state.current, next: nextStation(state), stop: state.stop }, null, 2)}\n`);
+  io.stdout.write(`${jsonPrintable(JSON.stringify({ runId: state.runId, status: state.status, current: state.current, next: nextStation(state), stop: state.stop }, null, 2))}\n`);
   return 0;
 }

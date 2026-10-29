@@ -13,10 +13,8 @@ import { auditAmbient } from '../ambient.mjs';
 
 const USAGE = 'usage: riverwright credential <setup [--replace] | status | remove>';
 
-// Anything read from a file (or the environment) is stripped of control characters before it is printed,
-// so a tampered vault cannot move the cursor, clear the screen or forge a line. Includes C1 such as \x9b.
-// eslint-disable-next-line no-control-regex
-export const printable = (value) => String(value).replace(/[\x00-\x1f\x7f-\x9f\u2028\u2029]/g, '?');
+import { printable } from '../printable.mjs';
+export { printable };
 
 const terminalOf = (io) => (io.openTerminal ? io.openTerminal() : openTerminal({ platform: io.platform }));
 

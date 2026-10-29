@@ -4,6 +4,7 @@ import { RiverwrightError } from '../errors.mjs';
 import { riverwrightHome } from '../paths.mjs';
 import { writeFileAtomic } from '../fsx.mjs';
 import { buildEvidence, collectRunStates } from '../evidence.mjs';
+import { printable, jsonPrintable } from '../printable.mjs';
 import { nowIso } from '../clock.mjs';
 
 export async function run(args, io) {
@@ -15,9 +16,9 @@ export async function run(args, io) {
   const home = values.home ?? riverwrightHome(io.env);
   const hosts = values.hosts ? JSON.parse(fs.readFileSync(values.hosts, 'utf8')) : {};
   const { states, skipped } = collectRunStates(home);
-  for (const s of skipped) io.stderr.write(`skipped ${s.path}: ${s.reason}\n`);
+  for (const s of skipped) io.stderr.write(`skipped ${printable(s.path)}: ${printable(s.reason)}\n`);
   const text = `${JSON.stringify(buildEvidence({ states, hosts, now: nowIso(io) }), null, 2)}\n`;
   if (values.out) writeFileAtomic(values.out, text);
-  else io.stdout.write(text);
+  else io.stdout.write(jsonPrintable(text));
   return 0;
 }

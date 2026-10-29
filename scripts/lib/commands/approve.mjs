@@ -5,6 +5,7 @@ import { makeBinding, recordApproval, normalizeBranch } from '../approvals.mjs';
 import { loadState, saveState } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
+import { printable } from '../printable.mjs';
 import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
 
@@ -44,7 +45,7 @@ export async function run(args, io) {
     const expected = binding.kind === 'sha' ? binding.value.slice(0, 7) : 'yes';
     const what = binding.kind === 'sha' ? `commit ${binding.value}${branch ? ` on ${branch}` : ''}` : `content ${binding.value}`;
     const how = binding.kind === 'sha' ? 'the first 7 characters of the commit' : 'yes';
-    const ok = await confirmTyped({ terminal, question: `Approve ${gate} for ${state.runId} (${what})?\nType ${how} to approve: `, expected });
+    const ok = await confirmTyped({ terminal, question: `Approve ${gate} for ${printable(state.runId)} (${printable(what)})?\nType ${how} to approve: `, expected });
     if (!ok) {
       io.stderr.write('Not approved. Nothing was recorded.\n');
       return 1;
@@ -52,6 +53,6 @@ export async function run(args, io) {
   }
   saveState(dir, recordApproval(state, { gate, sha: values.sha, content, mode, host, now, branch }));
   appendEvent(dir, { type: 'approval', at: now, gate, binding, mode, host, ...(branch ? { branch } : {}) });
-  io.stdout.write(`Approved ${gate} for ${state.runId}: ${binding.kind} ${binding.value}\n`);
+  io.stdout.write(`Approved ${printable(gate)} for ${printable(state.runId)}: ${printable(binding.kind)} ${printable(binding.value)}\n`);
   return 0;
 }

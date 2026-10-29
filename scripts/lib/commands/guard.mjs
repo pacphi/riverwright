@@ -1,5 +1,6 @@
 import path from 'node:path';
 import { parseArgs } from 'node:util';
+import { printable } from '../printable.mjs';
 import { RiverwrightError } from '../errors.mjs';
 import { readAll } from '../io.mjs';
 import { runFile } from '../exec.mjs';
@@ -59,13 +60,13 @@ export async function run(args, io) {
   if (located.runId && state.runId !== located.runId) {
     const reason = `The run record at ${dir} belongs to ${state.runId}, not ${located.runId}.`;
     appendEvent(dir, { type: 'guard', at, decision: 'deny', reason, remoteUrl: destination });
-    io.stderr.write(`Riverwright blocked this push: ${reason}\n`);
+    io.stderr.write(`Riverwright blocked this push: ${printable(reason)}\n`);
     return 1;
   }
   const decision = decidePrePush({ remoteUrl: destination, updates, forkUrl: state.fork?.url ?? null, approvedSha: approvedSha(state, 'submit-gate'), approvedBranch: approvedBranch(state, 'submit-gate') });
   appendEvent(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
   if (!decision.allow) {
-    io.stderr.write(`Riverwright blocked this push: ${decision.reason}\n`);
+    io.stderr.write(`Riverwright blocked this push: ${printable(decision.reason)}\n`);
     return 1;
   }
   return 0;

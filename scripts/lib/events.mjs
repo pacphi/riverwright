@@ -9,6 +9,7 @@ import path from 'node:path';
 import { RiverwrightError } from './errors.mjs';
 import { readTextIfExists } from './fsx.mjs';
 import { version } from './version.mjs';
+import { shown } from './printable.mjs';
 
 export const EVENT_SCHEMA = 'riverwright-event/1';
 export const GENESIS = `sha256:${'0'.repeat(64)}`;
@@ -135,7 +136,7 @@ export function verifyChain(dir, { expectHead = null, expectSeq = null } = {}) {
       return;
     }
     if (e.schema !== EVENT_SCHEMA) problems.push({ line: n, reason: `schema is not ${EVENT_SCHEMA}` });
-    if (e.seq !== n) problems.push({ line: n, reason: `seq is ${e.seq}, expected ${n}` });
+    if (e.seq !== n) problems.push({ line: n, reason: `seq is ${shown(e.seq)}, expected ${n}` });
     if (e.prev !== prev) problems.push({ line: n, reason: `prev does not match the hash of line ${n - 1} (an earlier line was edited, removed or reordered)` });
     seq = typeof e.seq === 'number' ? e.seq : seq;
     prev = lineHash(line);

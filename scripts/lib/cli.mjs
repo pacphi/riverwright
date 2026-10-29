@@ -1,5 +1,6 @@
 import { RiverwrightError } from './errors.mjs';
 import { version } from './version.mjs';
+import { printableLines } from './printable.mjs';
 
 export const HOOK_LIKE = new Set(['hook', 'guard']);
 
@@ -38,7 +39,7 @@ export async function main(argv, io) {
   }
   const load = COMMANDS[name];
   if (!load) {
-    io.stderr.write(`riverwright: unknown command "${name}". Run "riverwright help" to see the commands.\n`);
+    io.stderr.write(`riverwright: unknown command "${printableLines(name)}". Run "riverwright help" to see the commands.\n`);
     return 2;
   }
   try {
@@ -46,7 +47,7 @@ export async function main(argv, io) {
     return await mod.run(rest, io);
   } catch (err) {
     const message = err instanceof RiverwrightError ? err.message : `unexpected error: ${err?.stack ?? err}`;
-    io.stderr.write(`riverwright ${name}: ${message}\n`);
+    io.stderr.write(`riverwright ${name}: ${printableLines(message)}\n`);
     return HOOK_LIKE.has(name) ? 2 : 1;
   }
 }
