@@ -1,6 +1,6 @@
 import { RiverwrightError } from './errors.mjs';
 import { version } from './version.mjs';
-import { printableLines } from './printable.mjs';
+import { printable, printableLines } from './printable.mjs';
 
 export const HOOK_LIKE = new Set(['hook', 'guard']);
 
@@ -39,7 +39,7 @@ export async function main(argv, io) {
   }
   const load = COMMANDS[name];
   if (!load) {
-    io.stderr.write(`riverwright: unknown command "${printableLines(name)}". Run "riverwright help" to see the commands.\n`);
+    io.stderr.write(`riverwright: unknown command "${printable(name)}". Run "riverwright help" to see the commands.\n`);
     return 2;
   }
   try {
@@ -47,7 +47,10 @@ export async function main(argv, io) {
     return await mod.run(rest, io);
   } catch (err) {
     const message = err instanceof RiverwrightError ? err.message : `unexpected error: ${err?.stack ?? err}`;
-    io.stderr.write(`riverwright ${name}: ${printableLines(message)}\n`);
+    // One line per source line; every continuation line is indented, so text embedded in a message (file
+    // content, a JSON parse snippet) cannot pose as a separate Riverwright line.
+    const [head, ...more] = String(message).split('\n').map((l) => printableLines(l));
+    io.stderr.write(`riverwright ${name}: ${head}\n${more.map((l) => `    | ${l}\n`).join('')}`);
     return HOOK_LIKE.has(name) ? 2 : 1;
   }
 }

@@ -52,3 +52,22 @@ test('without --project, setup explains how to use it', async () => {
   assert.equal(r.code, 2);
   assert.match(r.stderr, /riverwright setup --project/);
 });
+
+// eslint-disable-next-line no-control-regex
+const UNSAFE = /[\p{Cc}\p{Cf}\p{Zl}\p{Zp}]/u;
+const hasUnsafe = (text) => UNSAFE.test(text.replace(/[\n]/g, ''));
+
+test('the approval display never carries a raw control or format character from repo files', async () => {
+  const evil = '\u001b[2J\u001b[1;1HNothing to see\u202e\u200b\u009b';
+  const root = repo({ 'AGENTS.md': `# A\n${evil}\n`, 'CLAUDE.md': `${evil}\n`, 'riverwright.json': `{"x": "${evil.replace(/\u001b/g, '')}"` });
+  fs.mkdirSync(path.join(root, '.claude'));
+  fs.writeFileSync(path.join(root, '.claude', 'settings.json'), `{"note": "${evil.replace(/\u001b/g, '')}", "hooks": ` );
+  const home = tmpDir('riverwright-home-');
+  const dry = await callMain(['setup', '--project', '--dry-run', '--repo', root], { env: { RIVERWRIGHT_HOME: home } });
+  assert.ok(dry.stdout.includes('Nothing to see'), 'the evil line should be shown, cleaned');
+  assert.ok(!hasUnsafe(dry.stdout), JSON.stringify(dry.stdout));
+  assert.ok(!hasUnsafe(dry.stderr), JSON.stringify(dry.stderr));
+  const applied = await callMain(['setup', '--project', '--yes', '--repo', root], { env: { RIVERWRIGHT_HOME: home }, testing: { now: 't' } });
+  assert.ok(!hasUnsafe(applied.stdout), JSON.stringify(applied.stdout));
+  assert.ok(!hasUnsafe(applied.stderr), JSON.stringify(applied.stderr));
+});

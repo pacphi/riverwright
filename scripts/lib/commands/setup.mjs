@@ -4,6 +4,7 @@ import { version } from '../version.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
 import { inspectRepo, planIntegration, planRemoval, applyPlan, changedFiles } from '../project.mjs';
 import { nowIso } from '../clock.mjs';
+import { printable, printableLines } from '../printable.mjs';
 
 const USAGE = 'usage: riverwright setup --project [--repo PATH] [--dry-run | --yes | --no-input] [--team] [--remove]\n';
 
@@ -13,9 +14,9 @@ function printPlan(io, plan) {
     return;
   }
   for (const s of plan.steps) {
-    io.stdout.write(`\n== ${s.file}: ${s.action}${s.reason ? ` (${s.reason})` : ''}\n`);
-    if (s.action === 'print-snippet') io.stdout.write(`Add this yourself if you want it:\n${s.snippet}`);
-    else if (s.diff) io.stdout.write(s.diff);
+    io.stdout.write(`\n== ${printable(s.file)}: ${printable(s.action)}${s.reason ? ` (${printable(s.reason)})` : ''}\n`);
+    if (s.action === 'print-snippet') io.stdout.write(`Add this yourself if you want it:\n${printableLines(s.snippet)}`);
+    else if (s.diff) io.stdout.write(printableLines(s.diff));
   }
 }
 
@@ -60,8 +61,8 @@ export async function run(args, io) {
     };
   const { results, backup } = await applyPlan(plan, { home, now, confirm });
   io.stdout.write('\n');
-  for (const r of results) io.stdout.write(`${r.file}: ${r.result}${r.reason ? ` (${r.reason})` : ''}\n`);
-  if (backup) io.stdout.write(`Backups: ${backup}\n`);
+  for (const r of results) io.stdout.write(`${printable(r.file)}: ${printable(r.result)}${r.reason ? ` (${printable(r.reason)})` : ''}\n`);
+  if (backup) io.stdout.write(`Backups: ${printable(backup)}\n`);
   io.stdout.write('Nothing was committed. Review the changes with git diff and commit them yourself.\n');
   return 0;
 }
