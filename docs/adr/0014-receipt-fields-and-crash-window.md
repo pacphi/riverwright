@@ -26,7 +26,8 @@ Plan 2a built something different in two ways.
    contradicts the "dies" half of item 2. The receipt is bound to the exact commit SHA, branch and fork, so
    the most it allows is the same approved push again.
 
-The first point is a design addition that this record makes official. The second needs the owner's choice.
+This record proposes making the first point official. The second needs the owner's choice. Neither is decided
+until the owner accepts this record.
 
 ## Decision
 
