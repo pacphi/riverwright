@@ -192,6 +192,9 @@ const DENIED_R25 = [
   'rlwrap r{w,x} credential setup',
   'firejail river{wright,x} credential setup',
   'script -q /dev/null ri{v,}erwright credential setup',
+  // PowerShell splatting: @args can hold 'credential','setup'.
+  'rw @args',
+  'pwsh -c "& rw @a"',
 ];
 const ALLOWED = [
   'riverwright ledger verify --run /tmp/x',
@@ -223,6 +226,8 @@ const ALLOWED_I1 = [
   'cd /x/riverwright-worktrees/plan && ls *.mjs',
   'ls /x/riverwright/docs',
   'echo rw',
+  'npx riverwright@latest ledger verify --run /abs',
+  'ssh me@host rw version',
   // A directory named rw is not the program.
   'ls rw/*.md',
   'cat rw/$X',
@@ -246,6 +251,7 @@ const DENIED_NOW_R25 = [
   'riverwright --run="$RUN" ledger verify',
   'chmod u+rw "$F"',
   'cd /x/riverwright && ls *.md',
+  'rw version && npm i @types/node',
 ];
 
 test('the hook denies an agent shell command that runs riverwright credential in any spelling', () => {

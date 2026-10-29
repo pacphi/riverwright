@@ -444,6 +444,8 @@ const RIVERWRIGHT_NAMES = new Set(['riverwright', 'rw']);
 const RIVERWRIGHT_CANDIDATES = ['riverwright', 'rw', ...['mjs', 'cmd', 'exe', 'bat', 'ps1', 'js'].flatMap((x) => [`riverwright.${x}`, `rw.${x}`])];
 const RIVERWRIGHT_VALUE_OPTS = new Set(['--home', '--run', '--workspace']);
 const CREDENTIAL_DETAIL = 'riverwright credential (sealing, replacing or removing your credential is something you do yourself, in your own terminal)';
+// A text-rule hit is often a false positive (grep -n rw "$FILE"), so it says how to get past it.
+const CREDENTIAL_TEXT_DETAIL = 'riverwright credential, or a riverwright word followed by "credential", a variable, a substitution, a glob or a brace (any of them could become "credential"). Sealing, replacing or removing your credential is something you do yourself, in your own terminal. If this command is not that, write the value out in full instead of a variable or pattern, or put a commit message in a file (git commit -F)';
 const GLOB = /[*?[]/;
 
 // The launcher's own files. A program word, or the script node runs, whose real path is one of these is
@@ -461,9 +463,10 @@ const mentionsCredential = (s) => /credential/i.test(String(s).replace(/["'`\\^]
 //   - a riverwright word: "rw" or "riverwright" (optionally .cmd/.mjs/.exe/.bat/.ps1/.js) not inside a longer
 //     name and not followed by "/" (a directory named rw is not the program), or cli.mjs / credential.mjs;
 //   - after the first riverwright word: the word "credential", a variable or substitution ($, backtick,
-//     %NAME%), a glob (* ? [ and the extglob openers @( +( !( ), or a brace.
+//     %NAME%, a PowerShell splat @name), a glob (* ? [ and the extglob openers @( +( !( ), or a brace. It is
+//     searched from the end of that word in the whole text, so riverwright@latest and me@host are not splats.
 const RIVERWRIGHT_WORD = /(?<![\w.-])(?:riverwright|rw)(?:\.(?:cmd|mjs|exe|bat|ps1|js))?(?![\w./-])|(?<![\w-])(?:cli|credential)\.mjs(?!\w)/i;
-const AFTER_RIVERWRIGHT = /(?<!\w)credential(?!\w)|[$`*?[{]|[@+!]\(|%[A-Za-z_]\w*%/i;
+const AFTER_RIVERWRIGHT = /(?<!\w)credential(?!\w)|[$`*?[{]|[@+!]\(|%[A-Za-z_]\w*%|(?<![\w@])@\w/gi;
 const CREDENTIAL_WORD = /(?<!\w)credential(?!\w)/gi;
 
 // The two readings of a command: quotes, cmd.exe carets and backslashes removed (r\iverwright, cred""ential),
@@ -530,7 +533,10 @@ function patternCouldBeRiverwright(word) {
 function credentialInText(raw) {
   for (const t of textForms(raw)) {
     const m = RIVERWRIGHT_WORD.exec(t);
-    if (m && AFTER_RIVERWRIGHT.test(t.slice(m.index + m[0].length))) return true;
+    if (m) {
+      AFTER_RIVERWRIGHT.lastIndex = m.index + m[0].length;
+      if (AFTER_RIVERWRIGHT.test(t)) return true;
+    }
     let last = -1;
     for (const c of t.matchAll(CREDENTIAL_WORD)) last = c.index;
     if (last > 0 && t.slice(0, last).split(/[\s;&|()<>]+/).some((w) => (GLOB.test(w) || isBrace(w)) && patternCouldBeRiverwright(w))) return true;
@@ -741,7 +747,7 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
   const text = String(command ?? '');
   if (text.length <= MAX_INPUT && isTrustedPublish(text.trim(), trustedLauncher, platform)) return { outward: false, riverwrightPublish: true };
   // R25: the credential rule reads the whole command as text first, at any length.
-  if (credentialInText(text)) return credentialVerdict(CREDENTIAL_DETAIL);
+  if (credentialInText(text)) return credentialVerdict(CREDENTIAL_TEXT_DETAIL);
   if (text.length > MAX_INPUT) {
     return mentionsCredential(text) ? credentialVerdict('the command is too long to check, and it mentions "credential"') : unresolvable('the command is too long to check');
   }
@@ -756,8 +762,10 @@ export function classifyCommand(command, { trustedLauncher = [], platform = proc
       found = prefer(found, classifyScript(text.replace(/\\/g, '/'), makeCtx(0, true, { used: 0 }, opts)));
     }
     return found ?? { outward: false };
-  } catch {
-    // A command shaped to exhaust the stack (or any other surprise) gets a fixed verdict, never a crash.
+  } catch (err) {
+    // A command shaped to exhaust the stack gets a fixed verdict, never a crash. Any other error is a bug and
+    // is thrown: the hook then exits 2, which blocks the command (it does not fall open as "unresolvable").
+    if (!(err instanceof RangeError)) throw err;
     return mentionsCredential(text) ? credentialVerdict('the command is too complex to check, and it mentions "credential"') : unresolvable('the command is too complex to check');
   }
 }
