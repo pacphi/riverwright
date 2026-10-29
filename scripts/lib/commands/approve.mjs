@@ -1,44 +1,40 @@
 import fs from 'node:fs';
 import { parseArgs } from 'node:util';
 import { RiverwrightError } from '../errors.mjs';
-import { makeBinding, recordApproval, normalizeBranch } from '../approvals.mjs';
+import { makeBinding, recordApproval } from '../approvals.mjs';
 import { loadState, saveState } from '../state.mjs';
 import { appendEvent } from '../ledger.mjs';
 import { openTerminal, confirmTyped } from '../tty.mjs';
 import { printable } from '../printable.mjs';
 import { nowIso } from '../clock.mjs';
 import { assertHost } from '../hosts.mjs';
+import { PUBLIC_GATES } from '../receipt.mjs';
 
-// The submit gate publishes, so it is confirmed in the terminal by default. The host's own permission
-// prompt (host-ask) remains the default for checkpoint-1 and the post gates. The mode and the host-ask
-// exception for the submit gate are command-line flags, so they appear in the command the human sees in
-// the host's permission prompt; no environment variable changes them.
-export const APPROVAL_MODE_DEFAULTS = Object.freeze({ 'submit-gate': 'tty' });
+// Only checkpoint-1, which publishes nothing, is approved here. The public gates are approved by the
+// passphrase unlock inside `riverwright submit` and `riverwright post` (ADR-0010), so a record an agent
+// can write is never what lets something out. The mode is a command-line flag, so it appears in the
+// command the human sees in the host's permission prompt; no environment variable changes it.
+const MODES = ['host-ask', 'tty'];
 
 export async function run(args, io) {
   const [gate, ...rest] = args;
+  if (PUBLIC_GATES.includes(gate)) {
+    const via = gate === 'submit-gate' ? 'riverwright submit' : 'riverwright post';
+    throw new RiverwrightError('USE_UNLOCK', `${gate} is approved by the passphrase unlock inside "${via}", not by "riverwright approve". Run "${via}" in a terminal.`);
+  }
+  if (gate !== 'checkpoint-1') throw new RiverwrightError('UNKNOWN_GATE', `unknown gate "${printable(gate)}": "riverwright approve" handles checkpoint-1 only`);
   const { values } = parseArgs({
     args: rest,
-    options: {
-      run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' }, branch: { type: 'string' },
-      'allow-host-ask-submit': { type: 'boolean', default: false },
-    },
+    options: { run: { type: 'string' }, sha: { type: 'string' }, 'content-file': { type: 'string' }, mode: { type: 'string' }, host: { type: 'string' } },
   });
   // The run is named on the command line, where the human sees it; no environment variable chooses it.
   const dir = values.run;
   if (!dir) throw new RiverwrightError('NO_RUN', 'pass --run <run directory>');
   const host = assertHost(values.host ?? null);
-  if (gate === 'submit-gate' && values.branch === undefined) throw new RiverwrightError('NEEDS_BRANCH', 'the submit gate approves a commit on one branch: pass --branch riverwright/<number>-<slug>');
-  if (gate !== 'submit-gate' && values.branch !== undefined) throw new RiverwrightError('USAGE', '--branch applies only to the submit gate');
-  if (gate !== 'submit-gate' && values['allow-host-ask-submit']) throw new RiverwrightError('USAGE', '--allow-host-ask-submit applies only to the submit gate');
-  const branch = values.branch === undefined ? undefined : normalizeBranch(values.branch);
-  const mode = values.mode ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
-  // An unlock approval is written only by "riverwright submit" or "riverwright post", after the passphrase
-  // opened the vault (ADR-0010). Recording one here would claim an unlock that never happened.
-  if (mode === 'unlock') throw new RiverwrightError('UNKNOWN_MODE', 'the unlock mode is recorded only by "riverwright submit" and "riverwright post" after your passphrase; use --mode host-ask or --mode tty');
-  if (gate === 'submit-gate' && mode === 'host-ask' && !values['allow-host-ask-submit']) {
-    throw new RiverwrightError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs --allow-host-ask-submit on the command line)');
-  }
+  const mode = values.mode ?? 'host-ask';
+  // An unlock approval is written only by "riverwright submit" or "riverwright post" after the passphrase
+  // opened the vault (ADR-0010); it never applies to checkpoint-1.
+  if (!MODES.includes(mode)) throw new RiverwrightError('UNKNOWN_MODE', `unknown approval mode "${printable(mode)}" (use host-ask or tty; the unlock mode is recorded only by "riverwright submit" and "riverwright post" after your passphrase)`);
   const now = nowIso(io);
   const content = values['content-file'] !== undefined ? fs.readFileSync(values['content-file'], 'utf8') : undefined;
   const binding = makeBinding({ sha: values.sha, content });
@@ -46,7 +42,7 @@ export async function run(args, io) {
   if (mode === 'tty') {
     const terminal = io.openTerminal ? io.openTerminal() : openTerminal({ platform: io.platform });
     const expected = binding.kind === 'sha' ? binding.value.slice(0, 7) : 'yes';
-    const what = binding.kind === 'sha' ? `commit ${binding.value}${branch ? ` on ${branch}` : ''}` : `content ${binding.value}`;
+    const what = binding.kind === 'sha' ? `commit ${binding.value}` : `content ${binding.value}`;
     const how = binding.kind === 'sha' ? 'the first 7 characters of the commit' : 'yes';
     const ok = await confirmTyped({ terminal, question: `Approve ${gate} for ${printable(state.runId)} (${printable(what)})?\nType ${how} to approve: `, expected });
     if (!ok) {
@@ -54,8 +50,8 @@ export async function run(args, io) {
       return 1;
     }
   }
-  saveState(dir, recordApproval(state, { gate, sha: values.sha, content, mode, host, now, branch }));
-  appendEvent(dir, { type: 'approval', at: now, gate, binding, mode, host, ...(branch ? { branch } : {}) });
-  io.stdout.write(`Approved ${printable(gate)} for ${printable(state.runId)}: ${printable(binding.kind)} ${printable(binding.value)}\n`);
+  saveState(dir, recordApproval(state, { gate, sha: values.sha, content, mode, host, now }));
+  appendEvent(dir, { type: 'approval', at: now, actor: { type: 'human' }, gate, binding, mode, host });
+  io.stdout.write(`Approved ${gate} for ${printable(state.runId)}: ${printable(binding.kind)} ${printable(binding.value)}\n`);
   return 0;
 }

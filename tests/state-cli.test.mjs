@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { callMain, fakeTerminal, tmpDir } from './helpers.mjs';
 import { loadState } from '../scripts/lib/state.mjs';
-import { readLedger } from '../scripts/lib/ledger.mjs';
+import { ledgerDirFor, readLedger } from '../scripts/lib/ledger.mjs';
+import { readEvents } from '../scripts/lib/events.mjs';
 
 const A = 'a'.repeat(40);
 // The run is named with --run, as a human would; the clock is pinned through the in-process test seam.
@@ -30,45 +31,45 @@ test('riverwright state refuses an illegal transition with a clear message', asy
 test('riverwright approve in tty mode records only after the human types the short SHA', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const wrong = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'tty'], { terminal: fakeTerminal('yes') });
+  const wrong = await rw(dir, ['approve', 'checkpoint-1', '--sha', A, '--mode', 'tty'], { terminal: fakeTerminal('yes') });
   assert.equal(wrong.code, 1);
   assert.equal(loadState(dir).approvals.length, 0);
-  const right = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'tty'], { terminal: fakeTerminal('aaaaaaa') });
+  const right = await rw(dir, ['approve', 'checkpoint-1', '--sha', A, '--mode', 'tty'], { terminal: fakeTerminal('aaaaaaa') });
   assert.equal(right.code, 0, right.stderr);
   assert.equal(loadState(dir).approvals[0].binding.value, A);
   assert.equal(readLedger(dir).at(-1).type, 'approval');
 });
 
-test('the submit gate defaults to terminal approval', async () => {
+// The public gates are approved by the unlock inside submit and post (ADR-0010), so approve refuses them and
+// tells the human where to go. Nothing is recorded, whatever flags or terminal are supplied.
+test('approve refuses every public gate and points at submit and post', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const terminal = fakeTerminal('aaaaaaa');
-  const r = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], { terminal });
-  assert.equal(r.code, 0, r.stderr);
-  assert.match(terminal.written.join(''), /Approve submit-gate/);
-  assert.equal(loadState(dir).approvals[0].mode, 'tty');
+  for (const gate of ['submit-gate', 'post-issue', 'post-comment']) {
+    for (const extra of [[], ['--mode', 'tty'], ['--mode', 'host-ask']]) {
+      const r = await rw(dir, ['approve', gate, '--sha', A, ...extra], { terminal: fakeTerminal('aaaaaaa') });
+      assert.equal(r.code, 1, gate);
+      assert.match(r.stderr, /riverwright submit|riverwright post/, gate);
+      assert.match(r.stderr, /unlock/, gate);
+    }
+  }
+  assert.equal(loadState(dir).approvals.length, 0);
 });
 
-test('host-ask is refused for the submit gate unless explicitly allowed', async () => {
+test('the retired flags --branch and --allow-host-ask-submit are no longer accepted', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const refused = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask']);
-  assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /--allow-host-ask-submit/);
-  // RIVERWRIGHT_APPROVAL_MODE no longer selects host-ask: the gate stays in the terminal, and a wrong answer records nothing.
-  const viaEnv = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], { env: { RIVERWRIGHT_APPROVAL_MODE: 'host-ask' }, terminal: fakeTerminal('no') });
-  assert.equal(viaEnv.code, 1);
-  assert.match(viaEnv.stderr, /Not approved/);
+  for (const flag of [['--branch', 'riverwright/1-x'], ['--allow-host-ask-submit']]) {
+    const r = await rw(dir, ['approve', 'checkpoint-1', '--sha', A, ...flag]);
+    assert.equal(r.code, 1, flag.join(' '));
+  }
   assert.equal(loadState(dir).approvals.length, 0);
-  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask', '--allow-host-ask-submit']);
-  assert.equal(ok.code, 0, ok.stderr);
-  assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
 });
 
 test('riverwright approve refuses the unlock mode: only submit and post record it, after a passphrase', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  for (const args of [['submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], ['post-comment', '--sha', A], ['checkpoint-1', '--sha', A]]) {
+  for (const args of [['submit-gate', '--sha', A], ['post-comment', '--sha', A], ['checkpoint-1', '--sha', A]]) {
     const r = await rw(dir, ['approve', ...args, '--mode', 'unlock']);
     assert.equal(r.code, 1, args[0]);
     assert.match(r.stderr, /unlock/);
@@ -76,12 +77,13 @@ test('riverwright approve refuses the unlock mode: only submit and post record i
   assert.equal(loadState(dir).approvals.length, 0);
 });
 
-test('host-ask stays the default for checkpoint-1 and posts', async () => {
+test('host-ask is the default for checkpoint-1, recorded as a human approval', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
   const r = await rw(dir, ['approve', 'checkpoint-1', '--sha', A]);
   assert.equal(r.code, 0, r.stderr);
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
+  assert.equal(readEvents(ledgerDirFor(dir)).at(-1).actor.type, 'human');
 });
 
 test('--host must be a known host id', async () => {
@@ -99,49 +101,14 @@ test('--host must be a known host id', async () => {
   assert.equal(ok.code, 0, ok.stderr);
 });
 
-test('approving the submit gate needs the run branch, and records it', async () => {
+// Environment variables never change the mode: checkpoint-1 stays host-ask, and a tty prompt is opened only
+// by --mode tty on the command line.
+test('RIVERWRIGHT_APPROVAL_MODE in the environment does not change approval', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const missing = await rw(dir, ['approve', 'submit-gate', '--sha', A], { terminal: fakeTerminal('aaaaaaa') });
-  assert.equal(missing.code, 1);
-  assert.match(missing.stderr, /--branch/);
-  const terminal = fakeTerminal('aaaaaaa');
-  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-fix'], { terminal });
-  assert.equal(ok.code, 0, ok.stderr);
-  assert.match(terminal.written.join(''), /riverwright\/1-fix/);
-  assert.equal(loadState(dir).approvals[0].branch, 'riverwright/1-fix');
-});
-
-// The switches that weaken the submit gate are command-line flags, so they appear in the command the
-// host shows in its permission prompt. Environment variables alone change nothing.
-test('RIVERWRIGHT_APPROVAL_MODE and RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT in the environment do not change approval', async () => {
-  const dir = tmpDir();
-  await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const weak = { RIVERWRIGHT_APPROVAL_MODE: 'host-ask', RIVERWRIGHT_ALLOW_HOST_ASK_SUBMIT: '1' };
-  const terminal = fakeTerminal('aaaaaaa');
-  const r = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], { env: weak, terminal });
+  const terminal = fakeTerminal('no');
+  const r = await rw(dir, ['approve', 'checkpoint-1', '--sha', A], { env: { RIVERWRIGHT_APPROVAL_MODE: 'tty' }, terminal });
   assert.equal(r.code, 0, r.stderr);
-  assert.match(terminal.written.join(''), /Approve submit-gate/);
-  assert.equal(loadState(dir).approvals[0].mode, 'tty');
-  const refused = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask'], { env: weak, terminal: fakeTerminal('aaaaaaa') });
-  assert.equal(refused.code, 1);
-  assert.match(refused.stderr, /--allow-host-ask-submit/);
-  assert.equal(loadState(dir).approvals.length, 1);
-  const cp = fakeTerminal('no');
-  const checkpoint = await rw(dir, ['approve', 'checkpoint-1', '--sha', A], { env: { RIVERWRIGHT_APPROVAL_MODE: 'tty' }, terminal: cp });
-  assert.equal(checkpoint.code, 0, checkpoint.stderr);
-  assert.equal(cp.written.join(''), '');
-  assert.equal(loadState(dir).approvals[1].mode, 'host-ask');
-});
-
-test('--allow-host-ask-submit on the command line permits host-ask for the submit gate, and only there', async () => {
-  const dir = tmpDir();
-  await rw(dir, ['state', 'create', '--id', 'o/r#1']);
-  const ok = await rw(dir, ['approve', 'submit-gate', '--sha', A, '--branch', 'riverwright/1-x', '--mode', 'host-ask', '--allow-host-ask-submit']);
-  assert.equal(ok.code, 0, ok.stderr);
+  assert.equal(terminal.written.join(''), '');
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
-  const misplaced = await rw(dir, ['approve', 'checkpoint-1', '--sha', A, '--allow-host-ask-submit']);
-  assert.equal(misplaced.code, 1);
-  assert.match(misplaced.stderr, /applies only to the submit gate/);
-  assert.equal(loadState(dir).approvals.length, 1);
 });
