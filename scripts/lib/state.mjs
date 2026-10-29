@@ -162,11 +162,14 @@ export function setFork(state, url) {
   return { ...state, fork: { url: String(url) } };
 }
 
+// Only a folder that is missing, or is not a folder, has no runs (final review M7). Any other error (an unreadable
+// folder, for example after chmod 000) is thrown, so hasActiveRun below fails closed instead of hiding the runs.
 const subdirs = (p) => {
   try {
     return fs.readdirSync(p, { withFileTypes: true }).filter((d) => d.isDirectory()).map((d) => d.name);
-  } catch {
-    return [];
+  } catch (e) {
+    if (e.code === 'ENOENT' || e.code === 'ENOTDIR') return [];
+    throw e;
   }
 };
 
@@ -182,9 +185,17 @@ function readStateTextStrict(p) {
   return readBounded(p, STATE_MAX);
 }
 
-// True when any run under the workspace may still act. A record that cannot be read or parsed counts
-// as active, so a broken file makes the hook stricter, never looser.
+// True when any run under the workspace may still act. A record that cannot be read or parsed, or a folder on the
+// way to it that cannot be listed, counts as active, so a broken file makes the hook stricter, never looser.
 export function hasActiveRun(home) {
+  try {
+    return anyActiveRun(home);
+  } catch {
+    return true;
+  }
+}
+
+function anyActiveRun(home) {
   for (const owner of subdirs(home)) {
     for (const repo of subdirs(path.join(home, owner))) {
       const runs = path.join(home, owner, repo, 'runs');

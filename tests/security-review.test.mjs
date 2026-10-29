@@ -559,3 +559,33 @@ test('test hygiene: the hook takes the account home for ~ from the userInfo seam
   const r = await callMain(['hook', 'claude-code', '--home', home], { stdin: hookPayload('~/tool credential setup', base), env: { HOME: tmpDir('rw-other-') }, cwd: base, testing: { userInfo: () => ({ homedir: account }) } });
   assert.equal(r.code, 2);
 });
+
+// Final review M7: an unreadable owner, repository or runs folder hid its runs, so the hook's "while a run is active"
+// rule switched off. Only a folder that is missing (or is not a folder) means "no runs there"; any other error reading
+// a folder counts as an active run, like an unreadable state.json above.
+test('M7: an unreadable owner, repository or runs folder counts as an active run', posixOnly, () => {
+  if (process.getuid?.() === 0) return; // root reads any folder, so the case cannot be built
+  for (const level of ['owner', 'repo', 'runs']) {
+    const { home, run } = runHome();
+    saveState(run, stoppedState());
+    assert.equal(hasActiveRun(home), false, `${level}: a stopped run alone is not active`);
+    const folder = { owner: path.join(home, 'o'), repo: path.join(home, 'o', 'r'), runs: path.join(home, 'o', 'r', 'runs') }[level];
+    fs.chmodSync(folder, 0o000);
+    try {
+      assert.equal(hasActiveRun(home), true, level);
+    } finally {
+      fs.chmodSync(folder, 0o700);
+    }
+  }
+});
+
+test('M7: a missing runs folder, or a file where a folder belongs, still means no runs there', () => {
+  const missing = runHome();
+  fs.rmSync(path.join(missing.home, 'o', 'r', 'runs'), { recursive: true });
+  assert.equal(hasActiveRun(missing.home), false, 'missing runs folder');
+  const file = runHome();
+  fs.rmSync(path.join(file.home, 'o', 'r', 'runs'), { recursive: true });
+  fs.writeFileSync(path.join(file.home, 'o', 'r', 'runs'), 'not a folder');
+  assert.equal(hasActiveRun(file.home), false, 'a file named runs');
+  assert.equal(hasActiveRun(path.join(tmpDir(), 'no-such-home')), false, 'missing home');
+});
