@@ -1,7 +1,9 @@
 // A small POSIX-shell lexer for the hook classifier. It resolves quoting and escapes the way the shell
 // would (so `git "pu"sh` and `g\it push` read as `git push`), splits commands on operators, records
 // redirects and here-documents, and marks every word whose value depends on an expansion or a
-// substitution the classifier cannot see. It never evaluates anything.
+// substitution the classifier cannot see. It never evaluates anything. Each word also has a shape: its value
+// with every expansion ($X, ${X}, $(...), backticks, <(...)) written as "*", so literal text can be told from text an
+// expansion supplies.
 
 const NAME_START = /[A-Za-z_]/;
 const NAME_CHAR = /[A-Za-z0-9_]/;
@@ -44,7 +46,7 @@ export function lex(src) {
   const pendingHeredocs = [];
 
   const startWord = () => {
-    if (!word) word = { value: '', dynamic: false, quoted: false, subs: [] };
+    if (!word) word = { value: '', shape: '', dynamic: false, quoted: false, subs: [] };
     return word;
   };
   const endWord = () => {
@@ -102,17 +104,17 @@ export function lex(src) {
     if (next === '(') {
       const arith = text[i + 2] === '(';
       const close = findClose(text, i + 2);
-      if (close === -1) { incomplete = true; w.value += text.slice(i); w.dynamic = true; return n; }
+      if (close === -1) { incomplete = true; w.value += text.slice(i); w.shape += '*'; w.dynamic = true; return n; }
       const inner = text.slice(i + 2, close);
-      w.value += text.slice(i, close + 1);
+      w.value += text.slice(i, close + 1); w.shape += '*';
       w.dynamic = true;
       if (!arith) w.subs.push(inner);
       return close + 1;
     }
     if (next === '{') {
       const close = findClose(text, i + 2, '{', '}');
-      if (close === -1) { incomplete = true; w.value += text.slice(i); w.dynamic = true; return n; }
-      w.value += text.slice(i, close + 1);
+      if (close === -1) { incomplete = true; w.value += text.slice(i); w.shape += '*'; w.dynamic = true; return n; }
+      w.value += text.slice(i, close + 1); w.shape += '*';
       w.dynamic = true;
       w.subs.push(text.slice(i + 2, close));
       return close + 1;
@@ -139,7 +141,7 @@ export function lex(src) {
         }
       }
       if (j >= n) incomplete = true;
-      w.value += out;
+      w.value += out; w.shape += out;
       w.quoted = true;
       return Math.min(j + 1, n);
     }
@@ -147,16 +149,16 @@ export function lex(src) {
     if (next !== undefined && NAME_START.test(next)) {
       let j = i + 2;
       while (j < n && NAME_CHAR.test(text[j])) j += 1;
-      w.value += text.slice(i, j);
+      w.value += text.slice(i, j); w.shape += '*';
       w.dynamic = true;
       return j;
     }
     if (next !== undefined && SPECIAL_PARAM.test(next)) {
-      w.value += text.slice(i, i + 2);
+      w.value += text.slice(i, i + 2); w.shape += '*';
       w.dynamic = true;
       return i + 2;
     }
-    w.value += '$';
+    w.value += '$'; w.shape += '$';
     return i + 1;
   };
 
@@ -164,9 +166,9 @@ export function lex(src) {
     const w = startWord();
     let j = i + 1;
     while (j < n && text[j] !== '`') j += text[j] === '\\' ? 2 : 1;
-    if (j >= n) { incomplete = true; w.value += text.slice(i); w.dynamic = true; w.subs.push(text.slice(i + 1)); return n; }
+    if (j >= n) { incomplete = true; w.value += text.slice(i); w.shape += '*'; w.dynamic = true; w.subs.push(text.slice(i + 1)); return n; }
     const inner = text.slice(i + 1, j).replace(/\\([`\\$])/g, '$1');
-    w.value += text.slice(i, j + 1);
+    w.value += text.slice(i, j + 1); w.shape += '*';
     w.dynamic = true;
     w.subs.push(inner);
     return j + 1;
@@ -181,14 +183,14 @@ export function lex(src) {
       if (c === '\\' && i + 1 < n) {
         const e = text[i + 1];
         if (e === '\n') { i += 2; continue; }
-        if ('$`"\\'.includes(e)) { w.value += e; i += 2; continue; }
-        w.value += c;
+        if ('$`"\\'.includes(e)) { w.value += e; w.shape += e; i += 2; continue; }
+        w.value += c; w.shape += c;
         i += 1;
         continue;
       }
       if (c === '$') { i = readDollar(i, true); continue; }
       if (c === '`') { i = readBacktick(i); continue; }
-      w.value += c;
+      w.value += c; w.shape += c;
       i += 1;
     }
     if (i >= n) { incomplete = true; return n; }
@@ -202,8 +204,8 @@ export function lex(src) {
       if (text[i + 1] === '\n') { i += 2; continue; }
       if (text[i + 1] === '\r' && text[i + 2] === '\n') { i += 3; continue; }
       const w = startWord();
-      if (i + 1 >= n) { w.value += '\\'; i += 1; continue; }
-      w.value += text[i + 1];
+      if (i + 1 >= n) { w.value += '\\'; w.shape += '\\'; i += 1; continue; }
+      w.value += text[i + 1]; w.shape += text[i + 1];
       w.quoted = true;
       i += 2;
       continue;
@@ -212,8 +214,8 @@ export function lex(src) {
       const w = startWord();
       const j = text.indexOf("'", i + 1);
       w.quoted = true;
-      if (j === -1) { incomplete = true; w.value += text.slice(i + 1); i = n; continue; }
-      w.value += text.slice(i + 1, j);
+      if (j === -1) { incomplete = true; w.value += text.slice(i + 1); w.shape += text.slice(i + 1); i = n; continue; }
+      w.value += text.slice(i + 1, j); w.shape += text.slice(i + 1, j);
       i = j + 1;
       continue;
     }
@@ -236,10 +238,21 @@ export function lex(src) {
       i += text[i + 1] === '&' ? 2 : 1;
       continue;
     }
+    // An extglob group (@(a|b), !(x), +(x), ?(x), *(x)) is part of its word.
+    if (c === '(' && word && /[@!+?*]$/.test(word.shape)) {
+      const close = findClose(text, i + 1);
+      if (close === -1) { incomplete = true; word.value += text.slice(i); word.shape += text.slice(i); i = n; continue; }
+      word.value += text.slice(i, close + 1);
+      word.shape += text.slice(i, close + 1);
+      i = close + 1;
+      continue;
+    }
     if (c === '(' || c === ')' || c === '{' || c === '}') {
       // Braces only group at the start of a word; elsewhere (a{b,c}) they are ordinary characters.
-      if ((c === '{' || c === '}') && word) { word.value += c; i += 1; continue; }
-      if ((c === '{' || c === '}') && !/[\s;&|()]/.test(text[i + 1] ?? ' ')) { startWord().value += c; i += 1; continue; }
+      if ((c === '{' || c === '}') && word) { word.value += c; word.shape += c; i += 1; continue; }
+      if ((c === '{' || c === '}') && !/[\s;&|()]/.test(text[i + 1] ?? ' ')) { { const w = startWord(); w.value += c; w.shape += c; } i += 1; continue; }
+      // "rw (...)": fish and PowerShell pass the group's output as arguments, so the command records it.
+      if (c === '(') cur.parenNext = true;
       endCommand();
       i += 1;
       continue;
@@ -253,7 +266,7 @@ export function lex(src) {
         w.dynamic = true;
         if (close === -1) { incomplete = true; w.subs.push(text.slice(i + 2)); i = n; continue; }
         w.subs.push(text.slice(i + 2, close));
-        w.value += text.slice(i, close + 1);
+        w.value += text.slice(i, close + 1); w.shape += '*';
         i = close + 1;
         continue;
       }
@@ -269,7 +282,7 @@ export function lex(src) {
       i += ['>', '|', '&'].includes(text[i + 1]) ? 2 : 1;
       continue;
     }
-    startWord().value += c;
+    { const w = startWord(); w.value += c; w.shape += c; }
     i += 1;
   }
   endCommand();

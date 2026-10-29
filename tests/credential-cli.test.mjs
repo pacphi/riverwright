@@ -255,3 +255,15 @@ test('M7: vault file is 0600, its directory 0700, and no temp file is left behin
   await cred(home, ['setup', '--replace'], { terminal: fakeSecretTerminal([TOKEN, PASSPHRASE, 'different passphrase']) });
   assert.deepEqual(fs.readdirSync(dir), ['vault.json']);
 });
+
+// The hook's subcommand-slot rule (R26) rests on this: the CLI dispatches on its first argument only, so an option
+// before "credential" makes the command unknown and nothing runs.
+test('an option before the subcommand is an unknown command, so "rw --home x credential" never reaches credential', async () => {
+  const home = tmpDir();
+  for (const argv of [['--home', home, 'credential', 'status'], ['--home=/x', 'credential', 'setup'], ['--run', 'r', 'credential', 'remove']]) {
+    const r = await callMain(argv, { env: { RIVERWRIGHT_HOME: home, PATH: '' } });
+    assert.equal(r.code, 2, argv.join(' '));
+    assert.match(r.stderr, /unknown command/, argv.join(' '));
+  }
+  assert.equal(fs.existsSync(vaultFile(home)), false);
+});

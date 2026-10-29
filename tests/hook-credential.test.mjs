@@ -67,8 +67,6 @@ const DENIED = [
   'r\\iverwright credential setup',
   'riv""erwright credential setup',
   '\\riverwright credential setup',
-  'riverwright --home /tmp/h credential setup',
-  'riverwright --home=/tmp/h credential setup',
   '"/opt/my tools/riverwright" credential setup',
   '/opt/my\\ tools/riverwright credential setup',
   'command riverwright credential setup',
@@ -209,8 +207,7 @@ const ALLOWED = [
   'ls riverwright',
 ];
 // Fix round 1 (I1): "rw" or "riverwright" as a plain word (a grep pattern, a mount option, a file name) is not a
-// riverwright command. Under R25 this holds while nothing after the word is "credential", a variable, a
-// substitution, a glob or a brace.
+// riverwright command.
 const ALLOWED_I1 = [
   'grep -n rw file.txt',
   'mount -o rw /dev/x /mnt',
@@ -232,40 +229,107 @@ const ALLOWED_I1 = [
   'ls rw/*.md',
   'cat rw/$X',
 ];
-// R25 accepted cost: a riverwright word followed by a variable, substitution, glob or brace is denied, even when
-// the word is only a grep pattern or a mount option. These were allowed before fix round 2.
-const DENIED_NOW_R25 = [
+// Fix round 3 (R26): the lexer decodes every word first (ANSI-C $'..', quotes, escapes, line continuations), then
+// the subcommand-slot rule checks the word after anything that is or could be riverwright, wherever it stands in a
+// command that is not a known non-executing tool.
+const DENIED_R26 = [
+  'rw cred\\\nential setup',
+  'rw cred\\\r\nential setup',
+  "$'\\x72w' credential setup",
+  "$'\\162\\167' credential",
+  "rw $'\\u0063redential' setup",
+  'r\\\nw credential setup',
+  'rw "cred\\\nential" setup',
+  "script -q /dev/null $'\\x72w' credential setup",
+  'xvfb-run rw cred\\\nential',
+  "xvfb-run $'\\162\\167' $'\\143redential'",
+  'script -q /dev/null rw cred{ential,} remove',
+  'xvfb-run rw {,credential} remove',
+  'rlwrap ri{v,}erwright credential setup',
+  'faketime now rw c[r]edential',
+  '$X $C',
+  'xvfb-run $X credential',
+  'xvfb-run rw @args',
+  'rw${IFS}credential setup',
+  "git -c alias.x='!rw' x credential setup",
+  'EDITOR="rw credential remove" git commit',
+  "git -c core.pager='rw credential remove' log",
+  'ssh host rw \\$C',
+  'watch -n 1 rw \\$C',
+  'npm exec riverwright -- credential setup',
+  'shopt -s nullglob; rw x* credential',
+  'deno run -A npm:riverwright credential setup',
+  "python3 -c \"import os; os.system('rw ' + 'credential')\"",
+  "sed -e 's/.*/rw credential setup/e' f",
+  // fish and PowerShell evaluate a parenthesised argument: its output is the slot.
+  'rw (echo credential)',
+  "& rw ('cred'+'ential')",
+];
+// R26 accepted cost: an unknown program may run its arguments, so a variable there could be riverwright, and the
+// variable after it the subcommand. The xargs and gh rules are unchanged structural checks.
+const DENIED_COST_R26 = [
+  'rm "$A" "$B"',
+  'node build.js "$IN" "$OUT"',
+  'ls | xargs rw ledger verify',
+  "gh pr create --title 'rw credential fix'",
+];
+// R26 lifts R25's text rule: a riverwright word next to a variable, glob or brace is allowed when the word after the
+// program is plainly not "credential", and the arguments of a known non-executing tool are never read as programs.
+const ALLOWED_R26 = [
   'riverwright ledger verify --run "$RUN"',
+  'riverwright --run="$RUN" ledger verify',
+  'rw state get --run "$R"',
   'riverwright --home "$H" state get',
   'grep -n rw "$FILE"',
-  'mount -o rw "$DEV" /mnt',
   'echo rw $HOME',
+  'mount -o rw "$DEV" /mnt',
+  'grep -rn rw src/*',
+  'cd /x/riverwright && node --test tests/*.test.mjs',
+  'cd /x/riverwright && ls *.md',
+  'rw ledger verify --run runs/*',
+  'chmod u+rw "$F"',
+  "curl 'https://x/rw?a=b'",
   'grep -c riverwright $f',
   'for f in *.log; do grep rw "$f"; done',
   'sed -i s/a/b/ rw $X',
   'grep -rn riverwright "$DIR"',
   'riverwright ledger verify --run runs/*',
-  'grep -rn rw src/*',
   'find . -name "*.mjs" -exec grep -l rw {} +',
   'rw --home="$H" state get',
-  'riverwright --run="$RUN" ledger verify',
-  'chmod u+rw "$F"',
-  'cd /x/riverwright && ls *.md',
   'rw version && npm i @types/node',
+  'git commit -m "fix: riverwright credential setup reads the tty"',
+  'grep -rn "rw credential" docs',
+  'echo riverwright credential',
+  'rw help credential',
+  'rw state get *',
+  'ls rw $(pwd)',
+  'echo riverwright `date`',
+];
+// The CLI dispatches on its first argument only (scripts/lib/cli.mjs main), so these cannot run the credential
+// command: riverwright answers "unknown command --home". The slot rule allows them.
+const NOT_A_WAY = [
+  'riverwright --home /tmp/h credential setup',
+  'riverwright --home=/tmp/h credential setup',
+  'rw --home "$H" $SUB',
 ];
 
 test('the hook denies an agent shell command that runs riverwright credential in any spelling', () => {
-  const missed = [...DENIED, ...DENIED_R24, ...DENIED_R25].filter((c) => classifyCommand(c).outward !== true);
+  const missed = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26].filter((c) => classifyCommand(c).outward !== true);
   assert.deepEqual(missed, []);
 });
 
 test('every denied spelling is denied by the riverwright-credential rule itself (so it applies everywhere)', () => {
-  const wrong = [...DENIED, ...DENIED_R24, ...DENIED_R25].map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  const wrong = [...DENIED, ...DENIED_R24, ...DENIED_R25, ...DENIED_R26].map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
   assert.deepEqual(wrong, []);
 });
 
-test('R25: a riverwright word followed by a variable, substitution, glob or brace is denied (accepted false positives)', () => {
-  const wrong = DENIED_NOW_R25.map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+test('R26: a variable followed by a variable in an unknown program is denied (accepted cost)', () => {
+  const wrong = DENIED_COST_R26.map((c) => [c, classifyCommand(c).rule]).filter(([, rule]) => rule !== 'riverwright-credential');
+  assert.deepEqual(wrong, []);
+});
+
+test('R26: the word after riverwright decides; known non-executing tools and plain words are allowed', () => {
+  const wrong = [...ALLOWED_R26, ...NOT_A_WAY].map((c) => [c, classifyCommand(c)]).filter(([, v]) => v.outward !== false).map(([c, v]) => [c, v.rule]);
   assert.deepEqual(wrong, []);
 });
 
@@ -284,6 +348,10 @@ const WORST = (() => {
     'many glob stars and letters': `$X ${'*e'.repeat(60000)}z`,
     'long word': `rw ${'a'.repeat(250000)}`,
     'many brackets': `$X ${'['.repeat(120000)}]`,
+    'many path words before a variable': `xvfb-run ${'/a/b $X '.repeat(30000)}`,
+    'one very deep path before credential': `xvfb-run ${'/a'.repeat(100000)} credential`,
+    'many distinct path words before credential': `xvfb-run ${Array.from({ length: 12000 }, (_, i) => `/a/${i} credential`).join(' ')}`,
+    'many quoted payloads': `xvfb-run ${'"rw state" '.repeat(20000)}`,
   };
 })();
 
@@ -298,6 +366,13 @@ test('N3: a worst-case 256 KB command is classified in under a second', () => {
       assert.ok(ms < 1000, `${label} (${platform}) took ${ms.toFixed(0)} ms`);
     }
   }
+});
+
+test('a command longer than the classifier reads is denied when it names riverwright or credential', () => {
+  const pad = 'x'.repeat(300 * 1024);
+  assert.equal(classifyCommand(`echo ${pad}; rw $C remove`).rule, 'riverwright-credential');
+  assert.equal(classifyCommand(`echo ${pad}; rw credential remove`).rule, 'riverwright-credential');
+  assert.notEqual(classifyCommand(`echo ${pad}`).rule, 'riverwright-credential');
 });
 
 test('N3: input shaped to overflow the stack never throws, and the verdict is the same every time', () => {
@@ -336,6 +411,12 @@ test('a symlink to the launcher or its script, by any name, is the launcher', po
   assert.equal(classifyCommand(`${dir}/x ledger verify --run /tmp/r`).outward, false);
   // A program word that resolves to the launcher has its subcommand checked: a variable could be "credential".
   assert.equal(classifyCommand(`${dir}/x $SUB`).rule, 'riverwright-credential');
+  // R26: any word of a command that is not a known non-executing tool, so a launcher the classifier does not model
+  // cannot hide the symlink.
+  for (const c of [`script -q /dev/null ${dir}/x credential setup`, `xvfb-run ${dir}/y $SUB`, `faketime now node ${dir}/a.mjs credential`]) {
+    assert.equal(classifyCommand(c).rule, 'riverwright-credential', c);
+  }
+  assert.equal(classifyCommand(`xvfb-run ${dir}/x state get`).outward, false);
 });
 
 test('a command nested too deeply to read that mentions credential is denied by the credential rule', () => {
@@ -401,11 +482,12 @@ test('I1: a plain word "rw" with nothing dynamic after it is allowed outside the
   }
 });
 
-test('R25: a plain word "rw" followed by a variable is denied everywhere by the credential rule (accepted cost)', async () => {
-  for (const c of ['grep -n rw "$FILE"', 'rw --home="$H" state get']) {
-    const r = await callMain(['hook', 'claude-code', '--home', idleHome], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
-    assert.equal(r.code, 2, c);
-    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-credential/, c);
+test('R26: a plain word "rw" followed by a variable is allowed outside the workspace, with or without a run', async () => {
+  for (const h of [home, idleHome]) {
+    for (const c of ['grep -n rw "$FILE"', 'rw --home="$H" state get', 'riverwright ledger verify --run "$RUN"']) {
+      const r = await callMain(['hook', 'claude-code', '--home', h], { stdin: hookPayload(c, outside), env: {}, cwd: outside });
+      assert.equal(r.code, 0, c);
+    }
   }
 });
 
