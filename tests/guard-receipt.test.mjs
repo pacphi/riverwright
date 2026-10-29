@@ -270,5 +270,25 @@ test('a newer unlock for a new commit authorizes that commit, and the older rece
   issueReceipt({ runDir: w.runDir, keys, sha: C, at: new Date().toISOString() });
   const r = await push(w, C);
   assert.equal(r.code, 0, r.stderr);
+  const older = await push(w, A);
+  assert.equal(older.code, 0, older.stderr);
   assert.notEqual((await push(w, B)).code, 0);
+});
+
+test('two refs in one push: the newest receipt never lets the unapproved one through', async () => {
+  const w = await workspace();
+  armRun({ home: w.home, runDir: w.runDir, sha: A });
+  const both = (first, second) => callMain(['guard', 'pre-push', '--home', w.home, '--', 'fork', FORK], { stdin: `${first}${second}`, cwd: w.worktree });
+  assert.notEqual((await both(line(B, 'refs/heads/riverwright/3509-other'), line(A))).code, 0);
+  assert.notEqual((await both(line(B), line(A))).code, 0);
+  assert.notEqual((await both(line(A), line(B))).code, 0);
+  assert.notEqual((await both(line(A), line(A, 'refs/heads/riverwright/3509-other'))).code, 0);
+});
+
+test('a refusal for the wrong destination does not carry the receipt reason', async () => {
+  const w = await workspace();
+  const r = await callMain(['guard', 'pre-push', '--home', w.home, '--', 'origin', 'https://github.com/ruvnet/ruflo.git'], { stdin: line(A), cwd: w.worktree });
+  assert.notEqual(r.code, 0);
+  assert.match(r.stderr, /not your fork/);
+  assert.doesNotMatch(r.stderr, /sealed credential/);
 });

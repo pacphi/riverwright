@@ -36,6 +36,7 @@ async function runFromRepository(io, home) {
 }
 
 const GATE = 'submit-gate';
+const NOTHING_UNLOCKED = 'Nothing has been unlocked';
 const isObject = (e) => e !== null && typeof e === 'object' && !Array.isArray(e);
 
 // Consent for a push is a signed, unused, current submit-gate receipt for this run in the ledger (ADR-0010,
@@ -112,7 +113,8 @@ export async function run(args, io) {
     approvedSha: receipt ? receipt.binding.value : null,
     approvedBranch: receipt ? receipt.branch : null,
   });
-  if (!decision.allow && !receipt && why) decision.reason = `${decision.reason} (${why})`;
+  // The receipt's reason explains only the "nothing unlocked" refusal, not a wrong destination or a missing fork.
+  if (!decision.allow && !receipt && why && decision.reason.startsWith(NOTHING_UNLOCKED)) decision.reason = `${decision.reason} (${why})`;
   appendEvent(dir, { type: 'guard', at, decision: decision.allow ? 'allow' : 'deny', reason: decision.reason, remoteUrl: destination });
   if (!decision.allow) {
     io.stderr.write(`Riverwright blocked this push: ${printable(decision.reason)}\n`);
