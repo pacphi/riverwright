@@ -6,11 +6,15 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { pathToFileURL } from 'node:url';
 import { classifyCommand } from '../scripts/lib/hooks/classify.mjs';
 import { lex } from '../scripts/lib/hooks/shell.mjs';
 import { GENESIS, eventsFile, verifyChain } from '../scripts/lib/events.mjs';
 import { appendEvent } from '../scripts/lib/ledger.mjs';
-import { RIVERWRIGHT, callMain, tmpDir } from './helpers.mjs';
+import { createState, hasActiveRun, saveState, stateFile } from '../scripts/lib/state.mjs';
+import { RIVERWRIGHT, ROOT, callMain, tmpDir } from './helpers.mjs';
+
+const posixOnly = { skip: process.platform === 'win32' };
 
 const hermeticDir = tmpDir('rw-t17-');
 const HERMETIC_ENV = { HOME: hermeticDir, GIT_CONFIG_NOSYSTEM: '1' };
@@ -118,4 +122,66 @@ test('C2: ledger verify --head on an emptied or missing ledger exits 1 and says 
   }
   const genesis = await callMain(['ledger', 'verify', '--run', gone, '--head', GENESIS], noAccount);
   assert.equal(genesis.code, 0);
+});
+
+// C3 (Codex) / F4 (Claude): active-run detection read state.json with an unbounded, blocking readFileSync, so a FIFO
+// planted there hung the hook (and a host that allows a command after a hook timeout would let it run).
+const runHome = () => {
+  const home = tmpDir('riverwright-home-');
+  const run = path.join(home, 'o', 'r', 'runs', 'issue-9');
+  fs.mkdirSync(run, { recursive: true });
+  fs.mkdirSync(path.join(home, 'o', 'r', 'worktrees'), { recursive: true });
+  return { home, run };
+};
+const stoppedState = () => ({ ...createState({ runId: 'o/r#9', kind: 'fixture', now: 't' }), status: 'stopped' });
+
+// Runs a state.mjs call in a child process, so a read that blocks fails the test instead of hanging the suite.
+function inChild(code) {
+  const url = pathToFileURL(path.join(ROOT, 'scripts', 'lib', 'state.mjs')).href;
+  return spawnSync(process.execPath, ['--input-type=module', '-e', `import * as m from ${JSON.stringify(url)};\n${code}`], { encoding: 'utf8', timeout: 5000 });
+}
+
+test('C3/F4: a directory, oversized or unreadable state.json counts as an active run', () => {
+  const dir = runHome();
+  fs.mkdirSync(stateFile(dir.run));
+  assert.equal(hasActiveRun(dir.home), true, 'directory');
+  const big = runHome();
+  fs.writeFileSync(stateFile(big.run), JSON.stringify({ ...stoppedState(), pad: 'x'.repeat(2 * 1024 * 1024) }));
+  assert.equal(hasActiveRun(big.home), true, 'oversized');
+  if (process.platform !== 'win32' && process.getuid?.() !== 0) {
+    const locked = runHome();
+    saveState(locked.run, stoppedState());
+    fs.chmodSync(stateFile(locked.run), 0o000);
+    assert.equal(hasActiveRun(locked.home), true, 'unreadable');
+    fs.chmodSync(stateFile(locked.run), 0o600);
+  }
+  const stopped = runHome();
+  saveState(stopped.run, stoppedState());
+  assert.equal(hasActiveRun(stopped.home), false, 'a stopped run is not active');
+});
+
+test('C3/F4: a FIFO at state.json counts as an active run and never blocks', posixOnly, () => {
+  const { home, run } = runHome();
+  assert.equal(spawnSync('mkfifo', [stateFile(run)]).status, 0);
+  const active = inChild(`console.log(m.hasActiveRun(${JSON.stringify(home)}))`);
+  assert.equal(active.error?.code, undefined, 'hasActiveRun blocked on the FIFO');
+  assert.equal(active.stdout.trim(), 'true');
+  const load = inChild(`try { m.loadState(${JSON.stringify(run)}); console.log('loaded'); } catch (e) { console.log(e.code); }`);
+  assert.equal(load.error?.code, undefined, 'loadState blocked on the FIFO');
+  assert.equal(load.stdout.trim(), 'BAD_STATE');
+});
+
+test('C3/F4: the real hook returns promptly with a FIFO at state.json, and denies (an active run)', posixOnly, () => {
+  const { home, run } = runHome();
+  assert.equal(spawnSync('mkfifo', [stateFile(run)]).status, 0);
+  const outside = tmpDir('user-project-');
+  const t0 = Date.now();
+  const r = realHook('gh pr create -R "$UP" --fill', { home, cwd: outside });
+  assert.ok(Date.now() - t0 < 5000);
+  assert.equal(r.status, 2);
+  assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /unresolvable-with-active-run/);
+  // An unreadable payload reaches the same check.
+  const u = spawnSync(process.execPath, [RIVERWRIGHT, 'hook', 'claude-code', '--home', home], { input: 'not json', env: { PATH: process.env.PATH, ...HERMETIC_ENV }, cwd: hermeticDir, encoding: 'utf8', timeout: 5000 });
+  assert.equal(u.error?.code, undefined, 'the hook blocked on the FIFO');
+  assert.equal(u.status, 2);
 });

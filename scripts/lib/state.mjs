@@ -3,7 +3,7 @@ import path from 'node:path';
 import { RiverwrightError } from './errors.mjs';
 import { GATES, APPROVAL_MODES, BRANCH, isApprovalValid, revokeGate } from './approvals.mjs';
 import { preset } from './presets.mjs';
-import { readTextIfExists, writeFileAtomic } from './fsx.mjs';
+import { readBounded, writeFileAtomic } from './fsx.mjs';
 import { normalizeRemoteUrl } from './giturl.mjs';
 import { HOSTS, assertHost } from './hosts.mjs';
 import { PUBLIC_GATES } from './receipt.mjs';
@@ -130,8 +130,17 @@ export function validateState(s) {
 
 export const stateFile = (dir) => path.join(dir, 'state.json');
 
+// state.json is agent-writable, so it is read only as a regular file of bounded size, opened without blocking: a
+// FIFO, device, directory or oversized file there never stalls a reader (Task 17 C3/F4).
+const STATE_MAX = 1024 * 1024;
+
 export function loadState(dir) {
-  const text = readTextIfExists(stateFile(dir));
+  let text;
+  try {
+    text = readBounded(stateFile(dir), STATE_MAX);
+  } catch (e) {
+    throw new RiverwrightError('BAD_STATE', `state.json is not a readable regular file of at most ${STATE_MAX} bytes (${e.code ?? 'not a regular file'})`);
+  }
   if (text === null) throw new RiverwrightError('NO_STATE', `no run record at ${stateFile(dir)}`);
   let obj;
   try {
@@ -161,15 +170,16 @@ const subdirs = (p) => {
   }
 };
 
-// Only a missing file reads as null here; any other read error (ENOTDIR included) throws, so
-// hasActiveRun below fails closed.
+// Only a missing file reads as null here; anything else that is not a regular file of bounded size (a FIFO, device,
+// directory, oversized or unreadable file, ENOTDIR included) throws, so hasActiveRun below fails closed and never waits.
 function readStateTextStrict(p) {
   try {
-    return fs.readFileSync(p, 'utf8');
+    fs.statSync(p);
   } catch (e) {
     if (e.code === 'ENOENT') return null;
     throw e;
   }
+  return readBounded(p, STATE_MAX);
 }
 
 // True when any run under the workspace may still act. A record that cannot be read or parsed counts
