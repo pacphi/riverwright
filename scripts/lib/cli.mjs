@@ -8,6 +8,7 @@ const COMMANDS = {
   sanitize: () => import('./commands/sanitize.mjs'),
   state: () => import('./commands/state.mjs'),
   approve: () => import('./commands/approve.mjs'),
+  credential: () => import('./commands/credential.mjs'),
   guard: () => import('./commands/guard.mjs'),
   hook: () => import('./commands/hook.mjs'),
   setup: () => import('./commands/setup.mjs'),
