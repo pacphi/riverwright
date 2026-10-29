@@ -24,3 +24,11 @@ export function issueReceipt({ runDir, keys, gate = 'submit-gate', run = 'ruvnet
 }
 
 export const runDirIn = (home, owner = 'ruvnet', repo = 'ruflo', n = 3509) => path.join(home, owner, repo, 'runs', `issue-${n}`);
+
+// A run that has been unlocked: a real vault under `home` and a signed, current receipt in the run's ledger.
+// The receipt is dated now unless `at` is given, for tests that do not pin the clock.
+export function armRun({ home, runDir, sha = 'a'.repeat(40), branch = 'riverwright/3509-codex', run = 'ruvnet/ruflo#3509', at = new Date().toISOString() }) {
+  const keys = makeTestVault(home);
+  issueReceipt({ runDir, keys, sha, branch, run, at });
+  return keys;
+}

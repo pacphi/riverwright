@@ -7,6 +7,7 @@ import { recordApproval } from '../scripts/lib/approvals.mjs';
 import { readLedger } from '../scripts/lib/ledger.mjs';
 import { runFile } from '../scripts/lib/exec.mjs';
 import { callMain, runRiverwright, tmpDir, ROOT, RIVERWRIGHT } from './helpers.mjs';
+import { armRun } from './receipt-helpers.mjs';
 
 // Test seams live in io.testing, which only the in-process helper (callMain) supplies. These tests run
 // the real entry point with every variable the old seams read, set the way an agent would set them.
@@ -77,7 +78,7 @@ test('in a real process, the guard records the real time even with RIVERWRIGHT_T
     stdin: LINE, cwd: worktree, env: seamEnv(forgedRun()),
   });
   assert.notEqual(r.code, 0);
-  assert.match(r.stderr, /Nothing has been approved/);
+  assert.match(r.stderr, /Nothing has been unlocked/);
   const last = readLedger(dir).at(-1);
   assert.equal(last.decision, 'deny');
   assert.ok(recent(last.at), last.at);
@@ -104,6 +105,7 @@ test('io.testing is honored in process: now pins the clock and runDir is used on
   const home = tmpDir('riverwright-home-');
   const without = await callMain(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], { stdin: LINE, cwd: repo, testing: { runDir: forged } });
   assert.notEqual(without.code, 0);
+  armRun({ home, runDir: forged, sha: A });
   const withOverride = await callMain(['guard', 'pre-push', '--home', home, '--', 'fork', FORK], { stdin: LINE, cwd: repo, testing: { runDir: forged, allowRunDirOverride: true } });
   assert.equal(withOverride.code, 0, withOverride.stderr);
 });

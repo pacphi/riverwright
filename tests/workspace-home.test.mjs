@@ -10,6 +10,7 @@ import { runFile, launcherHookCommand } from '../scripts/lib/exec.mjs';
 import { renderPrePushHook } from '../scripts/lib/guard.mjs';
 import { workspaceHomeFromArg } from '../scripts/lib/paths.mjs';
 import { callMain, runRiverwright, tmpDir, ROOT, RIVERWRIGHT } from './helpers.mjs';
+import { armRun } from './receipt-helpers.mjs';
 
 // The pre-push guard and the host hook take the workspace home from --home (the generated hook files
 // carry it) or the account's home directory; never from RIVERWRIGHT_HOME or HOME in the environment.
@@ -45,7 +46,8 @@ async function realAndForged({ forgedHome } = {}) {
 async function approvedWorkspace(home = tmpDir('riverwright-home-')) {
   fs.mkdirSync(worktreeOf(home), { recursive: true });
   await git(worktreeOf(home), 'init', '-q');
-  saveState(runDirOf(home), approved());
+  saveState(runDirOf(home), setFork(createState({ runId: 'ruvnet/ruflo#3509', now: 't' }), FORK));
+  armRun({ home, runDir: runDirOf(home), sha: A, branch: BRANCH });
   return { home, worktree: worktreeOf(home), dir: runDirOf(home) };
 }
 

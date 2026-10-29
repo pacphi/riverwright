@@ -20,14 +20,14 @@ export function decidePrePush({ remoteUrl, updates, forkUrl, approvedSha, approv
   if (!dest || dest !== normalizeRemoteUrl(forkUrl)) {
     return deny(`Push destination ${remoteUrl} is not your fork (${forkUrl}). Riverwright never pushes anywhere else.`);
   }
-  if (!approvedSha) return deny('Nothing has been approved at the submit gate yet.');
-  if (!approvedBranch) return deny('The submit-gate approval does not name a branch. Approve again with --branch riverwright/<number>-<slug>.');
+  if (!approvedSha) return deny('Nothing has been unlocked at the submit gate yet. Pushes happen only through "riverwright submit".');
+  if (!approvedBranch) return deny('The submit-gate receipt does not name a branch.');
   for (const u of updates) {
     if (!u.localSha || ZERO.test(u.localSha)) return deny(`Deleting ${u.remoteRef} is not allowed.`);
     if (!String(u.remoteRef).startsWith('refs/heads/riverwright/')) return deny(`Only branches named riverwright/… may be pushed (got ${u.remoteRef}).`);
     if (u.remoteRef !== `refs/heads/${approvedBranch}`) return deny(`Only the approved branch ${approvedBranch} may be pushed (got ${u.remoteRef}).`);
     if (u.localSha.toLowerCase() !== approvedSha) {
-      return deny(`Commit ${u.localSha.slice(0, 12)} is not the approved commit ${approvedSha.slice(0, 12)}. Approve the new commit first.`);
+      return deny(`Commit ${u.localSha.slice(0, 12)} is not the approved commit ${approvedSha.slice(0, 12)}. Run "riverwright submit" again to approve the new commit.`);
     }
   }
   return { allow: true, reason: 'approved push to your fork' };
