@@ -200,6 +200,32 @@ rejected ("stale info" or similar) because the remote tip is now `B`, not `A`.
 **Record:** each outcome, and paste the hook log line. If the fourth field is not the remote tip during a leased
 push, the guard's check in Plan 2a Task 14 must change.
 
+**Local variant (no GitHub, no token).** The push mechanics and the hook's input are git behavior, so they can be
+tested first against a local bare repository standing in for the fork:
+
+```bash
+cd ~/rw-skel-scratch && rm -rf lease-test && mkdir lease-test && cd lease-test
+git init -q --bare remote.git
+git clone -q remote.git work 2>/dev/null; cd work
+git config user.email t@example.invalid; git config user.name t
+git switch -q -c rw-skel-1
+git commit -q --allow-empty -m "first"
+printf '#!/bin/sh\ncat > /tmp/rw-skel-prepush.log\nexit 0\n' > .git/hooks/pre-push && chmod +x .git/hooks/pre-push
+git push -q origin rw-skel-1
+A=$(git rev-parse HEAD); echo "A=$A"; echo "--- hook log, first push:"; cat /tmp/rw-skel-prepush.log
+git commit -q --amend --allow-empty -m "first (amended)"
+B=$(git rev-parse HEAD); echo "B=$B"
+git merge-base --is-ancestor $A $B; echo "is A an ancestor of B? exit=$?"
+git push origin rw-skel-1; echo "plain push exit=$?"
+git push --force-with-lease=refs/heads/rw-skel-1:$A origin rw-skel-1; echo "leased push exit=$?"
+echo "--- hook log, leased push:"; cat /tmp/rw-skel-prepush.log
+git commit -q --amend --allow-empty -m "first (amended twice)"
+git push --force-with-lease=refs/heads/rw-skel-1:$A origin rw-skel-1; echo "stale lease exit=$?"
+```
+
+Expected: the first hook log line ends with forty zeros (a new branch); `is A an ancestor of B` exits 1; the plain push
+exits non-zero; the leased push exits 0 and its hook log line ends with `$A`; the stale lease exits non-zero.
+
 ## Check 8: a real plugin install from a `plugin/` folder
 
 **Decides:** ADR-0011's assumptions: that installing from `source: "./plugin"` copies only that folder, that
@@ -221,7 +247,7 @@ cat > .claude-plugin/marketplace.json <<'EOF'
 }
 EOF
 cat > plugin/.claude-plugin/plugin.json <<'EOF'
-{ "name": "skel", "version": "0.0.1", "description": "Throwaway skeleton plugin" }
+{ "name": "skel", "version": "0.0.1", "description": "Throwaway skeleton plugin", "author": { "name": "pacphi" } }
 EOF
 printf '#!/bin/sh\necho "skel says hello; root=$CLAUDE_PLUGIN_ROOT"\n' > plugin/bin/skel-hello && chmod +x plugin/bin/skel-hello
 printf '#!/bin/sh\n{ cat; printf "\\nROOT=%%s\\n---\\n" "$CLAUDE_PLUGIN_ROOT"; } >> /tmp/rw-skel-hook.log\nexit 0\n' > plugin/bin/log-hook && chmod +x plugin/bin/log-hook
@@ -232,7 +258,7 @@ printf -- '---\nname: skel\ndescription: Says hello from the skeleton plugin\n--
 echo "contributor-only file" > CONTRIBUTING-should-not-ship.md
 ```
 
-Validate both ways (read-only):
+Validate both ways (read-only). `--strict` treats a missing `author` as an error, which is why the manifest above names one:
 
 ```bash
 claude plugin validate --strict .
@@ -301,14 +327,14 @@ Fill this in as you go. Paste exact error text where asked.
 
 | Check | Result (pass, fail, partial) | Exact outcome or error | Date and system |
 |---|---|---|---|
-| 1 macOS | | | |
+| 1 macOS | pass (repeated with a, Up-arrow, b: read 5) | `isatty` true on both; typing hidden; count correct (8 typed, 8 read); Ctrl-C exited with status 1 and the terminal echoed normally afterwards; an Up-arrow between two letters counted as 3 extra characters (`a`, arrow, `b` read 5) | 2026-09-30, macOS 27, zsh, Node 26.4.0 |
 | 1 Linux | | | |
 | 1 Windows (PowerShell, cmd) | | | |
 | 3 fork-scoped token opens a PR on the upstream | | | |
 | 4 push with the token in one child's environment | | | |
 | 5 ready, view, anonymous read | | | |
 | 6 fork CI banner and enabling | | | |
-| 7 leased push and the hook's fourth field | | | |
+| 7 leased push and the hook's fourth field (local bare repository) | pass | First push: fourth field forty zeros. After an amend `git merge-base --is-ancestor A B` exited 1 with A's object still present. Plain push: rejected (non-fast-forward). `--force-with-lease=refs/heads/rw-skel-1:A`: forced update, exit 0, and the hook's fourth field was A. Stale lease: rejected ("stale info"), exit 1. Not yet repeated against real GitHub. | 2026-09-30, macOS 27, git 2.54.0 (Apple Git-157) |
 | 8 plugin install: cache contents, `bin/` on PATH, `CLAUDE_PLUGIN_ROOT`, hook payload | | | |
 | 9 argon2 on Node 24 (optional) | | | |
 | 10 hardware key (optional) | | | |
