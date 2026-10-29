@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { appendReceipt } from '../scripts/lib/receipt.mjs';
-import { RECEIPT_SCHEMA, RECEIPT_TTL_MS, buildReceipt, consumeReceipt, findValidReceipt, receiptBytes, signReceipt, verifyReceipt, verifyReceipts, markConsumed } from '../scripts/lib/receipt.mjs';
+import { RECEIPT_SCHEMA, RECEIPT_TTL_MS, buildReceipt, consumeReceipt, findValidReceipt, receiptBytes, signReceipt, verifyReceipt, verifyReceipts, verifyConsumptions, markConsumed } from '../scripts/lib/receipt.mjs';
 import { GENESIS, appendChained, eventsFile, lineHash, readEvents, verifyChain } from '../scripts/lib/events.mjs';
 import { NOW, NOW_MS, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
 import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
@@ -149,7 +149,7 @@ test('verifyReceipts reports a repeated nonce and a receipt that names the wrong
   const s = setup();
   const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
   appendChained(s.ledgerDir, () => ({ event: 'approved', at: NOW, actor: { type: 'human' }, data: { receipt: w.record.data.receipt } }));
-  const problems = verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey });
+  const problems = [...verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey }), ...verifyConsumptions({ ledgerDir: s.ledgerDir })];
   assert.match(problems.map((p) => p.reason).join(' | '), /nonce.*more than once/);
   assert.match(problems.map((p) => p.reason).join(' | '), /seq/);
   assert.equal(readEvents(s.ledgerDir).length, 2);

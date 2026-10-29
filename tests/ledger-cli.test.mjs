@@ -95,12 +95,106 @@ test('ledger verify fails on a receipt signed by another key', async () => {
   assert.match(r.stderr, /signature/);
 });
 
-test('without a vault, verify still checks the chain and says signatures were not checked', async () => {
+test('no receipts and no vault: nothing to sign-check, exit 0', async () => {
   const dir = tmpDir();
   appendEvent(dir, { type: 'note', at: 't' });
   const r = await verifyWith(dir, tmpDir());
   assert.equal(r.code, 0, r.stderr);
-  assert.match(r.stdout, /signatures were not checked/);
+  assert.match(r.stdout, /nothing to sign-check/);
+});
+
+test('receipts but no vault: exit 2, a not-a-full-pass headline, never "Ledger intact" (R22)', async () => {
+  const forged = tmpDir();
+  const runDir = runDirIn(forged);
+  armRun({ home: forged, runDir });
+  const accountHome = tmpDir();
+  const r = await callMain(['ledger', 'verify', '--run', runDir], { testing: { userInfo: () => ({ homedir: accountHome }) } });
+  assert.equal(r.code, 2);
+  assert.doesNotMatch(r.stdout + r.stderr, /Ledger intact/);
+  const out = r.stdout + r.stderr;
+  assert.match(out, /^Chain OK; 1 receipt signature NOT checked: no vault at .*vault\.json; this is not a full pass$/m);
+  assert.equal(out.match(/Chain OK/g).length, 1);
+});
+
+test('the reviewer probe: a re-chained ledger with an attacker-signed receipt and an empty account home exits 2', async () => {
+  const dir = tmpDir();
+  const attacker = crypto.generateKeyPairSync('ed25519');
+  appendChained(dir, ({ prev, seq }) => ({
+    event: 'approved', at: 't', actor: { type: 'human' },
+    data: { receipt: signReceipt(buildReceipt({ gate: 'post-comment', run: 'o/r#1', binding: { kind: 'content', value: `sha256:${'c'.repeat(64)}` }, ledgerHead: prev, seq, at: '2026-10-02T14:03:11.000Z' }), attacker.privateKey) },
+  }));
+  const r = await callMain(['ledger', 'verify', '--run', dir], noAccount);
+  assert.equal(r.code, 2);
+  assert.doesNotMatch(r.stdout + r.stderr, /Ledger intact/);
+});
+
+test('a full pass prints "Ledger intact" and exits 0; help documents the three exit codes', async () => {
+  const home = tmpDir();
+  const runDir = runDirIn(home);
+  armRun({ home, runDir });
+  const r = await verifyWith(runDir, home);
+  assert.equal(r.code, 0, r.stderr);
+  assert.match(r.stdout, /^Ledger intact/);
+  const u = await callMain(['ledger']);
+  assert.match(u.stderr, /exit 0.*exit 1.*exit 2/s);
+});
+
+test('duplicate nonces are caught without a vault (key-free)', async () => {
+  const home = tmpDir();
+  const runDir = runDirIn(home);
+  armRun({ home, runDir });
+  const dup = readEvents(ledgerDirFor(runDir)).find((e) => e.event === 'approved').data.receipt;
+  appendChained(ledgerDirFor(runDir), () => ({ event: 'approved', at: 't', actor: { type: 'human' }, data: { receipt: dup } }));
+  const r = await callMain(['ledger', 'verify', '--run', runDir], noAccount);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /more than once/);
+});
+
+test('an approved event with no receipt is flagged, with or without a vault', async () => {
+  const dir = tmpDir();
+  appendChained(dir, () => ({ event: 'approved', at: 't', actor: { type: 'human' }, data: { gate: 'post-comment' } }));
+  const r = await callMain(['ledger', 'verify', '--run', dir], noAccount);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /no receipt/);
+});
+
+test('a vault path that is a directory gives a clean one-line error, exit 1, no stack', async () => {
+  const home = tmpDir();
+  fs.mkdirSync(path.join(home, 'vault', 'vault.json'), { recursive: true });
+  const dir = tmpDir();
+  appendEvent(dir, { type: 'note', at: 't' });
+  const r = await verifyWith(dir, home);
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.stderr, /\n\s+at /);
+  assert.equal(r.stderr.trim().split('\n').length, 1);
+  assert.match(r.stderr, /vault/);
+});
+
+test('NO_HOME does not tell the user to pass --home', async () => {
+  const dir = tmpDir();
+  appendEvent(dir, { type: 'note', at: 't' });
+  const r = await callMain(['ledger', 'verify', '--run', dir], { testing: { userInfo: () => { throw new Error('x'); } } });
+  assert.equal(r.code, 1);
+  assert.doesNotMatch(r.stderr, /--home/);
+});
+
+test('the R9 notice shows unless --head is given, and --seq alone still shows it', async () => {
+  const dir = tmpDir();
+  appendEvent(dir, { type: 'note', at: 't' });
+  const { head } = verifyChain(ledgerDirFor(dir));
+  assert.match((await callMain(['ledger', 'verify', '--run', dir, '--seq', '1'], noAccount)).stdout, /cannot tell a cleanly cut tail/);
+  assert.doesNotMatch((await callMain(['ledger', 'verify', '--run', dir, '--head', head], noAccount)).stdout, /cannot tell a cleanly cut tail/);
+});
+
+test('a consumption with no outcome says "missing outcome"', async () => {
+  const home = tmpDir();
+  const runDir = runDirIn(home);
+  armRun({ home, runDir });
+  appendChained(ledgerDirFor(runDir), () => ({ event: 'receipt-consumed', at: 't', actor: { type: 'human' }, data: { nonce: nonceOf(runDir) } }));
+  const r = await verifyWith(runDir, home);
+  assert.equal(r.code, 1);
+  assert.match(r.stderr, /missing outcome/);
+  assert.doesNotMatch(r.stderr, /undefined/);
 });
 
 test('--home is refused from real argv: only the test seam may choose the vault (R20)', async () => {
@@ -118,8 +212,8 @@ test('RIVERWRIGHT_HOME and a run directory layout do not choose the vault', asyn
   // Forged tree names itself by layout and by env; the vault is read from the account home, not from either.
   const accountHome = tmpDir();
   const r = await callMain(['ledger', 'verify', '--run', runDir], { env: { RIVERWRIGHT_HOME: forged }, testing: { userInfo: () => ({ homedir: accountHome }) } });
-  assert.equal(r.code, 0, r.stderr);
-  assert.match(r.stdout, /signatures were not checked/);
+  assert.equal(r.code, 2);
+  assert.match(r.stdout + r.stderr, /NOT checked/);
 });
 
 test('a malformed vault is an error, not a silent skip', async () => {

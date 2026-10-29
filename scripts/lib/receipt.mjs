@@ -201,10 +201,10 @@ export function consumeReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding
   return { ok: true, receipt, seq: appended.seq };
 }
 
-// For `riverwright ledger verify`: every approved event's signature, position, anchor and nonce.
+// For `riverwright ledger verify`: every approved event's signature, position and anchor. Repeated nonces are
+// reported by verifyConsumptions, which needs no key.
 export function verifyReceipts({ ledgerDir, publicKey }) {
   const problems = [];
-  const seen = new Map();
   readEvents(ledgerDir).forEach((e, i) => {
     if (!isObject(e)) {
       problems.push({ line: i + 1, reason: 'the line is not a JSON object' });
@@ -213,16 +213,14 @@ export function verifyReceipts({ ledgerDir, publicKey }) {
     if (e.event !== 'approved' || !e.data?.receipt) return;
     const reason = checkOne(e, publicKey, ledgerDir);
     if (reason) problems.push({ line: e.seq, reason });
-    const n = e.data.receipt.nonce;
-    if (seen.has(n)) problems.push({ line: e.seq, reason: `nonce ${n} appears more than once (first at seq ${seen.get(n)})` });
-    else seen.set(n, e.seq);
   });
   return problems;
 }
 
 // For `riverwright ledger verify`: the `receipt-consumed` lines must follow the state machine above. Each must
 // name a nonce of an earlier `approved` receipt, carry a known outcome, and per nonce be one of
-// [claimed], [claimed, final] or [final] (final = succeeded | failed). Needs no key.
+// [claimed], [claimed, final] or [final] (final = succeeded | failed). Also flags an `approved` event with no
+// receipt and a nonce that appears in two `approved` events. Needs no key.
 export function verifyConsumptions({ ledgerDir }) {
   const problems = [];
   const approvedAt = new Map();
@@ -230,15 +228,18 @@ export function verifyConsumptions({ ledgerDir }) {
   readEvents(ledgerDir).forEach((e) => {
     if (!isObject(e)) return;
     const line = e.seq;
-    if (e.event === 'approved' && e.data?.receipt) {
-      if (!approvedAt.has(e.data.receipt.nonce)) approvedAt.set(e.data.receipt.nonce, e.seq);
+    if (e.event === 'approved') {
+      if (!e.data?.receipt) return void problems.push({ line, reason: 'an approved event carries no receipt' });
+      const n = e.data.receipt.nonce;
+      if (approvedAt.has(n)) problems.push({ line, reason: `nonce ${shown(n)} appears more than once (first at seq ${approvedAt.get(n)})` });
+      else approvedAt.set(n, e.seq);
       return;
     }
     if (e.event !== 'receipt-consumed') return;
     const nonce = e.data?.nonce;
     const outcome = e.data?.outcome;
     if (typeof nonce !== 'string') return void problems.push({ line, reason: 'a receipt-consumed line does not name a nonce' });
-    if (!['claimed', 'succeeded', 'failed'].includes(outcome)) return void problems.push({ line, reason: `unknown outcome ${shown(outcome)} for nonce ${shown(nonce)}` });
+    if (!['claimed', 'succeeded', 'failed'].includes(outcome)) return void problems.push({ line, reason: outcome === undefined ? `missing outcome for nonce ${shown(nonce)}` : `unknown outcome ${shown(outcome)} for nonce ${shown(nonce)}` });
     if (!approvedAt.has(nonce)) {
       const reason = readEvents(ledgerDir).some((x) => isObject(x) && x.event === 'approved' && x.data?.receipt?.nonce === nonce)
         ? `nonce ${shown(nonce)} was consumed before its receipt was approved`
