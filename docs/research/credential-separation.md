@@ -194,8 +194,8 @@ An automated security check ran on the R35 fix commits. Two of its findings were
 The same check found eight more spellings of the credential-rule bypass: four on the F1 and F3 fix commits and four
 on the F2 fix commit. These are further ways to run `riverwright credential` that the hook does not see. Each was
 reported by the check and none was reproduced for this record. Ruling R36 records them here, one class each, as known
-limits. It does not fix them. The suggested fixes
-are the check's own, in brief, and none is built.
+limits. It does not fix them. The examples and fixes below are sketched from the one-line finding summaries in the
+task log; the check's original text was not available when this was written. None of the fixes is built.
 
 | Class | Example shape | Suggested fix (not built) |
 |---|---|---|
