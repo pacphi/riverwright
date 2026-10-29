@@ -1047,16 +1047,24 @@ for (const [kind, make] of CONTAINERS) {
 test('N8: a message or name from a prototype getter, or a poisoned toString, is never called and never shown', async () => {
   let calls = 0;
   let tok;
-  class ByMessage extends Error { get message() { calls += 1; return new Uint8Array(Buffer.from(tok)); } }
-  class ByName extends Error { get name() { calls += 1; return new Uint8Array(Buffer.from(tok)); } }
+  let kind = CONTAINERS[0][1];
+  class ByMessage extends Error { get message() { calls += 1; return kind(tok); } }
+  class ByName extends Error { get name() { calls += 1; return kind(tok); } }
+  for (const [, make] of CONTAINERS) {
+    kind = make;
+    for (const build of [() => { const e = new ByMessage(); delete e.message; return e; }, () => new ByName('clean')]) {
+      const { caught } = await failWith((t) => { tok = t; return build(); });
+      const all = rendered(caught);
+      assert.equal(DECIMALS.test(all), false, all);
+      assert.equal(holdsToken(all), false, all);
+    }
+  }
   class Poisoned extends Error {
     get name() { calls += 1; return tok; }
     toString() { calls += 1; return tok; }
     [Symbol.toPrimitive]() { calls += 1; return tok; }
   }
   for (const make of [
-    () => { const e = new ByMessage(); delete e.message; return e; },
-    () => new ByName('clean'),
     () => new Poisoned('clean'),
     () => { const e = new Error('x'); e.message = { toString() { calls += 1; return tok; } }; return e; },
   ]) {
