@@ -26,6 +26,7 @@ import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { RiverwrightError } from './errors.mjs';
 import { normalizeBranch } from './approvals.mjs';
+import { shown } from './printable.mjs';
 import { GENESIS, appendChained, readEvents, verifyChain } from './events.mjs';
 
 export const RECEIPT_SCHEMA = 'riverwright-receipt/1';
@@ -215,6 +216,43 @@ export function verifyReceipts({ ledgerDir, publicKey }) {
     const n = e.data.receipt.nonce;
     if (seen.has(n)) problems.push({ line: e.seq, reason: `nonce ${n} appears more than once (first at seq ${seen.get(n)})` });
     else seen.set(n, e.seq);
+  });
+  return problems;
+}
+
+// For `riverwright ledger verify`: the `receipt-consumed` lines must follow the state machine above. Each must
+// name a nonce of an earlier `approved` receipt, carry a known outcome, and per nonce be one of
+// [claimed], [claimed, final] or [final] (final = succeeded | failed). Needs no key.
+export function verifyConsumptions({ ledgerDir }) {
+  const problems = [];
+  const approvedAt = new Map();
+  const state = new Map(); // nonce -> { claimed, final }
+  readEvents(ledgerDir).forEach((e) => {
+    if (!isObject(e)) return;
+    const line = e.seq;
+    if (e.event === 'approved' && e.data?.receipt) {
+      if (!approvedAt.has(e.data.receipt.nonce)) approvedAt.set(e.data.receipt.nonce, e.seq);
+      return;
+    }
+    if (e.event !== 'receipt-consumed') return;
+    const nonce = e.data?.nonce;
+    const outcome = e.data?.outcome;
+    if (typeof nonce !== 'string') return void problems.push({ line, reason: 'a receipt-consumed line does not name a nonce' });
+    if (!['claimed', 'succeeded', 'failed'].includes(outcome)) return void problems.push({ line, reason: `unknown outcome ${shown(outcome)} for nonce ${shown(nonce)}` });
+    if (!approvedAt.has(nonce)) {
+      const reason = readEvents(ledgerDir).some((x) => isObject(x) && x.event === 'approved' && x.data?.receipt?.nonce === nonce)
+        ? `nonce ${shown(nonce)} was consumed before its receipt was approved`
+        : `no receipt with nonce ${shown(nonce)} exists in the ledger`;
+      problems.push({ line, reason });
+      return;
+    }
+    const s = state.get(nonce) ?? { claimed: false, final: false };
+    if (s.final) problems.push({ line, reason: outcome === 'claimed' ? `nonce ${shown(nonce)} was claimed after its final outcome` : `nonce ${shown(nonce)} has more than one final outcome (an outcome is already recorded)` });
+    else if (outcome === 'claimed') {
+      if (s.claimed) problems.push({ line, reason: `nonce ${shown(nonce)} was claimed more than once` });
+      s.claimed = true;
+    } else s.final = true;
+    state.set(nonce, s);
   });
   return problems;
 }
