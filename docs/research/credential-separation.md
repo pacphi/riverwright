@@ -155,7 +155,7 @@ reproduced. The triage that decided what to fix and what to accept is ruling R35
 | C3 | Codex | PLAUSIBLE | Important | A FIFO planted as a run's `state.json` could stall the hook (a blocking read), and a host that lets a command run after a hook timeout would then allow it | Fixed in `e795e00` (same fix as F4) |
 | F1 | Claude | CONFIRMED | Important | node can shift riverwright's arguments: `node - credential setup < riverwright.mjs` and `node --import=./riverwright.mjs - credential setup` ran the credential command unseen | Fixed in `adc2f9c`: when node, bun or deno reads a riverwright file from stdin or preloads one (`--import`, `--require`, `-r`, `--loader`, `--experimental-loader`, `--preload`, `NODE_OPTIONS`), every word after the script operand is checked |
 | F2 | Claude | CONFIRMED | Important | A link to the launcher was resolved only against the hook's working directory, not after `cd`, `pushd`, a subshell `cd`, `~` or a glob; the reviewer sealed an agent-chosen vault in a scratch home this way | Fixed in `799df69`: every directory the command may be in is tracked, `~` is the account home (password database) and `HOME`, and a glob path counts when its directory holds a launcher link |
-| F3 | Claude | CONFIRMED (classifier), PLAUSIBLE (impact) | Minor | `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` or a node `--require` in front of `riverwright submit` or `post` was allowed, so the passphrase could be typed into code the agent chose | Fixed in `61bad2b`: a new rule, `riverwright-publish-env`, denies these everywhere; the plain trusted publish stays allowed. Replaced by an allowlist in `86f0d03` (ruling R37, below) |
+| F3 | Claude | CONFIRMED (classifier), PLAUSIBLE (impact) | Minor | `NODE_OPTIONS`, `PATH`, `LD_PRELOAD` or a node `--require` in front of `riverwright submit` or `post` was allowed, so the passphrase could be typed into code the agent chose | Fixed in `61bad2b`: a new rule, `riverwright-publish-env`, denies these everywhere; the plain trusted publish stays allowed. Replaced by an allowlist in `86f0d03` (ruling R37, below). The stdin and preload forms (`node - submit < riverwright.mjs`, `node --import=./riverwright.mjs - post`) are covered since `a491d73` (ruling R38, below) |
 | F4 | Claude | CONFIRMED | Minor | A FIFO at a run's `state.json` hung the hook (measured: killed by an 8-second timeout) | Fixed in `e795e00`: `state.json` is read only as a bounded regular file, opened without blocking; anything else counts as an active run |
 | F5 | Claude | PLAUSIBLE | Minor | The gate returns the action's `result` without cleaning it, so an action that echoes the token would pass it on | Accepted (R35): a Plan 2b contract. Spec §7.5 now says the result must not contain the token, and Plan 2b checks each action's result when it builds the actions |
 | F6 | Claude | PLAUSIBLE | Minor | An appended, correctly chained `receipt-consumed` line marks a live receipt as used, which blocks the human's own push | Accepted (R35): a denial of service that fails closed; nothing is published. Plan 2b reports this case clearly |
@@ -188,6 +188,33 @@ An automated security check ran on the R35 fix commits. Two of its findings were
   but `touchesHome` in `scope.mjs` lexed the command the bash way only. So `git -C $RIVERWRIGHT_HOME$'\0'x push`,
   which zsh runs in the workspace, was out of scope. Fixed in `3a8f088`: both use one helper, `readingsOf`, and a
   command is in scope when any reading reaches the workspace.
+
+### Codex re-review of the fixes (ruling R38)
+
+Codex re-reviewed the fix range `df96fd3..95e3993`, read-only. It judged C1, C2, C3, F1, F2, F4 and the `readingsOf`
+change addressed, and F3 not fully addressed. It found two more problems. The controller reproduced both, and both
+were fixed test first:
+
+- **Stdin and preload forms of `submit` and `post`** (Important, CONFIRMED). The R37 allowlist did not apply the F1
+  logic, so `node - submit < riverwright.mjs`, `cat riverwright.mjs | node - post`,
+  `node --import=./riverwright.mjs - submit < /dev/null` and `NODE_OPTIONS=--import=./riverwright.mjs node - submit`
+  reached the publish entry point. Fixed in `a491d73`: the credential rule's stdin and preload logic is one shared
+  helper, and the publish rule reads its slot from it, for node, bun and deno. The plain trusted launcher stays
+  allowed.
+- **Three `cd`'s denied ordinary scripts** (Important, CONFIRMED, a regression from the F2 fix). Each relative `cd`
+  was resolved against every directory seen so far, so `cd scripts && cd lib && cd hooks && node build.mjs "$INPUT"`
+  filled the 32-directory cap. The command was then denied everywhere as `riverwright-credential`. Fixed in `eb56ded`:
+  the lexer records each command's operator and the subshell parentheses around it. A `cd` in a sequence now replaces
+  the directory, so ten `cd`'s in a row are judged like the same command run from the last directory. Only real
+  branching keeps more than one directory: `||`, the end of a subshell, `popd`, `cd -`, a `cd` whose target does not
+  exist (it may fail), `CDPATH` and `~`. The cap applies only to those. Relative paths are still resolved against every
+  directory the command may have been in, so the F2 denials still hold.
+
+Codex also found a Minor: quoted text holding "rw submit" (`git stash push -m "rw submit"`) is now denied everywhere.
+It is accepted, the same cost as quoted "rw credential" (R24, R37). The `cd` model has these limits, stated in the
+`classify.mjs` header: a `cd` that an earlier failing `&&` skips is assumed to run; a `popd` or `cd -` back to a
+directory from before the command is not followed; and a relative `cd` inside a loop is followed for its first pass
+only.
 
 ### Known limits of the hook rule (not chased further, ruling R36)
 
