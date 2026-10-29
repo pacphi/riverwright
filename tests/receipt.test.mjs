@@ -204,6 +204,73 @@ test('I3: markConsumed checks the nonce shape, that the receipt exists and that 
   assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce: w.record.data.receipt.nonce, outcome: 'succeeded', at: NOW }), /already/);
 });
 
+// ---- P1 (Task 3 re-review N1): a claim's final outcome can be recorded, exactly once ----
+
+const outcomes = (s, nonce) => readEvents(s.ledgerDir).filter((e) => e.event === 'receipt-consumed' && e.data.nonce === nonce).map((e) => e.data.outcome);
+
+test('P1: a claimed receipt moves once to succeeded, and nothing can be recorded after that', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  const nonce = w.record.data.receipt.nonce;
+  consume(s);
+  markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'succeeded', at: NOW });
+  assert.deepEqual(outcomes(s, nonce), ['claimed', 'succeeded']);
+  for (const outcome of ['succeeded', 'failed']) {
+    assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome, at: NOW }), /already/, outcome);
+  }
+  assert.throws(() => consume(s), /already used/);
+  assert.deepEqual(outcomes(s, nonce), ['claimed', 'succeeded']);
+});
+
+test('P1: a claimed receipt moves once to failed, and a failed receipt is never usable again', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  const nonce = w.record.data.receipt.nonce;
+  consume(s);
+  markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'failed', at: NOW });
+  assert.deepEqual(outcomes(s, nonce), ['claimed', 'failed']);
+  assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'succeeded', at: NOW }), /already/);
+  assert.match(find(s).reason, /already used/);
+  assert.throws(() => consume(s), /already used/);
+});
+
+test('P1: a claimed receipt already counts as used, and a claim cannot be claimed again', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  consume(s);
+  assert.match(find(s).reason, /already used/);
+  assert.throws(() => consume(s), /already used/);
+  assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce: w.record.data.receipt.nonce, outcome: 'claimed', at: NOW }), /outcome/);
+});
+
+test('P1: a receipt recorded as succeeded or failed directly is final', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  const nonce = w.record.data.receipt.nonce;
+  markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'succeeded', at: NOW });
+  assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'failed', at: NOW }), /already/);
+  assert.deepEqual(outcomes(s, nonce), ['succeeded']);
+});
+
+test('P1: the final outcome is recorded under the ledger lock', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  consume(s);
+  fs.writeFileSync(`${s.ledgerDir}/events.lock`, '');
+  assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce: w.record.data.receipt.nonce, outcome: 'succeeded', at: NOW }), (e) => e.code === 'LEDGER_BUSY');
+  fs.rmSync(`${s.ledgerDir}/events.lock`);
+  markConsumed({ ledgerDir: s.ledgerDir, nonce: w.record.data.receipt.nonce, outcome: 'succeeded', at: NOW });
+});
+
+test('P1: a stray consumption line with an unknown outcome makes the receipt used and blocks any final outcome', () => {
+  const s = setup();
+  const w = issueReceipt({ runDir: s.runDir, keys: s.keys });
+  const nonce = w.record.data.receipt.nonce;
+  appendChained(s.ledgerDir, () => ({ event: 'receipt-consumed', at: NOW, actor: { type: 'agent' }, data: { nonce, outcome: 'whatever' } }));
+  assert.match(find(s).reason, /already used/);
+  assert.throws(() => markConsumed({ ledgerDir: s.ledgerDir, nonce, outcome: 'succeeded', at: NOW }), /already/);
+});
+
 test('M1: a receipt with unknown extra fields, top-level or inside binding, or an unnormalized branch, is rejected', () => {
   const k = keysOf();
   const r = signReceipt(buildReceipt(base), k.privateKey);

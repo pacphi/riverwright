@@ -8,6 +8,20 @@
 // receipt looks unused again until it expires (10 minutes). Nothing outside the ledger remembers the newer
 // head, so this is tamper-evident, not tamper-proof. Only an anchor the agent cannot write (a signed
 // consumption marker, or a head kept elsewhere) would close it. See the test named KNOWN LIMITATION.
+//
+// A receipt's life, read from the `receipt-consumed` lines that name its nonce (every write is under the
+// ledger lock, and every transition appends; nothing is ever edited):
+//
+//   unused --consumeReceipt(claimed)-------> claimed --markConsumed(succeeded|failed)--> final
+//   unused --consumeReceipt/markConsumed(succeeded|failed)--------------------------> final
+//
+// - unused: no line names the nonce. Only an unused receipt can authorize anything (findValidReceipt).
+// - claimed: exactly one line, outcome "claimed". Already USED: no second claim, no second action. The one
+//   thing it allows is recording its final outcome, once.
+// - final: a line with "succeeded" or "failed" (after a claim, or directly). Nothing more may be recorded.
+// - Any other set of lines (a stray or unknown outcome) also counts as used, and no outcome can follow it.
+// A failed receipt is never reusable: the bounded retry in the gate (ADR-0010) happens inside one process,
+// on the receipt it already holds in memory, and a new run needs a new unlock and a new receipt.
 import crypto from 'node:crypto';
 import { isDeepStrictEqual } from 'node:util';
 import { RiverwrightError } from './errors.mjs';
@@ -83,14 +97,20 @@ export function appendReceipt({ ledgerDir, privateKey, gate, run, binding, branc
 
 const consumedNonces = (events) => new Set(events.filter((e) => isObject(e) && e.event === 'receipt-consumed').map((e) => e.data?.nonce));
 
-// Records an outcome for a receipt that exists and is not yet consumed. Normal callers use consumeReceipt.
+// The outcomes recorded for one nonce, in ledger order.
+const outcomesOf = (events, nonce) => events.filter((e) => isObject(e) && e.event === 'receipt-consumed' && e.data?.nonce === nonce).map((e) => e.data?.outcome);
+
+// Records the final outcome (succeeded or failed) of a receipt that is unused or claimed, once (see the state
+// machine above). It does not re-verify the signature: the caller holds the receipt it signed or claimed.
 export function markConsumed({ ledgerDir, nonce, outcome, at }) {
   if (!['succeeded', 'failed'].includes(outcome)) throw bad('outcome must be succeeded or failed');
   if (!nonceOk(nonce)) throw bad('nonce must be 32 lowercase hex characters, not one repeated character');
   return appendChained(ledgerDir, () => {
     const events = readEvents(ledgerDir);
     if (!events.some((e) => isObject(e) && e.event === 'approved' && e.data?.receipt?.nonce === nonce)) throw bad('no receipt with that nonce is in the ledger');
-    if (consumedNonces(events).has(nonce)) throw bad('this receipt was already used');
+    const seen = outcomesOf(events, nonce);
+    const claimedOnly = seen.length === 1 && seen[0] === 'claimed';
+    if (seen.length && !claimedOnly) throw bad('this receipt was already used and its outcome is already recorded');
     return { event: 'receipt-consumed', at, actor: { type: 'human' }, data: { nonce, outcome } };
   });
 }
@@ -149,8 +169,8 @@ export function findValidReceipt({ ledgerDir, publicKey, gate, run, nowMs, bindi
 
 // The atomic claim. Under the ledger lock it finds and re-verifies the receipt, checks it is unconsumed, and
 // appends `receipt-consumed`; a second caller (or a second process) then finds it used. Call it BEFORE the
-// network action, with outcome "claimed", so a crash cannot leave the receipt reusable. Throws
-// RECEIPT_REFUSED with the reason when no receipt qualifies.
+// network action, with outcome "claimed", so a crash cannot leave the receipt reusable, then record the final
+// outcome with markConsumed. Throws RECEIPT_REFUSED with the reason when no receipt qualifies.
 export function consumeReceipt({ ledgerDir, publicKey, gate, run, nowMs, binding, at, outcome = 'claimed' }) {
   if (!['claimed', 'succeeded', 'failed'].includes(outcome)) throw bad('outcome must be claimed, succeeded or failed');
   let receipt;
