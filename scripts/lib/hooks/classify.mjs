@@ -80,6 +80,11 @@ export { hasUnresolved };
 //     size, opened without blocking; a FIFO, device, socket, directory or oversized file makes git unknown. Past the
 //     work budget, nested text is denied when it mentions "credential" or has a variable, glob or brace after a
 //     riverwright word.
+//   - riverwright submit and post (R37) are allowed only as the whole command line: the trusted launcher's own path as
+//     the program, then submit or post and plain arguments. Any other command where a word that is or could be
+//     riverwright is followed by one that is or could be submit or post (found as the slot is above) is denied
+//     everywhere as riverwright-publish-env: an assignment, wrapper or runtime in front, or any other command, pipe,
+//     redirect or subshell on the line.
 //   - Structural checks kept from earlier rounds: xargs, parallel, find -exec and rg --pre feeding riverwright;
 //     alias definitions that run it; Start-Process with riverwright; inline code (node -e, python -c, a sed e command,
 //     an awk system(), ...) that names it near "credential" or loads lib/cli.mjs or commands/credential.mjs.
@@ -537,7 +542,7 @@ const LAUNCHER_FILES = ['../../../bin/riverwright', '../../../bin/riverwright.cm
 
 const credentialVerdict = (why) => outward('riverwright-credential', why);
 const isCredential = (v) => v?.rule === 'riverwright-credential';
-// The rules that apply everywhere outrank the others: riverwright-credential first, then riverwright-publish-env (F3).
+// The rules that apply everywhere outrank the others: riverwright-credential first, then riverwright-publish-env (R37).
 const RANK = { 'riverwright-credential': 2, 'riverwright-publish-env': 1 };
 const rank = (v) => (v ? (RANK[v.rule] ?? 0) : -1);
 const prefer = (found, v) => (!found || rank(v) > rank(found) ? (v ?? found) : found);
@@ -1461,55 +1466,59 @@ function runtimeCredential(cmd, ctx) {
   return null;
 }
 
-// F3 (Task 17): "riverwright submit" and "riverwright post" ask the human for the passphrase. An environment variable
-// that changes which code node loads or which programs it finds (NODE_OPTIONS, NODE_PATH, NODE_EXTRA_CA_CERTS, PATH,
-// LD_PRELOAD, LD_LIBRARY_PATH, LD_AUDIT, DYLD_*), set in front of them or earlier in the same command line, or a node
-// runtime option in front of the launcher script (--require, --import, --loader, --inspect, ...), would put code the
-// agent chose in the process the passphrase is typed into. Such a command is denied everywhere, like the credential
-// rule. The plain trusted publish (the launcher, or node with the launcher script, and nothing else) never gets here.
-const PUBLISH_ENV = /^(NODE_OPTIONS|NODE_PATH|NODE_EXTRA_CA_CERTS|PATH|LD_PRELOAD|LD_LIBRARY_PATH|LD_AUDIT|DYLD_\w+)$/i;
+// R37 (Task 17, F3 redo): "riverwright submit" and "riverwright post" ask the human for the passphrase, so anything
+// that changes the process they run in (an environment variable such as NODE_OPTIONS, PATH, BASH_ENV, HTTPS_PROXY or
+// HOME; a wrapper such as sudo, env, strace, proxychains, script or expect; node or a shell running the launcher
+// script; an earlier export, source, alias or printf -v) could put code the agent chose where the passphrase is typed.
+// That list is open-ended, so the rule is an allowlist: submit and post are allowed only as the whole command line, the
+// trusted launcher as the program and plain arguments after it (isTrustedPublish, checked before anything else). Every
+// other command that could run them is denied everywhere, like the credential rule. The words that could run them are
+// found the way the credential rule finds its slot, with "submit" and "post" in place of "credential".
 const PUBLISH_SUBCOMMANDS = ['submit', 'post'];
-const SETTERS = new Set(['export', 'declare', 'typeset', 'local', 'readonly', 'set', 'setenv']);
-const assignedName = (w) => /^([A-Za-z_][A-Za-z0-9_]*)\+?=/.exec(nameOf(w))?.[1] ?? null;
+const PUBLISH_DETAIL = (sub) => `${sub ? `"riverwright ${sub}"` : '"riverwright submit" or "riverwright post"'} is allowed only as the whole command line: the installed launcher's own path, then ${sub ?? 'the subcommand'} and its plain arguments, with no variable, wrapper or runtime in front of it and no other command, pipe, redirect or subshell around it. Anything else could load code the agent chose into the process you type your passphrase into. Run it plainly, in your own terminal`;
 
 function couldBePublish(w) {
   if (!w) return false;
   const sh = shapeOf(w);
-  return /[{}]/.test(sh) || EXTGLOB.test(sh) || sh.split(',').some((part) => PUBLISH_SUBCOMMANDS.some((n) => globMatch(part, n)));
+  return /[{}]/.test(sh) || EXTGLOB.test(sh) || /^@\w/.test(sh) || sh.split(',').some((part) => PUBLISH_SUBCOMMANDS.some((n) => globMatch(part, n)));
 }
 
-function publishEnvVerdict(cmd, ctx) {
-  const ws = cmd.words;
+function publishSlots(ws, ctx, depth = 0) {
+  if (!ws.length || depth > 8) return null;
   const k = programIndex(ws, ctx);
-  const pre = ws.slice(0, k);
-  const named = pre.map(assignedName).filter((n) => n && PUBLISH_ENV.test(n));
-  const prog = k < ws.length && !isLauncherPath(ws[k], ctx) ? programName(ws[k]) : null;
-  // A lone assignment (PATH=/x; ...) or an export changes what later commands in the line run with.
-  if (k >= ws.length || SETTERS.has(prog)) {
-    const set = [...named, ...(SETTERS.has(prog) ? ws.slice(k + 1).map((w) => /^([A-Za-z_][A-Za-z0-9_]*)/.exec(nameOf(w))?.[1]).filter((n) => n && PUBLISH_ENV.test(n)) : [])];
-    if (set.length && !ctx.opts.publishTaint) ctx.opts.publishTaint = set[0];
+  const progWord = ws[k];
+  const launcher = isLauncherPath(progWord, ctx);
+  const prog = k < ws.length && !launcher ? programName(progWord) : undefined;
+  const args = ws.slice(k + 1);
+  if (prog != null && trustsName(progWord) && nonExecuting(prog, args, ctx, ws.slice(0, k))) return null;
+  // xargs and find -exec: only the commands they run (find's own arguments are paths and tests).
+  if (prog === 'xargs') return publishSlots(args.slice(xargsCommandIndex(args)), ctx, depth + 1);
+  if (prog === 'find') {
+    for (let i = 0; i < args.length; i += 1) {
+      if (!FIND_EXEC.includes(nameOf(args[i]))) continue;
+      let end = i + 1;
+      while (end < args.length && ![';', '+'].includes(nameOf(args[end]))) end += 1;
+      const v = publishSlots(args.slice(i + 1, end), ctx, depth + 1);
+      if (v) return v;
+      i = end;
+    }
     return null;
   }
-  let sub = null;
-  const flags = [];
-  if (isLauncherPath(ws[k], ctx) || isLiteralRiverwright(ws[k])) sub = ws[k + 1];
-  else if (prog !== null && JS_RUNTIMES.has(prog)) {
-    const spec = INTERPRETERS.find((x) => x.test.test(prog));
-    for (let j = k + 1; j < ws.length; j += 1) {
-      const t = nameOf(ws[j]);
-      if (t.startsWith('-') && t !== '-') {
-        flags.push(t);
-        if (spec?.values.includes(t) || PRELOAD_OPTS.has(t)) j += 1;
-        continue;
-      }
-      if (codeFileIsRiverwright(ws[j], ctx)) sub = ws[j + 1];
-      break;
+  const broadArgs = prog != null && EXEC_WRAPPERS.has(prog);
+  const operands = prog != null ? programOperands(prog, args) : new Set();
+  const last = k < ws.length && (launcher || isLiteralRiverwright(progWord)) ? k : ws.length - 1;
+  const slot = new Array(ws.length + 1).fill(false);
+  for (let j = ws.length - 1; j >= 0; j -= 1) slot[j] = couldBePublish(ws[j]) || (mayVanish(ws[j]) && slot[j + 1]);
+  for (let i = 0; i <= last; i += 1) {
+    if (!slot[i + 1]) continue;
+    const anywhere = i === k || (broadArgs && i > k) || operands.has(i - k - 1);
+    if (anywhere ? mayBeRiverwright(ws[i], ctx) : namesRiverwright(ws[i], ctx)) {
+      const sub = ws.slice(i + 1).find((w) => couldBePublish(w));
+      const named = PUBLISH_SUBCOMMANDS.find((n) => n === nameOf(sub).toLowerCase());
+      return outward('riverwright-publish-env', PUBLISH_DETAIL(named));
     }
   }
-  if (!couldBePublish(sub)) return null;
-  const why = named.length ? `setting ${named[0]}` : flags.length ? `the node option ${flags[0]}` : ctx.opts.publishTaint ? `setting ${ctx.opts.publishTaint} earlier in the command` : null;
-  if (!why) return null;
-  return outward('riverwright-publish-env', `${why} in front of "riverwright ${nameOf(sub)}" could load code into the process you type your passphrase into. Run "riverwright submit" or "riverwright post" plainly, in your own terminal`);
+  return null;
 }
 
 // Programs that run commands read from stdin (besides the shells and interpreters classifyStdinCode reads), when
@@ -1636,7 +1645,7 @@ function classifySimple(cmd, ctx) {
   // The riverwright-credential rule (R26) runs before any other rule can settle the verdict.
   if (ctx.cred && take(credentialSlots(cmd.words, ctx, 0, Boolean(cmd.parenNext)))) return found;
   if (ctx.cred && take(runtimeCredential(cmd, ctx))) return found;
-  if (ctx.cred) take(publishEnvVerdict(cmd, ctx));
+  if (ctx.cred) take(publishSlots(cmd.words, ctx));
   if (ctx.cred && cmd.stdin === 'pipe' && take(stdinRunnerCredential(cmd, ctx))) return found;
   // Safety net: text that looks like a command (a quoted argument, a here-document) is checked too. For the
   // credential rule it counts only when the program may run what it is given: the quoted arguments of grep, echo
@@ -1703,9 +1712,10 @@ function classifyScript(text, ctx) {
 // the publish exemption.
 const PUBLISH_META = /[;&|<>`$%^(){}\r\n*?!\[\]~\\\0]|(?:^|\s)#/;
 
-// The publish exemption belongs to the installed launcher only: the program (or the script node runs)
-// must resolve to one of the trusted real paths, and the command must be one plain invocation. On
-// Windows a backslash is a path separator, so it is read as "/" (every other metacharacter still counts).
+// The publish exemption belongs to the installed launcher only: the program must resolve to one of the trusted real
+// paths, and the command must be one plain invocation with nothing in front of it (R37: not node with the launcher
+// script either). On Windows a backslash is a path separator, so it is read as "/" (every other metacharacter still
+// counts).
 function isTrustedPublish(raw, trustedLauncher, platform) {
   const text = platform === 'win32' ? raw.replace(/\\/g, '/') : raw;
   if (!trustedLauncher.length || PUBLISH_META.test(text)) return false;
@@ -1714,9 +1724,7 @@ function isTrustedPublish(raw, trustedLauncher, platform) {
   const toks = commands[0].words.map((w) => w.value);
   const trusted = new Set(trustedLauncher.map((p) => realish(p)));
   const isTrusted = (p) => typeof p === 'string' && (path.posix.isAbsolute(p) || path.win32.isAbsolute(p)) && trusted.has(realish(p));
-  let i = 0;
-  if (toks[0] === 'node' || (path.isAbsolute(toks[0] ?? '') && realish(toks[0]) === realish(process.execPath))) i = 1;
-  return isTrusted(toks[i]) && ['submit', 'post'].includes(toks[i + 1]);
+  return isTrusted(toks[0]) && PUBLISH_SUBCOMMANDS.includes(toks[1]);
 }
 
 // `cwd` is the command's working directory: a relative program path is resolved against it to see whether it

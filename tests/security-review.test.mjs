@@ -352,19 +352,20 @@ const F3_DENIED = [
   `PATH=/tmp/e:$PATH; ${L} submit`,
   `export PATH=/tmp/e; rw post`,
   `NODE_OPTIONS=x ${L} su[b]mit`,
+  // R37: a later command is something else on the line.
+  `${L} submit; export PATH=/tmp/x`,
 ];
 const F3_ALLOWED = [
   `PATH=/tmp/x ${L} ledger verify --run /r`,
   `NODE_OPTIONS=--max-old-space-size=4096 npm test`,
   `node --inspect app.mjs`,
-  `${L} submit; export PATH=/tmp/x`,
 ];
 
 test('F3: environment and runtime-flag prefixes in front of riverwright submit or post are denied everywhere', () => {
   for (const c of F3_DENIED) assert.equal(classify(c, TRUSTED).rule, 'riverwright-publish-env', c);
   for (const c of F3_ALLOWED) assert.equal(classify(c, TRUSTED).outward, false, c);
   // The plain trusted publish stays allowed.
-  for (const c of [`${L} submit`, `${L} post`, `node ${LS} submit`]) assert.equal(classify(c, TRUSTED).riverwrightPublish, true, c);
+  for (const c of [`${L} submit`, `${L} post`]) assert.equal(classify(c, TRUSTED).riverwrightPublish, true, c);
   // It outranks an ordinary outward verdict earlier in the command, so it holds outside the workspace too.
   assert.equal(classify(`git push; NODE_OPTIONS=x ${L} submit`, TRUSTED).rule, 'riverwright-publish-env');
 });
@@ -377,6 +378,49 @@ test('F3: the real hook denies a prefixed submit outside the workspace (exit 2) 
     assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-publish-env/, c);
   }
   assert.equal(realHook(`${L} submit`, { cwd: outside }).status, 0);
+});
+
+// R37 (F3 redo): the publish-environment check was a denylist (some variable names, node options and setters), so
+// further spellings got through: a wrapper (strace, proxychains, script, expect), a shell running the launcher as a
+// script, other variables (BASH_ENV, ENV, proxy and TLS settings, HOME, XDG_CONFIG_HOME), and earlier commands that
+// change the environment (printf -v, source, alias). It is now an allowlist: submit and post are allowed only as the
+// whole command line, with the trusted launcher as the program and nothing in front of it or around it.
+const R37_DENIED = [
+  `strace ${L} submit`, `strace -f -o /tmp/t ${L} submit`, `ltrace ${L} post`,
+  `proxychains ${L} submit`, `proxychains4 -q ${L} post`, `torsocks ${L} submit`, `unbuffer ${L} submit`,
+  `script -q /dev/null ${L} submit`, `script -qc "${L} submit" /dev/null`, `expect -c "spawn ${L} submit; interact"`,
+  `sudo ${L} submit`, `env ${L} submit`, `nice ${L} submit`, `nohup ${L} submit`, `timeout 60 ${L} submit`,
+  `time ${L} submit`, `command ${L} submit`, `exec ${L} submit`, `mywrapper ${L} submit`,
+  `bash ${L} submit`, `sh ${L} post`, `zsh -x ${L} submit`, `node ${LS} submit`, `node --no-warnings ${LS} post`,
+  `${process.execPath} ${LS} submit`,
+  `BASH_ENV=/tmp/e.sh ${L} submit`, `ENV=/tmp/e.sh ${L} submit`, `HTTPS_PROXY=http://127.0.0.1:8080 ${L} submit`,
+  `https_proxy=http://127.0.0.1:8080 ${L} post`, `NODE_TLS_REJECT_UNAUTHORIZED=0 ${L} submit`, `SSL_CERT_FILE=/tmp/ca.pem ${L} submit`,
+  `HOME=/tmp/h ${L} submit`, `XDG_CONFIG_HOME=/tmp/x ${L} post`, `FOO=1 ${L} submit`,
+  'export NODE_OPTIONS=x; rw submit', `export NODE_OPTIONS=x; ${L} submit`, `printf -v PATH /tmp/e; ${L} submit`,
+  `read PATH < /tmp/p; ${L} submit`, `source /tmp/x; ${L} submit`, `. /tmp/x; ${L} post`, `eval x; ${L} submit`,
+  `alias rw=/tmp/evil; rw submit`, `f() { :; }; ${L} submit`,
+  `${L} submit; echo done`, `echo hi && ${L} submit`, `false || ${L} post`, `${L} submit | tee /tmp/log`,
+  `${L} submit &`, `(${L} submit)`, `{ ${L} submit; }`, `${L} submit > /tmp/out`, `${L} submit < /tmp/in`,
+  `x="${L} submit"; $x`, `rw submit`, `riverwright post`, `$RW submit`, `find . -exec ${L} post o/r#1 \\;`,
+];
+const R37_ALLOWED_PUBLISH = [`${L} submit`, `${L} post`, `"${L}" submit o/r#1`, `${L} post o/r#1 comment`];
+
+test('R37: riverwright submit and post are allowed only as the whole, plain command line', () => {
+  for (const c of R37_DENIED) assert.equal(classify(c, TRUSTED).rule, 'riverwright-publish-env', c);
+  for (const c of R37_ALLOWED_PUBLISH) assert.deepEqual(classify(c, TRUSTED), { outward: false, riverwrightPublish: true }, c);
+  // Other riverwright commands and ordinary work keep their verdicts.
+  for (const c of [`strace ${L} ledger verify --run /r`, `HOME=/tmp/h ${L} status`, 'curl -X POST https://example.com', 'echo rw submit', 'git commit -m "rw submit"']) {
+    assert.notEqual(classify(c, TRUSTED).rule, 'riverwright-publish-env', c);
+  }
+});
+
+test('R37: the real hook denies a wrapped, prefixed or chained submit outside the workspace (exit 2)', () => {
+  const outside = tmpDir('user-project-');
+  for (const c of [`strace ${L} submit`, `bash ${L} submit`, `HTTPS_PROXY=http://127.0.0.1:8080 ${L} post`, `source /tmp/x; ${L} submit`]) {
+    const r = realHook(c, { cwd: outside });
+    assert.equal(r.status, 2, c);
+    assert.match(JSON.parse(r.stdout).hookSpecificOutput.permissionDecisionReason, /riverwright-publish-env/, c);
+  }
 });
 
 // Test hygiene (Task 17): the hook resolves "~" in the account home given by the in-process seam, not the real one.

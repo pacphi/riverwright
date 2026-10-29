@@ -54,7 +54,8 @@ const script = path.join(ROOT, 'scripts', 'riverwright.mjs');
 
 test('riverwright submit and riverwright post are the sanctioned publish commands', () => {
   assert.deepEqual(classifyCommand(`"${launcher}" submit ruvnet/ruflo#3509`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
-  assert.deepEqual(classifyCommand(`node "${script}" post o/r#1 comment`, { trustedLauncher }), { outward: false, riverwrightPublish: true });
+  // R37: only the launcher itself, never node running the launcher script.
+  assert.equal(classifyCommand(`node "${script}" post o/r#1 comment`, { trustedLauncher }).rule, 'riverwright-publish-env');
   assert.equal(classifyCommand(`"${launcher}" submit o/r#1 && git push`, { trustedLauncher }).outward, true);
 });
 
