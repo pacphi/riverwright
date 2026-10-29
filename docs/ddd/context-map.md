@@ -10,10 +10,10 @@ distinctive, *generic* could be replaced by an off-the-shelf solution.
 | Context | Type | Owns | Code today | Status |
 |---|---|---|---|---|
 | **Pipeline** | Core | runs, stations, gates, budgets, presets, the run record | `scripts/lib/state.mjs`, `presets.mjs`, `paths.mjs` | runtime built; skills and roles planned |
-| **Safety** | Core | locks, the guard, the hook and classifier, approvals, the sanitizer | `guard.mjs`, `giturl.mjs`, `hooks/`, `commands/hook.mjs`, `approvals.mjs`, `tty.mjs`, `sanitize.mjs` | built and verified in CI |
+| **Safety** | Core | locks, the guard, the hook and classifier, approvals, the sanitizer, the vault, receipts, the unlock, ambient credentials | `guard.mjs`, `giturl.mjs`, `hooks/`, `commands/hook.mjs`, `approvals.mjs`, `tty.mjs`, `sanitize.mjs`; Plan 2a adds `vault.mjs`, `receipt.mjs`, `gate.mjs`, `ancestry.mjs`, `clone-guard.mjs`, `ambient.mjs`, `pushkey.mjs`, `commands/credential.mjs` | Plan 1 parts built and verified in CI; Plan 2a parts built on branch `plan-2a-security`, not yet merged or run in CI |
 | **Follow and adopt** | Core | threads, workarounds, upstreams, the registry, correspondence, adoption | none yet; see [the thread-record spec](../specs/thread-record-and-audit.md) | designed |
 | **Project integration** | Supporting | managed blocks, additive merges, backups, ownership markers | `blocks.mjs`, `jsonmerge.mjs`, `diff.mjs`, `project.mjs` | built and verified in CI |
-| **Evidence and audit** | Supporting | the fingerprint, the ledger, evidence export, evidence levels | `fingerprint.mjs`, `ledger.mjs`, `evidence.mjs` | built; ledger moves to the hash-chained shape in Plan 2 |
+| **Evidence and audit** | Supporting | the fingerprint, the ledger, evidence export, evidence levels | `fingerprint.mjs`, `ledger.mjs`, `evidence.mjs`; Plan 2a adds `events.mjs`, `commands/ledger.mjs` | built; the hash-chained ledger and `ledger verify` built on branch `plan-2a-security`, not yet merged |
 | **Host adapters** | Generic | hosts, adapters, dialects, launching host programs | `hooks/dialects.mjs`, `exec.mjs`, `hosts.mjs` | dialects built; adapters planned |
 | **Distribution and onboarding** | Supporting | install commands, the checkup, the setup wizard | none yet | designed |
 

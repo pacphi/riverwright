@@ -77,4 +77,6 @@ file and no symlink. The local-marketplace install is an owner step.
 
 ## Implementation status
 
-Decided, not built. Plan 2c carries it.
+Decided, not built. Plan 2c carries it. Updated 2026-10-29: Plan 2a (branch `plan-2a-security`) made every
+generated hook command carry `--home` with an absolute path; the symbolic `--home account` of item 6 is not accepted
+yet and arrives with Plan 2c.

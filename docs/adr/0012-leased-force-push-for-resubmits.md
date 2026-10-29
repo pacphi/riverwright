@@ -63,4 +63,20 @@ branch whose tip moved being refused before any unlock.
 
 ## Implementation status
 
-Decided, not built.
+Updated 2026-10-29. Items 1 and 4 are built by [Plan 2a](../plans/2026-09-30-plan-2a-security-foundation.md),
+Task 14, on the branch `plan-2a-security` (not yet merged, not yet run in CI on all three systems): the receipt's
+signed `lease`, the gate's `lease` parameter (it states the replacement in its own line above the passphrase prompt),
+and the guard's check. Items 2 and 3 (the pre-unlock tip check against the `pushed` event, and the
+`--force-with-lease=refs/heads/<branch>:<lease>` push) arrive with `submit` in Plan 2b. Item 5 is unchanged from
+Plan 1.
+
+How item 4 was built, which is stricter than its wording: with a lease, the only update the guard allows is
+replacing exactly that remote tip with the approved commit (a fast-forward from a different tip is refused too); a
+lease cannot be all zeros, the approved commit, or a SHA of another length. Whether a push without a lease is a
+fast-forward is decided by a walk in Node that recomputes each commit's hash, not by `git merge-base`, because git
+does not check object hashes while it walks and the clone is agent-writable; anything it cannot prove counts as not
+a fast-forward.
+
+Found while building: with git 2.54, a push whose `--force-with-lease` expectation is stale is left out of the
+pre-push hook's input, so the guard sees an empty push and git refuses the ref itself. `submit` must therefore read
+the remote tip before the unlock (item 2) rather than rely on the guard to report it.

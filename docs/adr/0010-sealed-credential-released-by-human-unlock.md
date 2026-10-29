@@ -105,4 +105,32 @@ review by a second model family follows the build, with reviewers read-only.
 
 ## Implementation status
 
-Decided, not built. Plan 2a carries it.
+Updated 2026-10-29. Built by [Plan 2a](../plans/2026-09-30-plan-2a-security-foundation.md) on the branch
+`plan-2a-security`, reviewed task by task, not yet merged into `develop`, not yet run in CI on all three systems, and
+not yet through the owner's manual checks (Task 16) or the independent security review (Task 17).
+
+- **Built:** the vault and `riverwright credential setup|status|remove` (item 1); the public gate
+  `runPublicAction` with the summary, the passphrase unlock, the recompute before the action and before every retry,
+  and the bounded retry (item 2); `approve` narrowed to `checkpoint-1` and the submit proof read from a receipt, not
+  `state.json` (item 3); signed receipts in the ledger and `ledger verify` (item 4); the ambient-credential audit,
+  shown by `credential status` (item 5); the hardware push key's record and its ssh command (item 6); the pre-push
+  guard trusting the newest verified receipt; the guard installed into a clone; and the hook rule that denies an
+  agent's `riverwright credential`.
+- **Not built:** the `submit` and `post` commands that call the gate, and `doctor`, which will show the audit
+  (Plan 2b); the push that uses the hardware key (Plan 2b); the touch and PIN behavior, and the real-terminal echo
+  check on Windows (Task 16).
+- **Built differently from the text above, and why.** Item 4 lists gate, run, binding, ledger head, `seq`, nonce
+  and time; the built receipt also signs the branch, the fork (`host/owner/repo`, so a forged fork URL in
+  `state.json` cannot redirect the push) and the lease of [ADR-0012](0012-leased-force-push-for-resubmits.md), eleven
+  fields in a fixed order. A receipt without the fork and lease fields fails closed. Item 5 names `doctor`; until
+  `doctor` exists the report is `credential status`. Item 6 says the key "only spawns ssh"; the built command also
+  isolates ssh from the user's and the system's SSH configuration (`-F /dev/null` and options that turn off other
+  identities, the agent, certificates, PKCS#11 and proxy commands), so the owner's SSH host aliases and `ProxyJump`
+  do not apply to that push. The terminal prompt also refuses a terminal that cannot hide typing.
+- **Residual risks found while building**, in addition to those stated above: removing the tail of the ledger
+  revives a used receipt until it expires (10 minutes), because nothing the agent cannot write remembers the newer
+  head; and because the receipt is written before the action and recorded as used only afterwards (so the guard
+  sees it unused during the gate's own push), a crash during the action leaves it usable for up to 10 minutes,
+  bound to the exact commit, branch and fork. `ledger verify` and the submit proof read the vault from the account's
+  own workspace, never from `RIVERWRIGHT_HOME`, so with a vault sealed under a custom `RIVERWRIGHT_HOME` they fail
+  closed. Details: [core spec §7.5](../specs/core-single-issue-pipeline.md).

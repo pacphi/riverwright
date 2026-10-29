@@ -30,7 +30,9 @@ Terms marked *(planned)* are designed but not built.
 | **Binding** | What an approval is tied to: a full commit SHA, or a SHA-256 of normalized content. A change voids the approval. | Safety |
 | **Vault** | The encrypted file holding the GitHub token and the signing key, opened only by the human's passphrase. | Safety |
 | **Unlock** | The human typing the passphrase at the terminal inside `submit` or `post`. It releases the credential and is the approval for a public action. | Safety |
-| **Receipt** | The signed ledger record of an unlock: gate, binding, ledger head, sequence number and nonce. | Safety |
+| **Receipt** | The signed ledger record of an unlock: gate, run, binding, and for the submit gate the branch, the fork and an optional lease, then the ledger head, sequence number, time and nonce. Valid for 10 minutes; used once. | Safety |
+| **Lease** | On a submit-gate receipt, the commit the fork branch holds now that the human approved replacing. Without one, a push may only fast-forward. | Safety |
+| **Ambient credential** | A route to GitHub an agent could use without Riverwright, such as a `gh` login, a token variable or an SSH key. Reported, never removed. | Safety |
 | **Sanitizer** | Removes and reports hidden characters from upstream text before it is stored or shown to a model. | Safety |
 | **Outward action** | Anything visible outside this machine: a push, a pull request, an issue, a comment, a fork. | Safety |
 

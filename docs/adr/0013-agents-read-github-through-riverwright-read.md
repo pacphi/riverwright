@@ -71,4 +71,6 @@ request; an exhausted limit stops with the reset time. A real anonymous read is 
 
 ## Implementation status
 
-Decided, not built. Plan 2b carries it.
+Decided, not built. Plan 2b carries it. Updated 2026-10-29: the ambient-credential audit that item 4 relies on
+is built by Plan 2a (branch `plan-2a-security`): it reports a `gh` login by exit status only, and a `gh` config file
+by its presence, and is shown by `riverwright credential status` until `doctor` exists.

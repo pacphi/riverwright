@@ -53,5 +53,10 @@ first. Two independent reviews (Claude and Codex) and two hardening passes are r
 
 ## Implementation status
 
-Locks 1 and 2 are implemented and verified in CI. Installing the guard into a clone, credential
-separation and approvals kept outside the workspace are Plan 2.
+Locks 1 and 2 are implemented and verified in CI (Plan 1). Updated 2026-10-29: on the branch
+`plan-2a-security` ([Plan 2a](../plans/2026-09-30-plan-2a-security-foundation.md), not yet merged or run in CI on all
+three systems), Lock 1 trusts the newest signed receipt in the ledger instead of `state.json`, checks the signed
+fork and lease, and can be installed into a clone (`installGuard`); Lock 2 denies an agent's
+`riverwright credential` everywhere; and the parts of credential separation that need no `submit` or `post`
+command are built ([ADR-0010](0010-sealed-credential-released-by-human-unlock.md)). The `submit` and `post` commands,
+which complete it, are Plan 2b.

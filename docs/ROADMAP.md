@@ -1,6 +1,6 @@
 # Riverwright: product requirements and roadmap
 
-**Last updated:** 2026-09-30 · **Current milestone:** M2, the plugin · **Version:** 0.1.0 (pre-release)
+**Last updated:** 2026-10-29 · **Current milestone:** M2, the plugin · **Version:** 0.1.0 (pre-release)
 
 This is the living statement of what Riverwright must do, what exists, and what is proven. Every use case
 and feature has an ID and a status, and links to its design, its code and its evidence. It is checked by
@@ -37,7 +37,7 @@ tested on the practice project, and seen in a real run.
 |---|---|---|---|---|
 | M0 | Foundations | `verified` | pre-release | public repository, licence, CI, core spec, evidence base, decision records, documentation layout |
 | M1 | Runtime | `verified` | v0.1 | the `riverwright` command with state, approvals, guard, hook, classifier, project integration and evidence export; tests green on 3 operating systems and 2 Node versions |
-| M2 | Plugin | `designed` | v0.2 | skills, roles, templates and the checkup and setup commands; the guard installed into a clone; credential separation; the Claude Code plugin passes `claude plugin validate --strict` and installs from a local marketplace |
+| M2 | Plugin | `in-progress` | v0.2 | skills, roles, templates and the checkup and setup commands; the guard installed into a clone; credential separation; the Claude Code plugin passes `claude plugin validate --strict` and installs from a local marketplace |
 | M3 | Proof | `designed` | v0.3 | fixture repository; end-to-end run in three hosts; captured hook payloads; the first real upstream run, every public step approved; the story rewritten from real evidence |
 | M4 | Six hosts | `designed` | v0.4 | Codex, Gemini CLI, Cursor, Grok Build and Hermes adapters generated and each exercised on the fixture |
 | M5 | Batch | `proposed` | v0.5 | scan an upstream's issues, detect twins, work independent fixes in parallel lanes, order and pace the pull requests |
@@ -87,14 +87,14 @@ tested on the practice project, and seen in a real run.
 | S-04 | Sanitizer for hidden characters in upstream text | `verified` | M1 | [code](../scripts/lib/sanitize.mjs), [tests](../tests/sanitize.test.mjs), [CI](https://github.com/pacphi/riverwright/pull/1) |
 | S-05 | Approvals bound to an exact commit or content hash, with terminal confirmation | `verified` | M1 | [code](../scripts/lib/approvals.mjs), [tests](../tests/approvals.test.mjs), [ADR-0005](adr/0005-approvals-bound-to-exact-content.md), [CI](https://github.com/pacphi/riverwright/pull/1) |
 | S-06 | Two independent security reviews and two hardening passes | `verified` | M1 | [tests](../tests/seams.test.mjs), [research](research/evidence-base.md), [CI](https://github.com/pacphi/riverwright/pull/1) |
-| S-07 | Credential separation: a sealed credential released only by a human unlock inside submit and post, which signs the receipt | `planned` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [spec §7.5](specs/core-single-issue-pipeline.md), [research](research/credential-separation.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) |
-| S-08 | Install the guard into a clone: disabled upstream push URL, empty credential helper, pre-push hook | `planned` | M2 | [spec §7.1](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 12) |
-| S-09 | Generated hooks always carry the workspace path and cover shell tools only | `planned` | M2 | [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (`--home` required, Task 11); the shell-tools matchers come with the adapters in plan 2c |
-| S-10 | Signed receipts and the collapsed public gate: unlock, bounded in-process retry, consume | `planned` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 3, 7) |
-| S-11 | Ambient-credential audit: names and counts, never values, shown by `credential status` and `doctor` | `planned` | M2 | [spec §7.5](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 5) |
-| S-12 | Optional FIDO2 hardware key for the push only | `in-progress` | M2 | [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 13), [code](../scripts/lib/pushkey.mjs), [tests](../tests/pushkey.test.mjs). Stores the key and builds the ssh command; push wiring and hardware touch not done (Task 16) |
-| S-13 | Agent shell commands that run `riverwright credential` are denied | `planned` | M2 | [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 11) |
-| S-14 | A leased re-submit after an amend: a non-fast-forward push only with a signed lease equal to the remote tip | `planned` | M2 | [ADR-0012](adr/0012-leased-force-push-for-resubmits.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 14) |
+| S-07 | Credential separation: a sealed credential released only by a human unlock inside submit and post, which signs the receipt | `in-progress` | M2 | [code](../scripts/lib/vault.mjs), [tests](../tests/vault.test.mjs), [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [spec §7.5](specs/core-single-issue-pipeline.md), [research](research/credential-separation.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md). The vault, receipts and the gate are built (on branch `plan-2a-security`, not yet on `develop`); the `submit` and `post` commands that call the gate arrive in [plan 2b](plans/2026-09-30-plan-2b-cli-skills-and-publish.md) |
+| S-08 | Install the guard into a clone: disabled upstream push URL, empty credential helper, pre-push hook | `implemented` | M2 | [code](../scripts/lib/clone-guard.mjs), [tests](../tests/clone-guard.test.mjs), [spec §7.1](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 12; on branch `plan-2a-security`, not yet on `develop`). `init` and `doctor`, which call it, arrive in plan 2b |
+| S-09 | Generated hooks always carry the workspace path and cover shell tools only | `in-progress` | M2 | [code](../scripts/lib/exec.mjs), [tests](../tests/exec.test.mjs), [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (`--home` required, Task 11; on branch `plan-2a-security`, not yet on `develop`); the shell-tools matchers come with the adapters in [plan 2c](plans/2026-09-30-plan-2c-adapters-and-plugin.md) |
+| S-10 | Signed receipts and the collapsed public gate: unlock, bounded in-process retry, consume | `implemented` | M2 | [code](../scripts/lib/gate.mjs), [receipts](../scripts/lib/receipt.mjs), [tests](../tests/gate.test.mjs), [receipt tests](../tests/receipt.test.mjs), [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 3, 7; on branch `plan-2a-security`, not yet on `develop`) |
+| S-11 | Ambient-credential audit: names and counts, never values, shown by `credential status` and `doctor` | `in-progress` | M2 | [code](../scripts/lib/ambient.mjs), [tests](../tests/ambient.test.mjs), [spec §7.5](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 5; on branch `plan-2a-security`, not yet on `develop`). The audit and `credential status` are built; `doctor` (D-02) shows it in plan 2b |
+| S-12 | Optional FIDO2 hardware key for the push only | `in-progress` | M2 | [code](../scripts/lib/pushkey.mjs), [tests](../tests/pushkey.test.mjs), [ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 13; on branch `plan-2a-security`, not yet on `develop`). Stores the key and builds an ssh command isolated from the user's SSH config; the push that uses it arrives with `submit` in plan 2b, and the touch is checked by hand (Task 16) |
+| S-13 | Agent shell commands that run `riverwright credential` are denied | `implemented` | M2 | [code](../scripts/lib/hooks/classify.mjs), [tests](../tests/hook-credential.test.mjs), [spec §7.2](specs/core-single-issue-pipeline.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 11; on branch `plan-2a-security`, not yet on `develop`). Applies everywhere, over-blocks by design; its limits are in the spec |
+| S-14 | A leased re-submit after an amend: a non-fast-forward push only with a signed lease equal to the remote tip | `implemented` | M2 | [code](../scripts/lib/guard.mjs), [ancestry](../scripts/lib/ancestry.mjs), [tests](../tests/guard-lease.test.mjs), [ADR-0012](adr/0012-leased-force-push-for-resubmits.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Task 14; on branch `plan-2a-security`, not yet on `develop`). The receipt, gate and guard parts; the pre-unlock tip check and the leased push arrive with `submit` in plan 2b |
 
 ### Existing repositories: install without harm
 
@@ -143,7 +143,7 @@ tested on the practice project, and seen in a real run.
 | ID | Feature | Status | Milestone | Where |
 |---|---|---|---|---|
 | W-01 | Thread record and audit data model | `designed` | M6 | [spec](specs/thread-record-and-audit.md), [ADR-0007](adr/0007-follow-and-adopt-loop-own-vocabulary.md) |
-| W-02 | Hash-chained event ledger with `ledger verify` (built early, in plan 2a) | `planned` | M2 | [spec §9](specs/thread-record-and-audit.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 1, 10) |
+| W-02 | Hash-chained event ledger with `ledger verify` (built early, in plan 2a) | `implemented` | M2 | [code](../scripts/lib/events.mjs), [tests](../tests/events.test.mjs), [CLI tests](../tests/ledger-cli.test.mjs), [spec §9](specs/thread-record-and-audit.md), [plan 2a](plans/2026-09-30-plan-2a-security-foundation.md) (Tasks 1, 10; on branch `plan-2a-security`, not yet on `develop`) |
 | W-03 | Follower: release confirmation, replies, staleness | `proposed` | M6 | [spec](specs/thread-record-and-audit.md) |
 | W-04 | Read-only import from agentic-kit's upstream-watch registry | `designed` | M6 | [spec §11](specs/thread-record-and-audit.md) |
 | W-05 | Status reports for threads and workarounds | `proposed` | M6 | [spec](specs/thread-record-and-audit.md) |
@@ -197,7 +197,9 @@ roadmap:
 
 | Item | Why it matters | Owner |
 |---|---|---|
-| The approval record is still a file an agent can write | until S-07 is built, a determined agent could forge consent; after it, an ambient `gh` login or a readable terminal is the remaining route ([ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md)) | M2 |
+| Ambient credentials (a `gh` login, an SSH agent, a readable terminal) are a route Riverwright cannot close | the result is tamper-evident and injection-resistant, not tamper-proof; `credential status` reports each route, and `doctor` will in plan 2b ([ADR-0010](adr/0010-sealed-credential-released-by-human-unlock.md)) | M2 |
+| A receipt can be usable for up to 10 minutes after it should not be | cutting the tail of the ledger makes a used receipt look unused, and a crash during a public action leaves its receipt unused; either is bound to the exact commit, branch and fork ([spec §7.5](specs/core-single-issue-pipeline.md)) | M2 |
+| Plan 2a has not been run in CI on all three systems, checked by hand, or independently reviewed | the Windows parts (terminal prompt, the guard's null config, the push key's `-F NUL`) are unverified until then ([plan 2a](plans/2026-09-30-plan-2a-security-foundation.md), Tasks 16 and 17) | M2, owner |
 | Hook payloads for Codex, Gemini, Cursor and Grok come from documentation | the deny logic is tested against assumed shapes until captured (Q-04) | M3 |
 | Windows PowerShell 5.1 behavior is covered by CI, not by a local run | the first Windows run already found one fail-open bug | continuous |
 | Trademark search for the name "Riverwright" is not done | required before any public launch | M8, owner |
@@ -217,6 +219,7 @@ roadmap:
 
 | Date | Change |
 |---|---|
+| 2026-10-29 | Plan 2a built and reviewed task by task on branch `plan-2a-security` (not yet merged, CI not yet run on all three systems, Tasks 16 and 17 pending). S-08, S-10, S-13, S-14 and W-02 implemented; S-07, S-09, S-11 and S-12 in progress (their remaining parts come with plans 2b and 2c, or Task 16). M2 in progress. These statuses hold once the branch is merged into `develop`. |
 | 2026-09-29 | The core spec and the thread-record spec are approved by the owner, which makes every `designed` row in the roadmap a reviewed design. |
 | 2026-09-29 | Q-07, Q-08 and Q-09 verified: all 8 checks pass on the pull request, including the pnpm lint job. |
 | 2026-09-29 | Markdown linting (markdownlint-cli2) added to CI and as `pnpm lint:md`; a test pins the dependency-free runtime. Development tools switch from npm to pnpm 12.8.1 (ADR-0009). |
