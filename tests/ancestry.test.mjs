@@ -85,3 +85,58 @@ test('a sha256 repository is walked with sha256', async () => {
   assert.equal(await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: shas[2] }), true);
   assert.equal(await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[2], descendant: shas[0] }), false);
 });
+
+// Writes a commit object with exactly these bytes (correct hash, no validation), so only its shape is wrong.
+function forge(repo, env, body) {
+  const r = spawnSync('git', ['hash-object', '-t', 'commit', '-w', '--literally', '--stdin'], { cwd: repo, input: body, env });
+  assert.equal(r.status, 0, String(r.stderr));
+  return r.stdout.toString().trim();
+}
+
+function gitEnv(dir) {
+  const cfg = path.join(dir, 'gitconfig');
+  fs.writeFileSync(cfg, '');
+  return { ...process.env, GIT_CONFIG_GLOBAL: cfg, GIT_CONFIG_NOSYSTEM: '1', HOME: dir };
+}
+
+test('M-8: a commit whose header is not ended by a blank line is not believed, in either shape', async () => {
+  const { repo, git, shas } = chain(2);
+  const env = guardGitEnv();
+  const tree = git('rev-parse', 'HEAD^{tree}').stdout.trim();
+  const who = 'author t <t@example.invalid> 1 +0000\ncommitter t <t@example.invalid> 1 +0000';
+  const R = shas[0];
+  const genv = gitEnv(path.dirname(repo));
+  for (const shape of [`tree ${tree}\nparent ${R}\n`, `tree ${tree}\nparent ${R}`]) {
+    const X = forge(repo, genv, shape);
+    const L = forge(repo, genv, `tree ${tree}\nparent ${X}\n${who}\n\nm\n`);
+    // Both objects are genuine as bytes (their hashes match), so only the header shape decides the answer.
+    assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: R, descendant: L }), false, JSON.stringify(shape));
+    assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: R, descendant: X }), false, JSON.stringify(shape));
+  }
+});
+
+test('M-8: real commits with an empty message still verify', async () => {
+  const { repo, git, shas } = chain(1);
+  git('commit', '-q', '--allow-empty', '--allow-empty-message', '-m', '');
+  const empty = git('rev-parse', 'HEAD').stdout.trim();
+  assert.notEqual(empty, shas[0]);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: empty }), true);
+});
+
+test('M-9: a commit with a million parent lines fails closed without a large memory spike', async () => {
+  const { repo, git, shas } = chain(1);
+  const tree = git('rev-parse', 'HEAD^{tree}').stdout.trim();
+  const genv = gitEnv(path.dirname(repo));
+  const lines = [];
+  for (let i = 0; i < 1_000_000; i += 1) lines.push(`parent ${i.toString(16).padStart(40, '0')}\n`);
+  const body = Buffer.from(`tree ${tree}\n${lines.join('')}author t <t@example.invalid> 1 +0000\n\nm\n`);
+  lines.length = 0;
+  const big = forge(repo, genv, body);
+  global.gc?.();
+  const before = process.memoryUsage().rss;
+  const ok = await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: big });
+  const grew = process.memoryUsage().rss - before;
+  assert.equal(ok, false);
+  // The unbounded version grew by roughly 200 to 700 MiB; the bounded one only holds the object itself (about 41 MB).
+  assert.ok(grew < 100 * 1024 * 1024, `rss grew by ${Math.round(grew / 1048576)} MiB`);
+});

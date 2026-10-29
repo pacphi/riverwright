@@ -86,17 +86,31 @@ function batchReader(stream) {
 }
 
 // The parents git itself would read from a commit body: the header must start with "tree <oid>", and the parents
-// are the "parent <oid>" lines that follow it directly (git ignores a "parent" line anywhere else).
-function commitParents(body, hex) {
+// are the "parent <oid>" lines that follow it directly (git ignores a "parent" line anywhere else). The header must
+// also be ended by a blank line: git takes a "parent" line only when more bytes follow it, and every commit git
+// writes has the blank line, even with an empty message. Without it the answer is null (not verified; finding M-8).
+// The body is scanned in place, never turned into one big string, and null is also the answer once there are more
+// than `limit` parents: the walk could never read them all (finding M-9).
+function commitParents(body, hex, limit) {
   const end = body.indexOf('\n\n');
-  const lines = body.subarray(0, end < 0 ? body.length : end).toString('latin1').split('\n');
-  if (!new RegExp(`^tree [0-9a-f]{${hex}}$`).test(lines[0] ?? '')) return null;
-  const parent = new RegExp(`^parent ([0-9a-f]{${hex}})$`);
+  if (end < 0) return null;
+  const line = hex + 7; // "parent " + oid
+  const hexOnly = (from, to) => {
+    for (let i = from; i < to; i += 1) {
+      const c = body[i];
+      if (!((c >= 0x30 && c <= 0x39) || (c >= 0x61 && c <= 0x66))) return false;
+    }
+    return true;
+  };
+  const treeLine = 5 + hex;
+  if (end < treeLine || body.toString('latin1', 0, 5) !== 'tree ' || !hexOnly(5, treeLine) || (end > treeLine && body[treeLine] !== 0x0a)) return null;
   const parents = [];
-  for (let i = 1; i < lines.length; i += 1) {
-    const m = parent.exec(lines[i]);
-    if (!m) break;
-    parents.push(m[1]);
+  let pos = treeLine + 1;
+  while (pos + line <= end && body.toString('latin1', pos, pos + 7) === 'parent ' && hexOnly(pos + 7, pos + line)
+    && (pos + line === end || body[pos + line] === 0x0a)) {
+    if (parents.length >= limit) return null;
+    parents.push(body.toString('latin1', pos + 7, pos + line));
+    pos += line + 1;
   }
   return parents;
 }
@@ -177,7 +191,7 @@ function walk({ cwd, env, ancestor, descendant, h, shallow, maxCommits, maxBytes
         const actual = crypto.createHash(h.alg).update(`commit ${size}\0`, 'latin1').update(content).digest('hex');
         if (actual !== id) return false;
         if (shallow.has(id)) return false;
-        const parents = commitParents(content, h.hex);
+        const parents = commitParents(content, h.hex, maxCommits);
         if (!parents) return false;
         for (const p of parents) {
           if (!seen.has(p)) { seen.add(p); queue.push(p); }
