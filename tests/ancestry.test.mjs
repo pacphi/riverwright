@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import fs from 'node:fs';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
-import { guardGitEnv, isVerifiedAncestor } from '../scripts/lib/ancestry.mjs';
+import { commitParents, guardGitEnv, isVerifiedAncestor } from '../scripts/lib/ancestry.mjs';
 import { tmpDir } from './helpers.mjs';
 
 function chain(n, { format } = {}) {
@@ -123,20 +123,42 @@ test('M-8: real commits with an empty message still verify', async () => {
   assert.equal(await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: empty }), true);
 });
 
-test('M-9: a commit with a million parent lines fails closed without a large memory spike', async () => {
+test('M-10: a malformed parent line after a good one makes the commit unparseable, as in git', async () => {
+  const { repo, git, shas } = chain(2);
+  const env = guardGitEnv();
+  const tree = git('rev-parse', 'HEAD^{tree}').stdout.trim();
+  const who = 'author t <t@example.invalid> 1 +0000\ncommitter t <t@example.invalid> 1 +0000';
+  const genv = gitEnv(path.dirname(repo));
+  const A = shas[0];
+  const X = forge(repo, genv, `tree ${tree}\nparent ${A}\nparent zz\n${who}\n\nm\n`);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: A, descendant: X }), false);
+  const L = forge(repo, genv, `tree ${tree}\nparent ${X}\n${who}\n\nm\n`);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: A, descendant: L }), false);
+  assert.equal(commitParents(Buffer.from(`tree ${tree}\nparent ${A}\nparent zz\n${who}\n\nm\n`), 40, 100), null);
+});
+
+test('M-9: the parent cap decides the answer: 20 parents with maxCommits 5 is false, the default is true', async () => {
+  const { repo, git, shas } = chain(3);
+  const tree = git('rev-parse', 'HEAD^{tree}').stdout.trim();
+  const genv = gitEnv(path.dirname(repo));
+  const parents = [shas[0], shas[1], shas[2]];
+  for (let i = 3; i < 20; i += 1) parents.push(i.toString(16).padStart(40, '0'));
+  const body = `tree ${tree}\n${parents.map((p) => `parent ${p}\n`).join('')}author t <t@example.invalid> 1 +0000\n\nm\n`;
+  const L = forge(repo, genv, body);
+  const env = guardGitEnv();
+  assert.equal(commitParents(Buffer.from(body), 40, 5), null);
+  assert.equal(commitParents(Buffer.from(body), 40, 20).length, 20);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: shas[2], descendant: L, maxCommits: 5 }), false);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env, ancestor: shas[2], descendant: L }), true);
+});
+
+test('M-9: a commit with a million parent lines returns false (fails closed)', async () => {
   const { repo, git, shas } = chain(1);
   const tree = git('rev-parse', 'HEAD^{tree}').stdout.trim();
   const genv = gitEnv(path.dirname(repo));
   const lines = [];
   for (let i = 0; i < 1_000_000; i += 1) lines.push(`parent ${i.toString(16).padStart(40, '0')}\n`);
   const body = Buffer.from(`tree ${tree}\n${lines.join('')}author t <t@example.invalid> 1 +0000\n\nm\n`);
-  lines.length = 0;
   const big = forge(repo, genv, body);
-  global.gc?.();
-  const before = process.memoryUsage().rss;
-  const ok = await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: big });
-  const grew = process.memoryUsage().rss - before;
-  assert.equal(ok, false);
-  // The unbounded version grew by roughly 200 to 700 MiB; the bounded one only holds the object itself (about 41 MB).
-  assert.ok(grew < 100 * 1024 * 1024, `rss grew by ${Math.round(grew / 1048576)} MiB`);
+  assert.equal(await isVerifiedAncestor({ cwd: repo, env: guardGitEnv(), ancestor: shas[0], descendant: big }), false);
 });

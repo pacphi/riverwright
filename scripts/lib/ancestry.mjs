@@ -91,7 +91,7 @@ function batchReader(stream) {
 // writes has the blank line, even with an empty message. Without it the answer is null (not verified; finding M-8).
 // The body is scanned in place, never turned into one big string, and null is also the answer once there are more
 // than `limit` parents: the walk could never read them all (finding M-9).
-function commitParents(body, hex, limit) {
+export function commitParents(body, hex, limit) {
   const end = body.indexOf('\n\n');
   if (end < 0) return null;
   const line = hex + 7; // "parent " + oid
@@ -112,6 +112,8 @@ function commitParents(body, hex, limit) {
     parents.push(body.toString('latin1', pos + 7, pos + line));
     pos += line + 1;
   }
+  // A line that starts with "parent " but is malformed stopped the loop: git calls such a commit unparseable (finding M-10).
+  if (pos < end && body.toString('latin1', pos, pos + 7) === 'parent ') return null;
   return parents;
 }
 
