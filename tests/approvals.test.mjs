@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { GATES, contentHash, makeBinding, recordApproval, isApprovalValid, approvedSha, approvedBranch, revokeGate } from '../scripts/lib/approvals.mjs';
+import { APPROVAL_MODES, GATES, checkBinding, contentHash, makeBinding, recordApproval, isApprovalValid, approvedSha, approvedBranch, revokeGate } from '../scripts/lib/approvals.mjs';
 
 const A = 'a'.repeat(40);
 const B = 'b'.repeat(40);
@@ -60,4 +60,27 @@ test('a submit-gate approval can name the run branch, and only a riverwright/ br
   for (const bad of ['main', 'riverwright/../main', 'riverwright/a b', 'riverwright/', 'riverwright/x.lock', 'refs/heads/main']) {
     assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'tty', now: 't', branch: bad }), /branch/, bad);
   }
+});
+
+test('unlock is an approval mode, only for the public gates', () => {
+  assert.deepEqual(APPROVAL_MODES, ['host-ask', 'tty', 'unlock']);
+  const s = recordApproval(base, { gate: 'submit-gate', binding: { kind: 'sha', value: A }, mode: 'unlock', now: 't', branch: 'riverwright/1-x' });
+  assert.deepEqual(s.approvals[0].binding, { kind: 'sha', value: A });
+  assert.equal(s.approvals[0].mode, 'unlock');
+  assert.throws(() => recordApproval(base, { gate: 'checkpoint-1', binding: { kind: 'sha', value: A }, mode: 'unlock', now: 't' }), /unlock/);
+  assert.throws(() => recordApproval(base, { gate: 'submit-gate', sha: A, mode: 'nope', now: 't' }), /host-ask, tty or unlock/);
+});
+
+test('checkBinding accepts only a full SHA or a sha256 content hash, and copies just kind and value', () => {
+  const content = `sha256:${'c'.repeat(64)}`;
+  assert.deepEqual(checkBinding({ kind: 'sha', value: A, extra: 1 }), { kind: 'sha', value: A });
+  assert.deepEqual(checkBinding({ kind: 'content', value: content }), { kind: 'content', value: content });
+  for (const bad of [undefined, null, {}, { kind: 'sha', value: 'abc' }, { kind: 'sha', value: A.toUpperCase() }, { kind: 'content', value: 'hello' }, { kind: 'other', value: A }]) {
+    assert.throws(() => checkBinding(bad), (e) => e.code === 'BAD_BINDING', JSON.stringify(bad));
+  }
+});
+
+test('recordApproval takes either a checked binding or a sha or content, never both', () => {
+  assert.throws(() => recordApproval(base, { gate: 'submit-gate', binding: { kind: 'sha', value: A }, sha: A, mode: 'tty', now: 't' }), /binding/);
+  assert.throws(() => recordApproval(base, { gate: 'submit-gate', binding: { kind: 'sha', value: 'abc' }, mode: 'tty', now: 't' }), (e) => e.code === 'BAD_BINDING');
 });

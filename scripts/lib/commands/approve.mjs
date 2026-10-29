@@ -33,6 +33,9 @@ export async function run(args, io) {
   if (gate !== 'submit-gate' && values['allow-host-ask-submit']) throw new RiverwrightError('USAGE', '--allow-host-ask-submit applies only to the submit gate');
   const branch = values.branch === undefined ? undefined : normalizeBranch(values.branch);
   const mode = values.mode ?? APPROVAL_MODE_DEFAULTS[gate] ?? 'host-ask';
+  // An unlock approval is written only by "riverwright submit" or "riverwright post", after the passphrase
+  // opened the vault (ADR-0010). Recording one here would claim an unlock that never happened.
+  if (mode === 'unlock') throw new RiverwrightError('UNKNOWN_MODE', 'the unlock mode is recorded only by "riverwright submit" and "riverwright post" after your passphrase; use --mode host-ask or --mode tty');
   if (gate === 'submit-gate' && mode === 'host-ask' && !values['allow-host-ask-submit']) {
     throw new RiverwrightError('TTY_REQUIRED', 'the submit gate is approved in a terminal: run "riverwright approve submit-gate ... --mode tty" yourself (host-ask for this gate needs --allow-host-ask-submit on the command line)');
   }

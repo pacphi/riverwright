@@ -45,14 +45,21 @@ export async function confirmTyped({ terminal, question, expected }) {
 function ignoreLateError() { /* the read is over; nothing to report and no text to leak */ }
 const closedMessage = 'the terminal closed before a passphrase was entered';
 
+// Whether readSecret could read from this terminal without echo. Callers that print before asking (the
+// public gate) check it first, so a terminal that would echo gets nothing shown and nothing written.
+export function canHideInput(terminal) {
+  const input = terminal?.input;
+  if (!input || !terminal.output) return false;
+  const realStream = input instanceof tty.ReadStream || input instanceof fs.ReadStream;
+  return typeof input.setRawMode === 'function' || (terminal.noEcho === true && !realStream);
+}
+
+export const noEchoControl = () => new RiverwrightError('NO_ECHO_CONTROL', 'This terminal cannot hide what you type, so Riverwright will not ask for a passphrase in it. Run the command in a normal terminal window.');
+
 export function readSecret({ terminal, question }) {
   const { input, output } = terminal;
   const raw = typeof input.setRawMode === 'function';
-  const realStream = input instanceof tty.ReadStream || input instanceof fs.ReadStream;
-  const fakeHidesInput = terminal.noEcho === true && !realStream;
-  if (!raw && !fakeHidesInput) {
-    return Promise.reject(new RiverwrightError('NO_ECHO_CONTROL', 'This terminal cannot hide what you type, so Riverwright will not ask for a passphrase in it. Run the command in a normal terminal window.'));
-  }
+  if (!canHideInput(terminal)) return Promise.reject(noEchoControl());
   return new Promise((resolve, reject) => {
     let value = '';
     let esc = 0; // 0 none, 1 after ESC, 2 inside a CSI sequence, 3 after ESC O (one more character)

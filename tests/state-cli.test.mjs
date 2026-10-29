@@ -65,6 +65,17 @@ test('host-ask is refused for the submit gate unless explicitly allowed', async 
   assert.equal(loadState(dir).approvals[0].mode, 'host-ask');
 });
 
+test('riverwright approve refuses the unlock mode: only submit and post record it, after a passphrase', async () => {
+  const dir = tmpDir();
+  await rw(dir, ['state', 'create', '--id', 'o/r#1']);
+  for (const args of [['submit-gate', '--sha', A, '--branch', 'riverwright/1-x'], ['post-comment', '--sha', A], ['checkpoint-1', '--sha', A]]) {
+    const r = await rw(dir, ['approve', ...args, '--mode', 'unlock']);
+    assert.equal(r.code, 1, args[0]);
+    assert.match(r.stderr, /unlock/);
+  }
+  assert.equal(loadState(dir).approvals.length, 0);
+});
+
 test('host-ask stays the default for checkpoint-1 and posts', async () => {
   const dir = tmpDir();
   await rw(dir, ['state', 'create', '--id', 'o/r#1']);
