@@ -112,7 +112,8 @@ function cleanText(value, forms) {
     // Belt and braces: the byte-exact decoding must not hold a form the UTF-8 text hides.
     if (hides(bytes.toString('latin1'), forms) && !hides(text, forms)) throw new Unclean();
   } else return undefined;
-  const clean = scrub(text, forms);
+  // R11: what is kept is upstream text (a remote's stderr, an API message), so it cannot drive a terminal.
+  const clean = printableLines(scrub(text, forms));
   if (hides(clean, forms)) throw new Unclean();
   return cut(clean);
 }

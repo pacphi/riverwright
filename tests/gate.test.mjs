@@ -696,3 +696,10 @@ test('I1: an error from anywhere after the unlock (here the caller\'s sleep) is 
   assert.equal(holdsToken(rendered(caught)), false);
   assert.deepEqual(outcomes(s), ['failed']);
 });
+
+test('R11: upstream text kept in the error (a remote message in stderr, the message, a cause) cannot drive the terminal', async () => {
+  const { caught } = await failWith(() => Object.assign(new Error('remote: \u001b[2Jpush rejected‮', { cause: 'x\u009b31m' }), { stderr: Buffer.from('remote: \u001b]0;title\u0007 denied\r\nnext\tline\n') }));
+  const all = [caught.message, caught.details.stack, caught.details.stderr, ...caught.details.causes].join('\n');
+  assert.equal(/[\u001b\u009b‮\u0007\r]/.test(all), false, JSON.stringify(all));
+  assert.match(caught.details.stderr, /denied\?\nnext\tline\n$/);
+});
