@@ -1,7 +1,9 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
+import util from 'node:util';
 import { RETRY, runPublicAction } from '../scripts/lib/gate.mjs';
+import { RiverwrightError } from '../scripts/lib/errors.mjs';
 import { findValidReceipt } from '../scripts/lib/receipt.mjs';
 import { appendChained, eventsFile, readEvents } from '../scripts/lib/events.mjs';
 import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
@@ -42,6 +44,40 @@ const transient = (msg = 'network down') => Object.assign(new Error(msg), { tran
 const findUsed = (s) => findValidReceipt({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey, gate: 'submit-gate', run: RUN, nowMs: NOW_MS, binding });
 const ledgerText = (s) => (fs.existsSync(eventsFile(s.ledgerDir)) ? fs.readFileSync(eventsFile(s.ledgerDir), 'utf8') : '');
 const stateText = (s) => fs.readFileSync(`${s.runDir}/state.json`, 'utf8');
+const b64 = (text) => Buffer.from(text).toString('base64');
+const b64url = (text) => Buffer.from(text).toString('base64url');
+
+// The test's own detector, independent of the gate's: the raw or URL-encoded token, or any base64-looking run
+// that decodes (at any of the four alignments) to bytes holding the token.
+function holdsToken(text) {
+  if (text.includes(TOKEN) || text.includes(encodeURIComponent(TOKEN))) return true;
+  for (const [run] of text.matchAll(/[A-Za-z0-9+/_-]{8,}/g)) {
+    for (let k = 0; k < 4; k += 1) if (Buffer.from(run.slice(k), 'base64').toString('latin1').includes(TOKEN)) return true;
+  }
+  return false;
+}
+
+// Every way a caller could plausibly print an error, the cause chain included.
+function rendered(e) {
+  const out = [];
+  const add = (f) => { try { out.push(String(f())); } catch (x) { out.push(`<threw ${x?.name}>`); } };
+  add(() => String(e));
+  add(() => e?.message);
+  add(() => e?.stack);
+  add(() => JSON.stringify(e));
+  add(() => JSON.stringify(e?.details));
+  add(() => util.inspect(e, { depth: Infinity, showHidden: true, getters: true }));
+  add(() => util.inspect(e));
+  add(() => util.format('%o', e));
+  add(() => util.format('%s', e));
+  let c = e;
+  for (let i = 0; i < 20 && c && typeof c === 'object'; i += 1) {
+    c = c.cause;
+    add(() => String(c));
+    add(() => util.inspect(c, { depth: Infinity, showHidden: true, getters: true }));
+  }
+  return out.join('\n');
+}
 
 test('the retry limits are frozen constants: 3 attempts within 2 minutes', () => {
   assert.equal(Object.isFrozen(RETRY), true);
@@ -306,9 +342,17 @@ test('the token is removed from the cause, from other fields and in URL-encoded 
   const thrown = Object.assign(new Error('push failed', { cause: new Error(`auth ${TOKEN}`) }), { stderr: `fatal: https://x-access-token:${TOKEN}@github.com`, detail: { url: `https://h/?t=${encoded}` } });
   let caught;
   await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async () => { throw thrown; } }), (e) => { caught = e; return true; });
-  const all = [caught.message, caught.stack, caught.cause?.message, caught.cause?.stack, caught.stderr, caught.detail?.url].map(String).join('\n');
-  assert.equal(all.includes(TOKEN) || all.includes(encoded), false, all);
-  assert.match(caught.stderr, /redacted/);
+  // The gate never rethrows the action's object: it builds a new error from the strings it can clean.
+  assert.notEqual(caught, thrown);
+  assert.equal(caught.code, 'ACTION_FAILED');
+  const all = rendered(caught);
+  assert.equal(holdsToken(all), false, all);
+  // What helps the human is kept, cleaned: the message, stderr and the cause's message.
+  assert.match(caught.message, /push failed/);
+  assert.match(caught.details.stderr, /^fatal: https:\/\/x-access-token:\[redacted\]@github\.com$/);
+  assert.deepEqual(caught.details.causes, ['auth [redacted]']);
+  // A field outside the allowlist (detail.url) is dropped, not cleaned.
+  assert.equal(all.includes(`t=`), false, all);
 });
 
 test('an error that cannot be cleaned of the token is replaced, not rethrown', async () => {
@@ -378,6 +422,277 @@ test('when the outcome cannot be recorded after a failure, the action error is s
       throw original;
     },
   }), (e) => { caught = e; return true; });
-  assert.match(caught.message, /^boom \[redacted\]/);
+  assert.match(caught.message, /^the action failed: boom \[redacted\]$/);
+  assert.equal(holdsToken(rendered(caught)), false);
   assert.match(String(caught.outcomeError?.message), /already used/);
+});
+
+// ---- Fix round 1, I1: the error the gate rethrows is built from an allowlist and never holds the token ----
+
+async function failWith(make, extra = {}) {
+  const s = setup();
+  let thrown;
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), ...extra, action: async ({ token }) => { thrown = make(token); throw thrown; } }), (e) => { caught = e; return true; });
+  return { s, thrown, caught };
+}
+const nest = (n, tok) => { let e = new Error(`deep ${tok}`); for (let i = 0; i < n; i += 1) e = new Error(`level ${i}`, { cause: e }); return e; };
+const GENERIC = 'the action failed; its error is not shown because it could not be cleaned';
+
+const SHAPES = [
+  ['a Buffer stderr', (t) => Object.assign(new Error('push failed'), { stderr: Buffer.from(`fatal: https://x:${t}@github.com`) })],
+  ['a Uint8Array stdout', (t) => Object.assign(new Error('push failed'), { stdout: new TextEncoder().encode(`remote: ${t}`) })],
+  ['a Uint8Array body outside the allowlist', (t) => Object.assign(new Error('push failed'), { body: new TextEncoder().encode(t) })],
+  ['a cause chain 6 deep', (t) => nest(6, t)],
+  ['a cause chain 9 deep', (t) => nest(9, t)],
+  ['an AggregateError of an AggregateError of a deep chain', (t) => new AggregateError([new AggregateError([nest(3, t)], 'inner')], 'outer')],
+  ['a Map', (t) => Object.assign(new Error('x'), { headers: new Map([['authorization', `token ${t}`]]) })],
+  ['a Set', (t) => Object.assign(new Error('x'), { seen: new Set([t]) })],
+  ['a symbol key', (t) => Object.assign(new Error('x'), { [Symbol('secret')]: t })],
+  ['an own getter on another field', (t) => { const e = new Error('x'); Object.defineProperty(e, 'detail', { get: () => `tok ${t}`, enumerable: true }); return e; }],
+  ['an own message getter', (t) => { const e = new Error('clean'); Object.defineProperty(e, 'message', { get: () => `tok ${t}`, configurable: true }); return e; }],
+  ['an own stack getter', (t) => { const e = new Error('clean'); Object.defineProperty(e, 'stack', { get: () => `at ${t}`, configurable: true }); return e; }],
+  ['a RiverwrightError with a message getter', (t) => { const e = new RiverwrightError('X', 'clean'); Object.defineProperty(e, 'message', { get: () => `tok ${t}` }); return e; }],
+  ['a plain object with a stack getter', (t) => { const o = { message: 'clean' }; Object.defineProperty(o, 'stack', { get: () => `at ${t}` }); return o; }],
+  ['a Proxy that answers message with the token', (t) => new Proxy(new Error('clean'), { get: (o, k) => (k === 'message' ? `tok ${t}` : Reflect.get(o, k)) })],
+  ['a thrown function with a message', (t) => Object.assign(function failed() {}, { message: `tok ${t}` })],
+  ['a thrown string', (t) => `plain ${t}`],
+  ['a thrown symbol', (t) => Symbol(t)],
+  ['a thrown number', () => 401],
+  ['a URL holding the token', (t) => Object.assign(new Error('x'), { url: new URL(`https://x-access-token:${t}@github.com/a/b`) })],
+  ['a Headers object holding the token', (t) => Object.assign(new Error('x'), { headers: new Headers({ authorization: `Bearer ${t}` }) })],
+  ['a boxed string', (t) => Object.assign(new Error('x'), { boxed: new String(t) })],
+  ['Basic auth, user "x"', (t) => new Error(`Authorization: Basic ${b64(`x:${t}`)}`)],
+  ['Basic auth, user "xx"', (t) => new Error(`Authorization: Basic ${b64(`xx:${t}`)}`)],
+  ['Basic auth, user "xxx"', (t) => new Error(`Authorization: Basic ${b64(`xxx:${t}`)}`)],
+  ['Basic auth glued to a word', (t) => new Error(`header=Basic${b64(`x-access-token:${t}`)}`)],
+  ['Basic auth glued to a word, misaligned', (t) => Object.assign(new Error(`header=Basic${b64(`x:${t}`)}`), { stderr: `h=Basic1${b64(`xx:${t}`)}` })],
+  ['the base64 and base64url token', (t) => Object.assign(new Error(`a ${b64(t)} b ${b64url(t)}`), { stderr: `c ${b64url(`user:${t}`)}` })],
+  ['a toString override', (t) => { const e = new Error('x'); e.toString = () => `E ${t}`; return e; }],
+  ['a toString on the prototype', (t) => { class E extends Error { toString() { return `E ${t}`; } } return new E('x'); }],
+  ['a util.inspect.custom override', (t) => { const e = new Error('x'); e[util.inspect.custom] = () => `E ${t}`; return e; }],
+  ['a toJSON override', (t) => { const e = new Error('x'); e.toJSON = () => ({ t }); return e; }],
+  ['a stack read before throwing', (t) => { const e = new Error(`tok ${t}`); void e.stack; return e; }],
+  ['a custom stack string', (t) => { const e = new Error('clean'); e.stack = `Error: clean\n    at ${t}`; return e; }],
+  ['a frozen error', (t) => Object.freeze(new Error(`tok ${t}`))],
+];
+
+for (const [name, make] of SHAPES) {
+  test(`I1: the token does not survive in the rethrown error: ${name}`, async () => {
+    const { s, thrown, caught } = await failWith(make);
+    assert.notEqual(caught, thrown);
+    assert.ok(caught instanceof RiverwrightError);
+    assert.equal(caught.code, 'ACTION_FAILED');
+    const all = rendered(caught);
+    assert.equal(holdsToken(all), false, all);
+    assert.deepEqual(outcomes(s), ['failed']);
+  });
+}
+
+test('I1: no getter on the thrown error is called while it is cleaned', async () => {
+  let calls = 0;
+  const { caught } = await failWith((t) => {
+    const e = new Error('clean');
+    for (const key of ['message', 'stack', 'stderr', 'cause', 'code']) Object.defineProperty(e, key, { get: () => { calls += 1; return `tok ${t}`; }, configurable: true });
+    return e;
+  });
+  assert.equal(calls, 0);
+  assert.equal(holdsToken(rendered(caught)), false);
+});
+
+test('I1: a getter that throws, or a Proxy, gives the generic message and cannot break the gate', async () => {
+  const hostile = (t) => new Proxy(new Error(`tok ${t}`), { getOwnPropertyDescriptor: () => { throw new Error(`trap ${t}`); }, ownKeys: () => { throw new Error(`trap ${t}`); }, get: (o, k) => { if (k === 'transient') throw new Error(`trap ${t}`); return Reflect.get(o, k); } });
+  const { s, caught } = await failWith(hostile);
+  assert.equal(caught.code, 'ACTION_FAILED');
+  assert.equal(caught.message, GENERIC);
+  assert.equal(holdsToken(rendered(caught)), false);
+  assert.deepEqual(outcomes(s), ['failed']);
+  const revoked = Proxy.revocable(new Error('x'), {});
+  revoked.revoke();
+  const r = await failWith(() => revoked.proxy);
+  assert.equal(r.caught.message, GENERIC);
+  // A Proxy is never read, even one whose traps look harmless.
+  const quiet = await failWith(() => new Proxy(new Error('looks fine'), {}));
+  assert.equal(quiet.caught.message, GENERIC);
+});
+
+test('I1: a cause chain 6 deep keeps every message, cleaned, down to the root cause', async () => {
+  const { caught } = await failWith((t) => nest(6, t));
+  assert.equal(caught.message, 'the action failed: level 5');
+  assert.deepEqual(caught.details.causes, ['level 4', 'level 3', 'level 2', 'level 1', 'level 0', 'deep [redacted]']);
+});
+
+test('I1: what helps the human is kept, cleaned: message, stack, stderr, stdout, the cause chain, a safe code and status', async () => {
+  const { caught } = await failWith((t) => {
+    const inner = Object.assign(new Error(`inner ${t}`), { code: 'ECONNRESET' });
+    return Object.assign(new Error(`push failed for ${t}`, { cause: new AggregateError([inner, 'a string reason'], 'several') }), {
+      code: 'E_PUSH_REJECTED', status: 403, stderr: Buffer.from(`fatal: ${t}\n`), stdout: `out ${t}`,
+    });
+  });
+  assert.equal(caught.message, 'the action failed: push failed for [redacted]');
+  assert.deepEqual([caught.details.code, caught.details.status], ['E_PUSH_REJECTED', 403]);
+  assert.equal(caught.details.stderr, 'fatal: [redacted]\n');
+  assert.equal(caught.details.stdout, 'out [redacted]');
+  assert.deepEqual(caught.details.causes, ['several', 'inner [redacted]', 'a string reason']);
+  assert.match(caught.details.stack, /push failed for \[redacted\]/);
+  assert.equal(holdsToken(rendered(caught)), false);
+});
+
+test('I1: a code that is not a plain constant, or a status that is not an integer, is dropped', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { code: `bad ${t}`, status: '403' }));
+  assert.equal('code' in caught.details, false);
+  assert.equal('status' in caught.details, false);
+  const lower = await failWith(() => Object.assign(new Error('x'), { code: 'enoent' }));
+  assert.equal('code' in lower.caught.details, false);
+});
+
+test('I1: the stack the action already formatted is cleaned (stack scrubbing is exercised)', async () => {
+  const { caught } = await failWith((t) => { const e = new Error(`tok ${t}`); const formatted = e.stack; e.message = 'changed later'; assert.ok(formatted.includes(t)); return e; });
+  assert.match(caught.details.stack, /tok \[redacted\]/);
+  assert.equal(holdsToken(caught.details.stack), false);
+});
+
+test('I1: a long base64 run or a commit SHA that does not hold the token is left alone', async () => {
+  const blob = b64('hello world, nothing secret here at all, just a long blob of data');
+  const { caught } = await failWith(() => new Error(`commit ${A} blob ${blob}`));
+  assert.equal(caught.message, `the action failed: commit ${A} blob ${blob}`);
+});
+
+test('I1: a long stderr is cut, after it is cleaned', async () => {
+  const { caught } = await failWith((t) => Object.assign(new Error('x'), { stderr: `${t} ${'y'.repeat(100_000)}` }));
+  assert.ok(caught.details.stderr.length < 20_000);
+  assert.match(caught.details.stderr, /^\[redacted\] y/);
+});
+
+test('I1: a transient error is classified before it is cleaned, and the last one says it was transient', async () => {
+  const s = setup();
+  let n = 0;
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ token }) => { n += 1; throw Object.assign(new Error(`503 ${token}`), { transient: true }); } }), (e) => { caught = e; return true; });
+  assert.equal(n, 3);
+  assert.equal(caught.code, 'ACTION_FAILED');
+  assert.equal(caught.details.transient, true);
+  assert.equal(holdsToken(rendered(caught)), false);
+});
+
+test('I1: an error from recompute after the unlock is cleaned too', async () => {
+  const s = setup();
+  let caught;
+  let first = true;
+  await assert.rejects(runPublicAction({
+    ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]),
+    recompute: async () => { if (first) { first = false; return binding; } throw new Error(`git failed ${TOKEN}`); },
+    action: async () => { throw transient(); },
+  }), (e) => { caught = e; return true; });
+  assert.equal(caught.code, 'RECOMPUTE_FAILED');
+  assert.match(caught.message, /git failed \[redacted\]/);
+  assert.equal(holdsToken(rendered(caught)), false);
+  assert.deepEqual(outcomes(s), ['failed']);
+});
+
+// ---- Fix round 1, I2: a payload changed while the human reads and types is refused ----
+
+test('I2: a payload that changes after it was shown, while the passphrase is typed, is refused and nothing is published', async () => {
+  const s = setup();
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  let called = false;
+  const recompute = async () => (t.written.join('').includes('Passphrase') ? { kind: 'sha', value: B } : binding);
+  await assert.rejects(runPublicAction({ ...s.base, terminal: t, recompute, action: async () => { called = true; } }), (e) => e.code === 'PAYLOAD_CHANGED');
+  assert.equal(called, false);
+  assert.deepEqual(events(s), ['unlock-refused']);
+  assert.equal(loadState(s.runDir).approvals.length, 0);
+});
+
+// ---- Fix round 1, minors ----
+
+test('M3: an unknown host is refused before anything is shown, signed or written', async () => {
+  const s = setup();
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  let called = false;
+  await assert.rejects(runPublicAction({ ...s.base, host: 'bogus', terminal: t, action: async () => { called = true; } }), (e) => e.code === 'UNKNOWN_HOST');
+  assert.equal(called, false);
+  assert.deepEqual(events(s), []);
+  assert.equal(t.written.join(''), '');
+});
+
+test('M3: a run with no state.json is refused before anything is shown or signed', async () => {
+  const s = setup();
+  fs.rmSync(`${s.runDir}/state.json`);
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  await assert.rejects(runPublicAction({ ...s.base, terminal: t, action: async () => 'x' }), (e) => e.code === 'NO_STATE');
+  assert.deepEqual(events(s), []);
+  assert.equal(t.written.join(''), '');
+});
+
+test('M4: a run that is not the run in state.json is refused before anything is shown or signed', async () => {
+  const s = setup();
+  const t = fakeSecretTerminal([PASSPHRASE]);
+  let called = false;
+  await assert.rejects(runPublicAction({ ...s.base, run: 'evil/other#1', terminal: t, action: async () => { called = true; } }), (e) => e.code === 'RUN_MISMATCH' && !e.message.includes('\u001b'));
+  assert.equal(called, false);
+  assert.deepEqual(events(s), []);
+  assert.equal(t.written.join(''), '');
+});
+
+test('M2: the receipt handed to the action is a frozen copy; changing it fails and the real nonce is consumed', async () => {
+  const s = setup();
+  let threw = false;
+  const r = await runPublicAction({
+    ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]),
+    action: async ({ receipt }) => {
+      assert.equal(Object.isFrozen(receipt), true);
+      assert.equal(Object.isFrozen(receipt.binding), true);
+      try { receipt.nonce = 'f'.repeat(32); } catch { threw = true; }
+      return 'ok';
+    },
+  });
+  assert.equal(threw, true);
+  const [approved, consumed] = readEvents(s.ledgerDir);
+  assert.equal(consumed.data.nonce, approved.data.receipt.nonce);
+  assert.equal(r.receipt.nonce, approved.data.receipt.nonce);
+});
+
+test('M6: each attempt gets an abort signal and the deadline of the two-minute window', async () => {
+  const s = setup();
+  const seen = [];
+  await runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ signal, deadline, attempt }) => {
+    seen.push({ deadline, aborted: signal.aborted, isSignal: signal instanceof AbortSignal });
+    if (attempt < 3) throw transient();
+    return 'ok';
+  } });
+  const start = 1_000_000;
+  assert.deepEqual(seen, [1, 2, 3].map(() => ({ deadline: start + RETRY.windowMs, aborted: false, isSignal: true })));
+});
+
+test('M6: the signal fires when the window ends, and an attempt stopped that way is reported and not retried', async () => {
+  const s = setup();
+  let n = 0;
+  let caught;
+  await assert.rejects(runPublicAction({ ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]), action: async ({ signal, token }) => {
+    n += 1;
+    // The first attempt uses the window up to 30 ms (real time) short of its end, after the 2 s backoff.
+    if (n === 1) { s.clock.t += RETRY.windowMs - RETRY.backoffMs[0] - 30; throw transient(); }
+    await new Promise((resolve) => { signal.addEventListener('abort', resolve, { once: true }); });
+    throw new Error(`aborted ${token}`);
+  } }), (e) => { caught = e; return true; });
+  assert.equal(n, 2);
+  assert.equal(caught.code, 'ACTION_TIMEOUT');
+  assert.equal(holdsToken(rendered(caught)), false);
+  assert.deepEqual(outcomes(s), ['failed']);
+});
+
+test('I1: an error from anywhere after the unlock (here the caller\'s sleep) is cleaned, never rethrown as is', async () => {
+  const s = setup();
+  let caught;
+  let thrown;
+  await assert.rejects(runPublicAction({
+    ...s.base, terminal: fakeSecretTerminal([PASSPHRASE]),
+    sleep: async () => { thrown = Object.assign(new Error('timer broke'), { stderr: Buffer.from(`x ${TOKEN}`) }); throw thrown; },
+    action: async () => { throw transient(); },
+  }), (e) => { caught = e; return true; });
+  assert.notEqual(caught, thrown);
+  assert.equal(caught.code, 'ACTION_FAILED');
+  assert.equal(caught.message, 'the public action stopped: timer broke');
+  assert.equal(holdsToken(rendered(caught)), false);
+  assert.deepEqual(outcomes(s), ['failed']);
 });

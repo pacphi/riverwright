@@ -4,7 +4,7 @@ import fs from 'node:fs';
 import crypto from 'node:crypto';
 import { appendReceipt } from '../scripts/lib/receipt.mjs';
 import { RECEIPT_SCHEMA, RECEIPT_TTL_MS, buildReceipt, consumeReceipt, findValidReceipt, receiptBytes, signReceipt, verifyReceipt, verifyReceipts, markConsumed } from '../scripts/lib/receipt.mjs';
-import { appendChained, eventsFile, readEvents } from '../scripts/lib/events.mjs';
+import { GENESIS, appendChained, eventsFile, lineHash, readEvents, verifyChain } from '../scripts/lib/events.mjs';
 import { NOW, NOW_MS, issueReceipt, makeTestVault, runDirIn } from './receipt-helpers.mjs';
 import { ledgerDirFor } from '../scripts/lib/ledger.mjs';
 import { tmpDir } from './helpers.mjs';
@@ -116,6 +116,26 @@ test('rewriting the history before a receipt is detected, because the receipt si
   fs.writeFileSync(file, `${ls.join('\n')}\n`);
   assert.match(find(s).reason, /ledger head/);
   assert.ok(verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey }).length > 0);
+});
+
+test('a truncated history before a receipt is detected, even when every line is renumbered and re-chained', () => {
+  const s = setup();
+  for (const n of [1, 2]) appendChained(s.ledgerDir, () => ({ event: 'note', at: NOW, actor: { type: 'agent' }, data: { n } }));
+  issueReceipt({ runDir: s.runDir, keys: s.keys });
+  assert.equal(find(s).ok, true);
+  // Drop the first line, then renumber and rebuild the whole chain from genesis: a full rewrite an agent could do.
+  const file = eventsFile(s.ledgerDir);
+  const kept = fs.readFileSync(file, 'utf8').trim().split('\n').slice(1).map((l) => JSON.parse(l));
+  let prev = GENESIS;
+  const out = kept.map((e, i) => {
+    const line = JSON.stringify({ ...e, seq: i + 1, prev });
+    prev = lineHash(line);
+    return line;
+  });
+  fs.writeFileSync(file, `${out.join('\n')}\n`);
+  assert.equal(verifyChain(s.ledgerDir).ok, true);
+  assert.match(find(s).reason, /names seq 3 but sits at seq 2/);
+  assert.deepEqual(verifyReceipts({ ledgerDir: s.ledgerDir, publicKey: s.keys.publicKey }).map((p) => p.reason), ['the receipt names seq 3 but sits at seq 2']);
 });
 
 test('an approved event with a forged receipt is rejected', () => {
