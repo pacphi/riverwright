@@ -26,12 +26,13 @@ Plan 2a built something different in two ways.
    contradicts the "dies" half of item 2. The receipt is bound to the exact commit SHA, branch and fork, so
    the most it allows is the same approved push again.
 
-This record proposes making the first point official. The second needs the owner's choice. Neither is decided
-until the owner accepts this record.
+The owner accepted this record on 2026-10-29: the eleven signed fields are official, and the crash window is
+kept as built (option A below).
 
 ## Decision
 
-**Proposed: A; awaiting the owner.** This is not decided. Nothing here is Accepted until the owner says so.
+**Option A, accepted by the owner on 2026-10-29.** Keep the crash window as built and record it as an exception
+to ADR-0010 item 2.
 
 Options for the crash window (R12):
 
@@ -69,5 +70,5 @@ format and the gate's order of steps. Option B or C would need new tests first.
 
 ## Implementation status
 
-Built as option A in Plan 2a on the branch `plan-2a-security`, not yet merged into `develop`. This record stays
-Proposed until the owner decides.
+Built as option A in Plan 2a on the branch `plan-2a-security`, not yet merged into `develop`. Accepted by the
+owner on 2026-10-29.
